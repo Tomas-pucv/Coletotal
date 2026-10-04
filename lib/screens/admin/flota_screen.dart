@@ -40,6 +40,22 @@ class _FlotaScreenState extends State<FlotaScreen>
   bool _failed = false;
   String? _selected;
 
+  static const _garitasOpciones = [
+    ('todas', 'Toda la Flota Serrano'),
+    ('garita_quilpue_01', 'Garita Cumming'),
+    ('garita_serranos_rosas', 'Garita Las Rosas'),
+    ('garita_serranos_belloto2000', 'Garita Belloto 2000'),
+  ];
+  String _filtroGarita = 'todas';
+
+  List<ColectivoActivo> get _unidadesFiltradas {
+    if (_filtroGarita == 'todas') return _unidades;
+    return _unidades.where((c) {
+      if (c.garitaId.isEmpty && _filtroGarita == 'garita_quilpue_01') return true;
+      return c.garitaId == _filtroGarita;
+    }).toList(growable: false);
+  }
+
   @override
   void initState() {
     super.initState();
@@ -53,15 +69,8 @@ class _FlotaScreenState extends State<FlotaScreen>
     _sub = FirebaseTelemetriaService.instance.telemetriaStream.listen(
       (data) {
         if (!mounted) return;
-        final gid = _auth.garitaId;
         setState(() {
-          // Los nodos sin garitaId son de versiones anteriores: se muestran
-          // igual, porque esconderlos sería peor que atribuirlos de más.
-          _unidades = gid == null
-              ? data
-              : data
-                    .where((c) => c.garitaId.isEmpty || c.garitaId == gid)
-                    .toList(growable: false);
+          _unidades = data;
           _failed = false;
         });
       },
@@ -136,7 +145,7 @@ class _FlotaScreenState extends State<FlotaScreen>
             padding: const EdgeInsets.only(right: AppSpacing.lg),
             child: Center(
               child: Text(
-                l10n.fleetUnitsInService('${_unidades.length}'),
+                l10n.fleetUnitsInService('${_unidadesFiltradas.length}'),
                 style: theme.textTheme.labelLarge?.copyWith(
                   color: theme.colorScheme.primary,
                 ),
@@ -147,6 +156,38 @@ class _FlotaScreenState extends State<FlotaScreen>
       ),
       body: Column(
         children: [
+          Container(
+            height: 48,
+            color: theme.colorScheme.surface,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.symmetric(
+                horizontal: AppSpacing.lg,
+                vertical: 6,
+              ),
+              itemCount: _garitasOpciones.length,
+              separatorBuilder: (_, _) => const SizedBox(width: AppSpacing.sm),
+              itemBuilder: (context, i) {
+                final (gid, gNombre) = _garitasOpciones[i];
+                final isSel = _filtroGarita == gid;
+                return ChoiceChip(
+                  selected: isSel,
+                  showCheckmark: false,
+                  label: Text(gNombre),
+                  labelStyle: theme.textTheme.labelMedium?.copyWith(
+                    color: isSel
+                        ? theme.colorScheme.onPrimary
+                        : theme.colorScheme.onSurface,
+                    fontWeight: isSel ? FontWeight.bold : FontWeight.normal,
+                  ),
+                  selectedColor: theme.colorScheme.primary,
+                  onSelected: (val) {
+                    if (val) setState(() => _filtroGarita = gid);
+                  },
+                );
+              },
+            ),
+          ),
           Expanded(
             flex: 3,
             child: Stack(
@@ -163,11 +204,15 @@ class _FlotaScreenState extends State<FlotaScreen>
                         MapStyle.normal,
                         isDark: isDark,
                       ),
-                      userAgentPackageName: 'com.example.taxi1',
+                      fallbackUrl: fallbackTileUrlTemplate(
+                        MapStyle.normal,
+                        isDark: isDark,
+                      ),
+                      userAgentPackageName: 'cl.coletotal.app',
                     ),
                     MarkerLayer(
                       markers: [
-                        for (final unidad in _unidades)
+                        for (final unidad in _unidadesFiltradas)
                           Marker(
                             point: LatLng(unidad.latitud, unidad.longitud),
                             width: 44,
@@ -201,7 +246,7 @@ class _FlotaScreenState extends State<FlotaScreen>
           ),
           Expanded(
             flex: 2,
-            child: _unidades.isEmpty
+            child: _unidadesFiltradas.isEmpty
                 ? StatusMessageView(
                     icon: Icons.local_taxi_outlined,
                     title: l10n.fleetEmpty,
@@ -209,11 +254,11 @@ class _FlotaScreenState extends State<FlotaScreen>
                   )
                 : ListView.separated(
                     padding: const EdgeInsets.all(AppSpacing.lg),
-                    itemCount: _unidades.length,
+                    itemCount: _unidadesFiltradas.length,
                     separatorBuilder: (_, _) =>
                         const SizedBox(height: AppSpacing.sm),
                     itemBuilder: (context, index) {
-                      final unidad = _unidades[index];
+                      final unidad = _unidadesFiltradas[index];
                       return MapOverlayCard(
                         onTap: () => _focus(unidad),
                         child: Row(
@@ -233,6 +278,17 @@ class _FlotaScreenState extends State<FlotaScreen>
                                       letterSpacing: 1.2,
                                     ),
                                   ),
+                                  if (unidad.recorridoNombre != null) ...[
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      unidad.recorridoNombre!,
+                                      style: theme.textTheme.labelSmall
+                                          ?.copyWith(
+                                            color: theme.colorScheme.primary,
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                    ),
+                                  ],
                                   Text(
                                     _estadoLabel(unidad.estado, l10n),
                                     style: theme.textTheme.bodySmall?.copyWith(

@@ -1,3 +1,6 @@
+import 'package:latlong2/latlong.dart';
+import 'package:taxi1/services/osrm_client.dart';
+
 /// Un recorrido de la línea: el trayecto fijo que hacen los colectivos.
 ///
 /// Se llama **recorrido** y no "ruta" a propósito. En este proyecto `ruta` ya
@@ -13,6 +16,8 @@ class Recorrido {
     required this.nombre,
     required this.colorValue,
     this.paraderoIds = const [],
+    this.geometria,
+    this.trazado = const [],
     this.activo = true,
   });
 
@@ -29,29 +34,50 @@ class Recorrido {
   /// el trazado se desincronice de los paraderos.
   final List<String> paraderoIds;
 
+  /// Geometría codificada en polyline6 que sigue la red vial y sentidos de calle.
+  final String? geometria;
+
+  /// Puntos decodificados de la polilínea para renderizado directo en mapa.
+  final List<LatLng> trazado;
+
   final bool activo;
 
   /// Un recorrido con menos de dos paraderos no describe ningún trayecto.
   bool get isValid => nombre.trim().isNotEmpty && paraderoIds.length >= 2;
 
-  factory Recorrido.fromMap(String id, Map<String, dynamic> data) => Recorrido(
-    id: id,
-    garitaId: (data['garitaId'] as String?) ?? '',
-    nombre: (data['nombre'] as String?) ?? '',
-    colorValue: (data['color'] as num?)?.toInt() ?? 0xFF4A3F9E,
-    paraderoIds:
-        (data['paraderoIds'] as List?)?.whereType<String>().toList(
-          growable: false,
-        ) ??
-        const [],
-    activo: (data['activo'] as bool?) ?? true,
-  );
+  factory Recorrido.fromMap(String id, Map<String, dynamic> data) {
+    final rawGeo = data['geometria'] as String?;
+    List<LatLng> trazado = const [];
+    if (rawGeo != null && rawGeo.isNotEmpty) {
+      try {
+        trazado = OsrmClient.decodePolyline(rawGeo, precision: 6);
+      } catch (_) {
+        trazado = const [];
+      }
+    }
+
+    return Recorrido(
+      id: id,
+      garitaId: (data['garitaId'] as String?) ?? '',
+      nombre: (data['nombre'] as String?) ?? '',
+      colorValue: (data['color'] as num?)?.toInt() ?? 0xFF4A3F9E,
+      paraderoIds:
+          (data['paraderoIds'] as List?)?.whereType<String>().toList(
+            growable: false,
+          ) ??
+          const [],
+      geometria: rawGeo,
+      trazado: trazado,
+      activo: (data['activo'] as bool?) ?? true,
+    );
+  }
 
   Map<String, dynamic> toMap() => {
     'garitaId': garitaId,
     'nombre': nombre,
     'color': colorValue,
     'paraderoIds': paraderoIds,
+    if (geometria != null) 'geometria': geometria,
     'activo': activo,
   };
 
@@ -59,6 +85,8 @@ class Recorrido {
     String? nombre,
     int? colorValue,
     List<String>? paraderoIds,
+    String? geometria,
+    List<LatLng>? trazado,
     bool? activo,
   }) => Recorrido(
     id: id,
@@ -66,6 +94,8 @@ class Recorrido {
     nombre: nombre ?? this.nombre,
     colorValue: colorValue ?? this.colorValue,
     paraderoIds: paraderoIds ?? this.paraderoIds,
+    geometria: geometria ?? this.geometria,
+    trazado: trazado ?? this.trazado,
     activo: activo ?? this.activo,
   );
 

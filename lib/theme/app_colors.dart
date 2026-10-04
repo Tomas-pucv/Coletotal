@@ -11,10 +11,9 @@ import 'package:flutter/material.dart';
 ///    exigida por el informe (§7.3.1-C "marcadores de semáforos que cambian de
 ///    color según la capacidad reportada por los choferes").
 ///
-/// Eso descarta azul, verde, ámbar y rojo como color de marca. Queda el
-/// índigo-violeta: se distingue de ambas escalas y contrasta tanto sobre el
-/// basemap claro de MapTiler como sobre las teselas satelitales.
-const Color kColeTotalSeed = Color(0xFF4A3F9E);
+/// Semilla de marca de ColeTotal: Amarillo ligeramente anaranjado cálido
+/// inspirado en la estética tradicional del letrero y cúpula de techo del colectivo chileno.
+const Color kColeTotalSeed = Color(0xFFE58A00);
 
 /// Colores semánticos que el [ColorScheme] de Material 3 no cubre.
 ///

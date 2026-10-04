@@ -49,12 +49,25 @@ service cloud.firestore {
       allow write: if false;   // se crean desde la consola de Firebase
     }
 
+    // Configuración global (ej. verificación de versión y actualizaciones OTA).
+    match /config/{document} {
+      allow read: if true;
+      allow write: if false;
+    }
+
     // Metadatos públicos de la garita. Los códigos NO están aquí: si lo
     // estuvieran, el primer chofer que se registrara podría leer el código de
     // administrador y ascenderse.
     match /garitas/{garitaId} {
       allow read: if true;
       allow write: if false;
+
+      // Auditoría de turnos e incidencias operacionales de los choferes.
+      match /auditoria_turnos/{sessionId} {
+        allow read: if isAdminOf(garitaId);
+        allow create: if signedIn();
+        allow update, delete: if false;
+      }
     }
 
     match /usuarios/{uid} {

@@ -5,12 +5,14 @@ import 'package:taxi1/l10n/app_localizations.dart';
 import 'package:taxi1/models/app_user.dart';
 import 'package:taxi1/screens/auth/login_screen.dart';
 import 'package:taxi1/screens/main_screen.dart';
+import 'package:taxi1/services/app_update_service.dart';
 import 'package:taxi1/services/auth_service.dart';
 import 'package:taxi1/services/preferences_service.dart';
 import 'package:taxi1/services/stop_history_service.dart';
 import 'package:taxi1/theme/app_spacing.dart';
 import 'package:taxi1/theme/breakpoints.dart';
 import 'package:taxi1/utils/role_format.dart';
+import 'package:taxi1/widgets/app_update_dialog.dart';
 import 'package:taxi1/widgets/map_style_thumbnail.dart';
 import 'package:taxi1/widgets/option_card_picker.dart';
 import 'package:taxi1/widgets/setting_tile.dart';
@@ -453,9 +455,39 @@ class _PreferencesScreenState extends State<PreferencesScreen>
       children: [
         Padding(
           padding: AppSpacing.pageHorizontal,
-          child: SettingInfoCard(
-            title: l10n.aboutVersion('1.0.0'),
-            body: l10n.aboutSubtitle,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              SettingInfoCard(
+                title: l10n.aboutVersion('0.4.3.1'),
+                body: l10n.aboutSubtitle,
+              ),
+              const SizedBox(height: AppSpacing.sm),
+              OutlinedButton.icon(
+                onPressed: () async {
+                  final update = AppUpdateService.instance;
+                  await update.checkForUpdates();
+                  if (!context.mounted) return;
+                  if (update.hasUpdate) {
+                    await AppUpdateDialog.showIfAvailable(
+                      context,
+                      update.availableUpdate!,
+                    );
+                  } else {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text(
+                          'Tienes la versión más reciente (v${AppUpdateService.currentVersionName})',
+                        ),
+                        duration: const Duration(seconds: 3),
+                      ),
+                    );
+                  }
+                },
+                icon: const Icon(Icons.system_update_rounded),
+                label: const Text('Buscar actualizaciones'),
+              ),
+            ],
           ),
         ),
       ],

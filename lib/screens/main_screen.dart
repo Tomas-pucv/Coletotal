@@ -13,9 +13,11 @@ import 'package:taxi1/screens/admin/recorridos_admin_screen.dart';
 import 'package:taxi1/screens/driver/turno_screen.dart';
 import 'package:taxi1/screens/preferences_screen.dart';
 import 'package:taxi1/screens/routes_screen.dart';
+import 'package:taxi1/services/app_update_service.dart';
 import 'package:taxi1/services/auth_service.dart';
 import 'package:taxi1/theme/breakpoints.dart';
 import 'package:taxi1/widgets/app_drawer.dart';
+import 'package:taxi1/widgets/app_update_dialog.dart';
 
 /// Controller ligero que permite cambiar de pestaña desde cualquier pantalla
 /// (por ejemplo, desde [RoutesScreen] cuando se elige un paradero).
@@ -102,6 +104,21 @@ class _MainScreenState extends State<MainScreen> {
     super.initState();
     _nav.addListener(_onNavChanged);
     _auth.addListener(_onAuthChanged);
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _checkAppUpdate();
+    });
+  }
+
+  Future<void> _checkAppUpdate() async {
+    final updateService = AppUpdateService.instance;
+    await updateService.checkForUpdates();
+    if (mounted && updateService.shouldShowDialog) {
+      await AppUpdateDialog.showIfAvailable(
+        context,
+        updateService.availableUpdate!,
+      );
+    }
   }
 
   // La app abre directamente en el mapa. Hubo aquí una pantalla de bienvenida

@@ -2,10 +2,13 @@ import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
+import 'package:latlong2/latlong.dart';
 
 import 'package:taxi1/models/app_user.dart';
 import 'package:taxi1/models/recorrido.dart';
 import 'package:taxi1/services/auth_service.dart';
+import 'package:taxi1/services/osrm_client.dart';
+import 'package:taxi1/services/stops_service.dart';
 
 /// Datos que gestiona el administrador de garita: recorridos y choferes.
 ///
@@ -94,8 +97,22 @@ class GaritaService extends ChangeNotifier {
   // --- Recorridos ----------------------------------------------------------
 
   Future<String> upsertRecorrido(Recorrido recorrido) async {
+    String? geometria = recorrido.geometria;
+    if (geometria == null || geometria.isEmpty) {
+      final stops = StopsService.instance;
+      final points = <LatLng>[];
+      for (final id in recorrido.paraderoIds) {
+        final stop = stops.byId(id);
+        if (stop != null) points.add(stop.location);
+      }
+      if (points.length >= 2) {
+        geometria = await OsrmClient.getEncodedRoute(points);
+      }
+    }
+
     final data = {
       ...recorrido.toMap(),
+      if (geometria != null) 'geometria': geometria,
       'actualizadoEn': FieldValue.serverTimestamp(),
     };
     if (recorrido.id.isEmpty) {

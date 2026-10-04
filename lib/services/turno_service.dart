@@ -2,9 +2,11 @@ import 'package:flutter/foundation.dart';
 
 import 'package:taxi1/models/app_user.dart';
 import 'package:taxi1/models/colectivo_activo.dart';
+import 'package:taxi1/models/recorrido.dart';
 import 'package:taxi1/services/auth_service.dart';
 import 'package:taxi1/services/firebase_telemetria_service.dart';
 import 'package:taxi1/services/preferences_service.dart';
+import 'package:taxi1/services/session_log_service.dart';
 
 /// Por qué no se pudo entrar en servicio.
 enum TurnoIssue {
@@ -43,12 +45,19 @@ class TurnoService extends ChangeNotifier {
   EstadoCapacidad _estado = EstadoCapacidad.disponible;
   TurnoIssue _issue = TurnoIssue.none;
   bool _busy = false;
+  Recorrido? _recorridoAsignado;
 
   bool get enTurno => _enTurno;
   EstadoCapacidad get estado => _estado;
   TurnoIssue get issue => _issue;
   bool get busy => _busy;
+  Recorrido? get recorridoAsignado => _recorridoAsignado;
   DateTime? get ultimoEnvio => _telemetria.ultimoEnvio;
+
+  void setRecorridoAsignado(Recorrido? recorrido) {
+    _recorridoAsignado = recorrido;
+    notifyListeners();
+  }
 
   /// Conecta el servicio con la sesión. Se llama una vez desde `main()`.
   void bind() {
@@ -57,6 +66,7 @@ class TurnoService extends ChangeNotifier {
     _auth.onBeforeSignOut = terminarTurno;
     _auth.addListener(_onAuthChanged);
     _prefs.addListener(_onPrefsChanged);
+    SessionLogService.instance.sincronizarSesionesPendientes();
   }
 
   void _onAuthChanged() {
@@ -102,12 +112,25 @@ class TurnoService extends ChangeNotifier {
       patente: profile.patente ?? profile.uid,
       garitaId: profile.garitaId,
       estado: _estado,
+      recorridoId: _recorridoAsignado?.id,
+      recorridoNombre: _recorridoAsignado?.nombre,
     );
 
     // `iniciarTracking` se rinde en silencio si falta el GPS o el permiso, así
     // que el resultado real se lee de su propio estado y no se asume.
     _enTurno = _telemetria.isTracking;
-    _issue = _enTurno ? TurnoIssue.none : TurnoIssue.ubicacionNoDisponible;
+    if (_enTurno) {
+      _issue = TurnoIssue.none;
+      await SessionLogService.instance.iniciarSesionTurno(
+        uid: profile.uid,
+        patente: profile.patente ?? profile.uid,
+        garitaId: profile.garitaId,
+        recorridoId: _recorridoAsignado?.id,
+        recorridoNombre: _recorridoAsignado?.nombre,
+      );
+    } else {
+      _issue = TurnoIssue.ubicacionNoDisponible;
+    }
     _busy = false;
     notifyListeners();
   }
@@ -118,6 +141,7 @@ class TurnoService extends ChangeNotifier {
     notifyListeners();
 
     await _telemetria.detenerTracking();
+    await SessionLogService.instance.finalizarSesionTurno();
 
     _enTurno = false;
     _busy = false;
@@ -128,6 +152,7 @@ class TurnoService extends ChangeNotifier {
     if (estado == _estado) return;
     _estado = estado;
     notifyListeners();
+    SessionLogService.instance.logEvent('STATE_CHANGED', {'estado': estado.name});
     await _telemetria.setEstado(estado);
   }
 }

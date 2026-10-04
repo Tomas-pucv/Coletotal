@@ -224,11 +224,19 @@ class _MapSearchBarState extends State<MapSearchBar> {
                         final place = _results[index];
                         return ListTile(
                           dense: true,
-                          leading: const Icon(Icons.place_outlined),
+                          leading: Icon(
+                            place.isPoi
+                                ? Icons.stars_rounded
+                                : Icons.place_outlined,
+                            color: place.isPoi ? scheme.primary : null,
+                          ),
                           title: Text(
                             place.name,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
+                            style: place.isPoi
+                                ? const TextStyle(fontWeight: FontWeight.w600)
+                                : null,
                           ),
                           subtitle: place.address.isEmpty
                               ? null

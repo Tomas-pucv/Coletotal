@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:geolocator/geolocator.dart';
 
 import 'package:taxi1/models/colectivo_activo.dart';
+import 'package:taxi1/services/session_log_service.dart';
 
 /// Publica y lee las posiciones en vivo de las unidades.
 ///
@@ -80,6 +81,8 @@ class FirebaseTelemetriaService {
     required String patente,
     required String garitaId,
     EstadoCapacidad estado = EstadoCapacidad.disponible,
+    String? recorridoId,
+    String? recorridoNombre,
   }) async {
     if (_isTracking && _current?.uid == uid) return;
     await detenerTracking();
@@ -100,15 +103,20 @@ class FirebaseTelemetriaService {
       latitud: 0,
       longitud: 0,
       estado: estado,
+      recorridoId: recorridoId,
+      recorridoNombre: recorridoNombre,
     );
     _isTracking = true;
 
-    // El `onDisconnect` se registra **estando autenticado**: es una orden que
-    // queda encolada en el servidor y se autoriza al encolarla, no al
-    // ejecutarse. Por eso también hay que borrar el nodo antes de cerrar
-    // sesión (ver `AuthService.onBeforeSignOut`) y no después.
+    // En vez de borrar inmediatamente ante desconexión de socket (lo que causaba
+    // que el colectivo desapareciera en zonas de sombra o túneles de Quilpué),
+    // el nodo permanece en el mapa mientras dure el turno o hasta expirar la
+    // antigüedad máxima de telemetría (180 segundos).
     final vehicleRef = _db.child(uid);
-    await vehicleRef.onDisconnect().remove();
+    await vehicleRef.onDisconnect().update({
+      'conectado': false,
+      'ts': ServerValue.timestamp,
+    });
 
     // Configuración para permitir rastreo continuo en segundo plano en Android.
     final LocationSettings locationSettings;
@@ -148,6 +156,7 @@ class FirebaseTelemetriaService {
           },
           onError: (Object e) {
             debugPrint('Error en el stream de ubicación en vivo: $e');
+            SessionLogService.instance.logEvent('GPS_LOST', {'error': e.toString()});
           },
         );
   }
@@ -173,6 +182,7 @@ class FirebaseTelemetriaService {
       _ultimoEnvio = DateTime.now();
     } catch (e) {
       debugPrint('Telemetría: no se pudo publicar la posición: $e');
+      SessionLogService.instance.logEvent('NETWORK_FAIL', {'error': e.toString()});
     }
   }
 

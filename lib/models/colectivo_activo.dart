@@ -35,6 +35,8 @@ class ColectivoActivo {
     required this.longitud,
     this.garitaId = '',
     this.estado = EstadoCapacidad.disponible,
+    this.recorridoId,
+    this.recorridoNombre,
     this.ts,
   });
 
@@ -49,6 +51,12 @@ class ColectivoActivo {
   final double longitud;
   final EstadoCapacidad estado;
 
+  /// ID del recorrido que está cubriendo actualmente (ej. 'recorrido-101-valencia-hospital').
+  final String? recorridoId;
+
+  /// Nombre amigable de la línea (ej. 'Línea 101: Valencia - Hospital').
+  final String? recorridoNombre;
+
   /// Marca de tiempo del servidor, en milisegundos. Nula en los nodos escritos
   /// por versiones anteriores de la app.
   final int? ts;
@@ -59,7 +67,7 @@ class ColectivoActivo {
   /// espera a que expire la conexión TCP, lo que puede tardar minutos. Sin este
   /// filtro quedan "colectivos fantasma" clavados en el mapa, que es el fallo
   /// más visible que puede tener una demo.
-  static const Duration maxAntiguedad = Duration(seconds: 90);
+  static const Duration maxAntiguedad = Duration(seconds: 180);
 
   /// Si la última posición ya es demasiado vieja para mostrarla.
   ///
@@ -85,6 +93,8 @@ class ColectivoActivo {
       latitud: (json['latitud'] as num).toDouble(),
       longitud: (json['longitud'] as num).toDouble(),
       estado: EstadoCapacidad.fromWire(json['estado'] as String?),
+      recorridoId: json['recorridoId'] as String?,
+      recorridoNombre: json['recorridoNombre'] as String?,
       ts: (json['ts'] as num?)?.toInt(),
     );
   }
@@ -98,12 +108,16 @@ class ColectivoActivo {
     'latitud': latitud,
     'longitud': longitud,
     'estado': estado.wireName,
+    if (recorridoId != null) 'recorridoId': recorridoId,
+    if (recorridoNombre != null) 'recorridoNombre': recorridoNombre,
   };
 
   ColectivoActivo copyWith({
     double? latitud,
     double? longitud,
     EstadoCapacidad? estado,
+    String? recorridoId,
+    String? recorridoNombre,
     int? ts,
   }) => ColectivoActivo(
     uid: uid,
@@ -112,6 +126,8 @@ class ColectivoActivo {
     latitud: latitud ?? this.latitud,
     longitud: longitud ?? this.longitud,
     estado: estado ?? this.estado,
+    recorridoId: recorridoId ?? this.recorridoId,
+    recorridoNombre: recorridoNombre ?? this.recorridoNombre,
     ts: ts ?? this.ts,
   );
 }

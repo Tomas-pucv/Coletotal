@@ -22,8 +22,8 @@ abstract final class OsrmClient {
   /// Traza una ruta que pasa por [waypoints] **en orden**.
   ///
   /// Devuelve `null` si no se pudo calcular; quien llama decide si cae a unir
-  /// los puntos con rectas o si muestra un error.
-  static Future<List<LatLng>?> routeThrough(List<LatLng> waypoints) async {
+  /// Obtiene la geometría codificada (polyline6) que pasa por [waypoints] en orden.
+  static Future<String?> getEncodedRoute(List<LatLng> waypoints) async {
     final points = waypoints.where(isValidLatLng).toList(growable: false);
     if (points.length < 2) return null;
 
@@ -37,7 +37,10 @@ abstract final class OsrmClient {
 
     try {
       final url = Uri.parse('$_base$coords?overview=full&geometries=polyline6');
-      final res = await http.get(url).timeout(const Duration(seconds: 20));
+      final res = await http.get(
+        url,
+        headers: {'User-Agent': 'ColeTotal/1.0 (coletotal.app)'},
+      ).timeout(const Duration(seconds: 20));
       if (res.statusCode != 200) {
         debugPrint('OSRM ${res.statusCode}');
         return null;
@@ -52,12 +55,22 @@ abstract final class OsrmClient {
       final encoded = (routes.first as Map<String, dynamic>)['geometry'];
       if (encoded is! String || encoded.isEmpty) return null;
 
-      final decoded = decodePolyline(encoded).where(isValidLatLng).toList();
-      return decoded.isEmpty ? null : decoded;
+      return encoded;
     } catch (e) {
-      debugPrint('OsrmClient.routeThrough: $e');
+      debugPrint('OsrmClient.getEncodedRoute: $e');
       return null;
     }
+  }
+
+  /// Traza una ruta que pasa por [waypoints] **en orden**.
+  ///
+  /// Devuelve `null` si no se pudo calcular; quien llama decide si cae a unir
+  /// los puntos con rectas o si muestra un error.
+  static Future<List<LatLng>?> routeThrough(List<LatLng> waypoints) async {
+    final encoded = await getEncodedRoute(waypoints);
+    if (encoded == null) return null;
+    final decoded = decodePolyline(encoded).where(isValidLatLng).toList();
+    return decoded.isEmpty ? null : decoded;
   }
 
   /// Decodifica el formato *encoded polyline* de Google/OSRM.

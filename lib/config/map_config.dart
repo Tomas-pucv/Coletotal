@@ -45,6 +45,17 @@ String mapTileUrlTemplate(MapStyle style, {required bool isDark}) =>
     'https://api.maptiler.com/maps/${_styleId(style, isDark)}'
     '/{z}/{x}/{y}.${_extension(style)}?key=$kMapTilerKey';
 
+/// Plantilla de respaldo gratuita (OpenStreetMap / CARTO Positron / Esri) si
+/// MapTiler agota su cuota de peticiones o devuelve errores HTTP.
+/// Garantiza que el piloto en terreno nunca se quede sin cartografía.
+String fallbackTileUrlTemplate(MapStyle style, {required bool isDark}) {
+  if (style == MapStyle.satellite) {
+    return 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
+  }
+  final variant = isDark ? 'dark_all' : 'light_all';
+  return 'https://basemaps.cartocdn.com/rastertiles/$variant/{z}/{x}/{y}.png';
+}
+
 /// URL de una tesela concreta, para usarla como miniatura de vista previa.
 ///
 /// Pedir una sola imagen es mucho más barato que instanciar un `FlutterMap`

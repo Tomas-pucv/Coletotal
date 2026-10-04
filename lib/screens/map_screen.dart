@@ -334,6 +334,9 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
   String _tileUrl(bool isDark) =>
       mapTileUrlTemplate(MapStyle.fromPref(prefs.mapType), isDark: isDark);
 
+  String _fallbackTileUrl(bool isDark) =>
+      fallbackTileUrlTemplate(MapStyle.fromPref(prefs.mapType), isDark: isDark);
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -372,7 +375,8 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
             children: [
               TileLayer(
                 urlTemplate: _tileUrl(isDark),
-                userAgentPackageName: 'com.example.taxi1',
+                fallbackUrl: _fallbackTileUrl(isDark),
+                userAgentPackageName: 'cl.coletotal.app',
                 retinaMode: RetinaMode.isHighDensity(context),
               ),
 
@@ -452,10 +456,10 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                   ],
                 ),
 
-              // Colectivos en vivo (telemetría Firebase).
+              // Colectivos en vivo (telemetría Firebase filtrada por proximidad).
               MarkerLayer(
                 markers: [
-                  for (final colectivo in _colectivos)
+                  for (final colectivo in _colectivosVisibles())
                     _colectivoMarker(colectivo, status, l10n),
                 ],
               ),
@@ -565,6 +569,126 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     );
   }
 
+  List<ColectivoActivo> _colectivosVisibles() {
+    if (_colectivos.length <= 4) return _colectivos;
+    final center = _currentPosition ?? kQuilpueCenter;
+    const distance = Distance();
+    final filtrados = _colectivos.where((c) {
+      if (c.latitud == 0.0 && c.longitud == 0.0) return false;
+      final km = distance.as(
+        LengthUnit.Kilometer,
+        center,
+        LatLng(c.latitud, c.longitud),
+      );
+      return km <= 6.0;
+    }).toList();
+    return filtrados.isEmpty ? _colectivos : filtrados;
+  }
+
+  Future<void> _onTapColectivo(ColectivoActivo colectivo) async {
+    final status = AppStatusColors.of(context);
+    final theme = Theme.of(context);
+
+    // Si tiene un recorrido asignado, seleccionamos e iluminamos su trazado vial en el mapa
+    if (colectivo.recorridoId != null) {
+      final linea = recorridos.byId(colectivo.recorridoId!);
+      if (linea != null) {
+        await recorridos.select(linea);
+      }
+    }
+
+    if (!mounted) return;
+
+    final estadoLabel = switch (colectivo.estado) {
+      EstadoCapacidad.disponible => 'Disponible (con asientos)',
+      EstadoCapacidad.medioLleno => 'Medio lleno (pocos cupos)',
+      EstadoCapacidad.lleno => 'Lleno (sin cupos)',
+    };
+
+    final estadoColor = switch (colectivo.estado) {
+      EstadoCapacidad.disponible => status.disponible,
+      EstadoCapacidad.medioLleno => status.medioLleno,
+      EstadoCapacidad.lleno => status.lleno,
+    };
+
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg, vertical: AppSpacing.sm),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(AppSpacing.sm),
+                    decoration: BoxDecoration(
+                      color: estadoColor.withValues(alpha: 0.15),
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(Icons.directions_car, color: estadoColor, size: 28),
+                  ),
+                  const SizedBox(width: AppSpacing.md),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Colectivo ${colectivo.idVehiculo}',
+                          style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+                        ),
+                        Text(
+                          colectivo.recorridoNombre ?? 'En servicio activo',
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            color: theme.colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: AppSpacing.md),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md, vertical: AppSpacing.sm),
+                decoration: BoxDecoration(
+                  color: estadoColor.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(AppSpacing.radiusSm),
+                  border: Border.all(color: estadoColor.withValues(alpha: 0.3)),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 10,
+                      height: 10,
+                      decoration: BoxDecoration(
+                        color: estadoColor,
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                    const SizedBox(width: AppSpacing.sm),
+                    Text(
+                      estadoLabel,
+                      style: theme.textTheme.labelMedium?.copyWith(
+                        color: estadoColor,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: AppSpacing.lg),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   Marker _colectivoMarker(
     ColectivoActivo colectivo,
     AppStatusColors status,
@@ -590,20 +714,24 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
       point: LatLng(colectivo.latitud, colectivo.longitud),
       width: isMe ? 46 : 40,
       height: isMe ? 46 : 40,
-      child: Container(
-        decoration: BoxDecoration(
-          color: color,
-          shape: BoxShape.circle,
-          border: Border.all(color: status.markerBorder, width: isMe ? 3 : 2),
-          boxShadow: const [
-            BoxShadow(
-              color: Color(0x59000000),
-              blurRadius: 6,
-              offset: Offset(0, 2),
-            ),
-          ],
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: () => _onTapColectivo(colectivo),
+        child: Container(
+          decoration: BoxDecoration(
+            color: color,
+            shape: BoxShape.circle,
+            border: Border.all(color: status.markerBorder, width: isMe ? 3 : 2),
+            boxShadow: const [
+              BoxShadow(
+                color: Color(0x59000000),
+                blurRadius: 6,
+                offset: Offset(0, 2),
+              ),
+            ],
+          ),
+          child: Icon(Icons.directions_car, color: onColor, size: isMe ? 24 : 20),
         ),
-        child: Icon(Icons.directions_car, color: onColor, size: isMe ? 24 : 20),
       ),
     );
   }

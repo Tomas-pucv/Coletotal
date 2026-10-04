@@ -45,8 +45,13 @@ class RecorridosService extends ChangeNotifier {
   bool get loadingTrazado => _loadingTrazado;
 
   /// Puntos del recorrido seleccionado. Vacío mientras se calcula.
-  List<LatLng> get trazadoSeleccionado =>
-      _selected == null ? const [] : (_trazados[_selected!.id] ?? const []);
+  List<LatLng> get trazadoSeleccionado {
+    if (_selected == null) return const [];
+    final cached = _trazados[_selected!.id];
+    if (cached != null) return cached;
+    if (_selected!.trazado.length >= 2) return _selected!.trazado;
+    return const [];
+  }
 
   /// Las líneas que sirven a [paraderoId], que es lo que se le muestra al
   /// pasajero cuando toca un paradero.
@@ -151,6 +156,15 @@ class RecorridosService extends ChangeNotifier {
 
   Future<void> _ensureTrazado(Recorrido recorrido) async {
     if (_trazados.containsKey(recorrido.id)) return;
+
+    // Si el recorrido ya tiene una geometría precomputada válida que respeta
+    // las calles y sentidos de tránsito, la usamos de inmediato:
+    // 0 latencia, offline total y trazado exacto sin depender de OSRM en caliente.
+    if (recorrido.trazado.length >= 2) {
+      _trazados[recorrido.id] = recorrido.trazado;
+      notifyListeners();
+      return;
+    }
 
     final puntos = puntosDe(recorrido);
     if (puntos.length < 2) {
