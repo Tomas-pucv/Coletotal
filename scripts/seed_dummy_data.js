@@ -1,64 +1,27 @@
 // scripts/seed_dummy_data.js
-// Poblamiento de datos dummies de prueba para ColeTotal (Quilpué)
+// Poblamiento de datos de prueba para ColeTotal (Quilpué).
+//
+// Los códigos de garita y la contraseña de los choferes de prueba ya no están
+// escritos en el repositorio: los códigos dan acceso real (el de administrador
+// permite gestionar la garita entera) y el repositorio se comparte.
+//
+// Uso:
+//   CHOFER_CODE=... ADMIN_CODE=... TEST_DRIVER_PASSWORD=... //   node scripts/seed_dummy_data.js
+// Requiere haber hecho `firebase login` con una cuenta con acceso al proyecto.
 
-const fs = require('fs');
-const path = require('path');
-const auth = require('C:/Users/marco/AppData/Roaming/npm/node_modules/firebase-tools/lib/auth');
+const { PROJECT_ID, getAccessToken, patchDocument, requireEnv } = require('./lib/firebase_rest');
 
+// Clave web pública de Firebase (la misma de lib/firebase_options.dart): no es
+// un secreto, identifica al proyecto ante la API de Identity Toolkit.
 const API_KEY = 'AIzaSyC6IOk1pmwqqZq-ZI9tpTSnV61BCGMcB54';
-const PROJECT_ID = 'coletotal-32735';
 const GARITA_ID = 'garita_quilpue_01';
-const STANDARD_PASSWORD = 'Chofer1234!';
 
-function toFirestoreFields(obj) {
-  const fields = {};
-  for (const [k, v] of Object.entries(obj)) {
-    if (v === null || v === undefined) continue;
-    if (typeof v === 'string') {
-      fields[k] = { stringValue: v };
-    } else if (typeof v === 'boolean') {
-      fields[k] = { booleanValue: v };
-    } else if (typeof v === 'number') {
-      if (Number.isInteger(v)) {
-        fields[k] = { integerValue: v.toString() };
-      } else {
-        fields[k] = { doubleValue: v };
-      }
-    } else if (Array.isArray(v)) {
-      fields[k] = {
-        arrayValue: {
-          values: v.map((item) => ({ stringValue: String(item) })),
-        },
-      };
-    }
-  }
-  return fields;
-}
+const CHOFER_CODE = requireEnv('CHOFER_CODE', 'Código de garita para choferes (largo y no adivinable).');
+const ADMIN_CODE = requireEnv('ADMIN_CODE', 'Código de garita para administradores (largo y no adivinable).');
+const STANDARD_PASSWORD = requireEnv('TEST_DRIVER_PASSWORD', 'Contraseña de las cuentas de choferes de prueba.');
 
-async function getAccessToken() {
-  const account = auth.getGlobalDefaultAccount();
-  const tokenObj = await auth.getAccessToken(
-    account.tokens.refresh_token,
-    account.tokens.scopes
-  );
-  return tokenObj.access_token;
-}
-
-async function setFirestoreDoc(token, collection, docId, data) {
-  const url = `https://firestore.googleapis.com/v1/projects/${PROJECT_ID}/databases/(default)/documents/${collection}/${docId}`;
-  const res = await fetch(url, {
-    method: 'PATCH',
-    headers: {
-      Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ fields: toFirestoreFields(data) }),
-  });
-  if (!res.ok) {
-    const errText = await res.text();
-    throw new Error(`Error setFirestoreDoc [${collection}/${docId}]: ${res.status} ${errText}`);
-  }
-  return res.json();
+function setFirestoreDoc(token, collection, docId, data) {
+  return patchDocument(token, `${collection}/${docId}`, data);
 }
 
 async function createOrGetAuthUser(email, password, displayName) {
@@ -104,10 +67,12 @@ async function createOrGetAuthUser(email, password, displayName) {
   throw new Error(`Error createOrGetAuthUser (${email}): ${JSON.stringify(signUpData)}`);
 }
 
+// PATCH y no PUT: un PUT sobre `colectivos_activos` reemplazaba el nodo entero
+// y sacaba del mapa a los choferes reales que estuvieran en turno.
 async function setRtdbData(token, path, data) {
   const url = `https://${PROJECT_ID}-default-rtdb.firebaseio.com/${path}.json?access_token=${token}`;
   const res = await fetch(url, {
-    method: 'PUT',
+    method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
   });
@@ -133,17 +98,18 @@ async function main() {
 
   // 2. Códigos de Acceso
   console.log('\n--- 2. Verificando Códigos de Acceso ---');
-  await setFirestoreDoc(token, 'codigos_acceso', 'CHOFERSERRANOS', {
+  // El id del documento ES el código. La app lo busca en mayúsculas.
+  await setFirestoreDoc(token, 'codigos_acceso', CHOFER_CODE.toUpperCase(), {
     activo: true,
     garitaId: GARITA_ID,
     rol: 'colectivero',
   });
-  await setFirestoreDoc(token, 'codigos_acceso', 'MEGADMIN5TA', {
+  await setFirestoreDoc(token, 'codigos_acceso', ADMIN_CODE.toUpperCase(), {
     activo: true,
     garitaId: GARITA_ID,
     rol: 'administrador',
   });
-  console.log('✅ Códigos CHOFERSERRANOS y MEGADMIN5TA verificados.');
+  console.log('✅ Códigos de chofer y de administrador configurados.');
 
   // 3. Paraderos adicionales en Quilpué (8 nuevos estratégicos)
   console.log('\n--- 3. Sembrando Paraderos en Quilpué ---');
@@ -427,7 +393,7 @@ async function main() {
       garitaId: GARITA_ID,
       patente: c.patente,
       activo: c.activo,
-      codigo: 'CHOFERSERRANOS',
+      codigo: CHOFER_CODE.toUpperCase(),
     });
     console.log(`    ✅ Perfil en Firestore [usuarios/${uid}] actualizado.`);
 
@@ -455,7 +421,7 @@ async function main() {
   console.log(`- Garita: ${GARITA_ID}`);
   console.log('- Paraderos: 8 nuevos (total ~20)');
   console.log('- Recorridos: 7 líneas completas');
-  console.log('- Choferes: 7 cuentas listas (Contraseña: Chofer1234!)');
+  console.log('- Choferes: 7 cuentas listas (contraseña: la de TEST_DRIVER_PASSWORD)');
   console.log('- Telemetría: 3 colectivos activos transmitiendo');
   console.log('======================================================\n');
 }

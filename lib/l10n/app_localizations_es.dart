@@ -9,9 +9,6 @@ class AppLocalizationsEs extends AppLocalizations {
   AppLocalizationsEs([String locale = 'es']) : super(locale);
 
   @override
-  String get appName => 'ColeTotal';
-
-  @override
   String get navMap => 'Mapa';
 
   @override
@@ -104,10 +101,6 @@ class AppLocalizationsEs extends AppLocalizations {
       'Tu ubicación aún no está disponible. Activa el GPS o espera unos segundos.';
 
   @override
-  String get routeCalcErrorDefault =>
-      'No se pudo calcular la ruta. Inténtalo de nuevo.';
-
-  @override
   String get veryClose => 'Muy cerca';
 
   @override
@@ -133,14 +126,8 @@ class AppLocalizationsEs extends AppLocalizations {
   String get allStops => 'Todos los paraderos';
 
   @override
-  String get locationOffTitle => 'Ubicación desactivada';
-
-  @override
   String get locationOffMessage =>
       'Activa el GPS del teléfono para ver tu posición y los paraderos cercanos.';
-
-  @override
-  String get locationDeniedTitle => 'Permiso de ubicación denegado';
 
   @override
   String get locationDeniedMessage =>
@@ -254,23 +241,7 @@ class AppLocalizationsEs extends AppLocalizations {
   String get confirm => 'Confirmar';
 
   @override
-  String get sectionLanguage => 'Idioma';
-
-  @override
-  String get languageSpanish => 'Español';
-
-  @override
-  String get languageEnglish => 'English';
-
-  @override
   String get sectionAbout => 'Acerca de';
-
-  @override
-  String get infoTitle => 'Información';
-
-  @override
-  String get infoBody =>
-      'Tus preferencias se guardan automáticamente. Todos los cambios se aplican inmediatamente.';
 
   @override
   String aboutVersion(String version) {
@@ -280,6 +251,43 @@ class AppLocalizationsEs extends AppLocalizations {
   @override
   String get aboutSubtitle =>
       'Rutas y paraderos de Transportes Serrano, Quilpué.';
+
+  @override
+  String get updateCheck => 'Buscar actualizaciones';
+
+  @override
+  String updateUpToDate(String version) {
+    return 'Tienes la versión más reciente ($version)';
+  }
+
+  @override
+  String get updateTitle => '¡Nueva versión disponible!';
+
+  @override
+  String updateVersions(String nueva, String instalada) {
+    return 'Versión $nueva (instalada: $instalada)';
+  }
+
+  @override
+  String get updateChangelogTitle => 'Novedades y mejoras:';
+
+  @override
+  String get updateDefaultChangelog =>
+      'Nueva versión con mejoras operacionales.';
+
+  @override
+  String get updateMandatory =>
+      'Esta actualización es obligatoria para continuar operando en la garita.';
+
+  @override
+  String get updateLater => 'Recordar más tarde';
+
+  @override
+  String get updateNow => 'Actualizar ahora';
+
+  @override
+  String get updateOpenFailed =>
+      'No se pudo abrir el enlace de descarga del APK.';
 
   @override
   String get errInvalidCoords =>
@@ -359,9 +367,6 @@ class AppLocalizationsEs extends AppLocalizations {
   String get openMenu => 'Abrir menú';
 
   @override
-  String get drawerNavigation => 'Navegación';
-
-  @override
   String get drawerDriverSection => 'Mi jornada';
 
   @override
@@ -379,12 +384,6 @@ class AppLocalizationsEs extends AppLocalizations {
   @override
   String get signOutMessage =>
       'Volverás al modo invitado y dejarás de transmitir tu ubicación.';
-
-  @override
-  String get comingSoonTitle => 'En construcción';
-
-  @override
-  String get comingSoonMessage => 'Esta sección todavía no está disponible.';
 
   @override
   String get authLoginTitle => 'Iniciar sesión';
@@ -554,11 +553,41 @@ class AppLocalizationsEs extends AppLocalizations {
   String get capacityFull => 'Lleno';
 
   @override
+  String get capacityAvailableLong => 'Disponible (con asientos)';
+
+  @override
+  String get capacityHalfLong => 'Medio lleno (pocos cupos)';
+
+  @override
+  String get capacityFullLong => 'Lleno (sin cupos)';
+
+  @override
+  String colectivoTitle(String patente) {
+    return 'Colectivo $patente';
+  }
+
+  @override
+  String get colectivoNoRoute => 'Sin recorrido informado';
+
+  @override
+  String colectivoLastSignal(String tiempo) {
+    return 'Última señal hace $tiempo';
+  }
+
+  @override
+  String get colectivoNoSignal => 'Sin señal';
+
+  @override
+  String colectivoSemanticLabel(String patente, String estado) {
+    return 'Colectivo $patente, $estado';
+  }
+
+  @override
   String get turnoVehicle => 'Mi vehículo';
 
   @override
-  String turnoLastSent(String hora) {
-    return 'Última posición enviada: $hora';
+  String turnoLastSent(String tiempo) {
+    return 'Última posición enviada hace $tiempo';
   }
 
   @override
@@ -583,6 +612,44 @@ class AppLocalizationsEs extends AppLocalizations {
   @override
   String get turnoOnlyDrivers =>
       'Esta sección es para los colectiveros de la garita.';
+
+  @override
+  String get turnoNotificationTitle => 'ColeTotal — en servicio';
+
+  @override
+  String get turnoNotificationText =>
+      'Transmitiendo tu posición a los pasajeros';
+
+  @override
+  String get turnoOffline =>
+      'Sin señal: tu posición se enviará apenas vuelva la conexión.';
+
+  @override
+  String get turnoRoute => 'Recorrido';
+
+  @override
+  String get turnoRouteNone => 'Sin recorrido asignado';
+
+  @override
+  String get turnoRoutePick => 'Elegir recorrido';
+
+  @override
+  String get turnoRouteHelp =>
+      'Los pasajeros ven tu línea al tocar tu colectivo en el mapa.';
+
+  @override
+  String get turnoRouteEmpty =>
+      'Tu garita todavía no tiene recorridos activos.';
+
+  @override
+  String agoSeconds(String n) {
+    return '$n s';
+  }
+
+  @override
+  String agoMinutes(String n) {
+    return '$n min';
+  }
 
   @override
   String get save => 'Guardar';
@@ -674,6 +741,24 @@ class AppLocalizationsEs extends AppLocalizations {
       'Estos son paraderos de referencia, todavía no están en la base de datos de tu garita. Impórtalos una vez para poder editarlos.';
 
   @override
+  String get stopInactive => 'Dado de baja';
+
+  @override
+  String get stopReactivate => 'Reactivar';
+
+  @override
+  String get stopReactivated => 'Paradero reactivado.';
+
+  @override
+  String get savedOffline =>
+      'Guardado sin conexión: se sincronizará al recuperar la señal.';
+
+  @override
+  String routeGeometryUpdated(String count) {
+    return 'Se actualizó el trazado de $count recorridos.';
+  }
+
+  @override
   String get fleetEmpty => 'Ninguna unidad en servicio ahora mismo.';
 
   @override
@@ -692,6 +777,9 @@ class AppLocalizationsEs extends AppLocalizations {
   String fleetUnitsInService(String count) {
     return '$count en servicio';
   }
+
+  @override
+  String get fleetAllGaritas => 'Todas las garitas';
 
   @override
   String get routeAdd => 'Nuevo recorrido';
@@ -756,12 +844,6 @@ class AppLocalizationsEs extends AppLocalizations {
       'Entrégales el código de garita para que se registren.';
 
   @override
-  String get driverEnabled => 'Habilitado';
-
-  @override
-  String get driverDisabled => 'Deshabilitado';
-
-  @override
   String get driverInService => 'En servicio';
 
   @override
@@ -774,38 +856,6 @@ class AppLocalizationsEs extends AppLocalizations {
 
   @override
   String get driverSaved => 'Cambios guardados.';
-
-  @override
-  String get welcomeTitle => 'Te damos la bienvenida';
-
-  @override
-  String get welcomeSubtitle =>
-      'Rutas, paraderos y colectivos en vivo de Transportes Serrano, Quilpué.';
-
-  @override
-  String get welcomeQuestion => '¿Cómo vas a usar ColeTotal?';
-
-  @override
-  String get welcomeGuestDesc =>
-      'Consulta el mapa, busca paraderos y mira dónde vienen los colectivos. Sin cuenta y sin registro.';
-
-  @override
-  String get welcomeDriverDesc =>
-      'Comparte tu posición con los pasajeros durante tu turno. Necesitas el código de tu garita.';
-
-  @override
-  String get welcomeAdminDesc =>
-      'Gestiona paraderos, recorridos y choferes, y supervisa la flota en vivo.';
-
-  @override
-  String get welcomeContinueGuest => 'Entrar como invitado';
-
-  @override
-  String get welcomeChangeLater =>
-      'Puedes iniciar sesión cuando quieras desde el menú lateral.';
-
-  @override
-  String get sortLabel => 'Ordenar';
 
   @override
   String get sortNearest => 'Cercanos';
@@ -831,9 +881,6 @@ class AppLocalizationsEs extends AppLocalizations {
   String get stopWalkHere => 'Cómo llegar';
 
   @override
-  String get stopSeeRoute => 'Ver recorrido';
-
-  @override
   String lineOnMap(String nombre) {
     return 'Recorrido de $nombre';
   }
@@ -855,9 +902,6 @@ class AppLocalizationsEs extends AppLocalizations {
 
   @override
   String get searchClear => 'Limpiar';
-
-  @override
-  String get destinationLabel => 'Destino';
 
   @override
   String get suggestTitle => 'Mejores paraderos para tu destino';

@@ -13,7 +13,10 @@ import 'package:taxi1/utils/auth_error_format.dart';
 import 'package:taxi1/widgets/state_views.dart';
 
 /// Resultado de comprobar el código de garita mientras se escribe.
-enum _CodigoState { vacio, comprobando, valido, invalido }
+///
+/// `sinConexion` es aparte de `invalido`: sin red no se sabe si el código
+/// sirve, y antes se le decía al usuario que no servía.
+enum _CodigoState { vacio, comprobando, valido, invalido, sinConexion }
 
 /// Registro de colectiveros y administradores.
 ///
@@ -101,7 +104,17 @@ class _RegisterScreenState extends State<RegisterScreen> {
     final request = ++_codigoRequest;
     final auth = AuthService.instance;
 
-    final acceso = await auth.lookupCodigo(raw);
+    final CodigoAcceso? acceso;
+    try {
+      acceso = await auth.lookupCodigo(raw);
+    } on AuthFailure {
+      if (!mounted || request != _codigoRequest) return;
+      setState(() {
+        _codigoState = _CodigoState.sinConexion;
+        _garita = null;
+      });
+      return;
+    }
     final valido = acceso != null && acceso.rol == _role;
     final garita = valido ? await auth.getGarita(acceso.garitaId) : null;
 
@@ -289,6 +302,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
       ),
       _CodigoState.valido => Icon(Icons.check_circle, color: scheme.primary),
       _CodigoState.invalido => Icon(Icons.error_outline, color: scheme.error),
+      _CodigoState.sinConexion => Icon(
+        Icons.cloud_off,
+        color: scheme.onSurfaceVariant,
+      ),
     };
 
     final helper = switch (_codigoState) {
@@ -297,6 +314,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
         _garita?.nombre ?? l10n.navGarita,
       ),
       _CodigoState.invalido => l10n.authCodigoInvalid,
+      _CodigoState.sinConexion => l10n.errAuthNetwork,
       _CodigoState.vacio => l10n.authCodigoHelp,
     };
 

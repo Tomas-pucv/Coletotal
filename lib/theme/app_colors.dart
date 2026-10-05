@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'package:taxi1/models/colectivo_activo.dart';
+
 /// Semilla de marca de ColeTotal.
 ///
 /// La elección no es arbitraria. El mapa ya tiene dos escalas de color
@@ -61,6 +63,16 @@ class AppStatusColors extends ThemeExtension<AppStatusColors> {
 
   /// Borde de los marcadores sobre el mapa, para separarlos del fondo.
   final Color markerBorder;
+
+  /// Color de la semaforización para la capacidad [estado].
+  ///
+  /// Reemplaza tres `switch` idénticos que vivían en el mapa, en la consola de
+  /// flota y en la ficha del colectivo.
+  Color forEstado(EstadoCapacidad estado) => switch (estado) {
+    EstadoCapacidad.disponible => disponible,
+    EstadoCapacidad.medioLleno => medioLleno,
+    EstadoCapacidad.lleno => lleno,
+  };
 
   /// Color de texto/icono legible sobre [background].
   ///

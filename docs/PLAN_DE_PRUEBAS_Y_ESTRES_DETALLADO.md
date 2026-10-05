@@ -5,6 +5,9 @@
 > **Línea de Transporte:** Transportes Serrano  
 > **Fecha de Documentación:** Octubre 2026  
 
+> [!NOTE]
+> **Estado de implementación (revisado el 5 de octubre de 2026).** Este documento es un plan: mezcla lo que ya está construido con lo que se propone. Lo que todavía no existe en el código va marcado **(propuesto, pendiente)**. La descripción de lo implementado, con sus archivos, está en `ARQUITECTURA_Y_REGISTRO_TECNICO_PARA_IA.md`.
+
 ---
 
 ## 1. Esquema de Versionado SemVer alineado al Informe de Título
@@ -38,7 +41,7 @@ flowchart LR
 | **`v1.0.0`** | Entrega y Defensa de Título | Versión productiva final validada, manual de usuario y cierre académico. | Hito Final |
 
 > [!NOTE]
-> Para la versión actual del proyecto se establece oficialmente **`v0.4.2+2`**, avanzando a **`v0.4.3+3`** con la implementación de las mejoras operacionales descritas en este documento.
+> La versión vigente es **`0.4.3+4`** (la de `pubspec.yaml`, que la app lee del propio APK).
 
 ---
 
@@ -86,19 +89,19 @@ Durante la prueba piloto con los trabajadores de Transportes Serrano, los inspec
 
 Para no saturar los datos móviles de los colectiveros ni generar cobros innecesarios en Firebase:
 
-1. **Almacenamiento Local Continuo:** Cada turno iniciado por un chofer crea un archivo de sesión local `logs/session_<uid>_<timestamp>.jsonl`.
-2. **Eventos Registrados:**
-   - `APP_START`: Versión del SO, fabricante, modelo de dispositivo, RAM disponible.
-   - `SHIFT_START`: Patente, recorrido asignado, nivel inicial de batería.
-   - `GPS_SIGNAL_LOST` / `GPS_SIGNAL_RESTORED`: Tiempos sin fijación satelital.
-   - `LOW_MEMORY_ALERT`: Advertencias emitidas por el sistema operativo.
-   - `NETWORK_FAIL`: Fallos de socket con Realtime Database.
-   - `SHIFT_END`: Duración del turno, kilómetros recorridos, eventos acumulados.
+1. **Almacenamiento Local Continuo:** el turno en curso se guarda en el teléfono (`SharedPreferences`, no archivos `.jsonl`).
+2. **Eventos Registrados** (implementados: `SHIFT_START`, `SHIFT_END`, `GPS_LOST`, `NETWORK_LOST`, `NETWORK_FAIL`, `STATE_CHANGED`, `ROUTE_CHANGED`):
+   - `APP_START` con versión del SO, fabricante, modelo y RAM: **(propuesto, pendiente)**.
+   - `SHIFT_START`: patente, garita, recorrido, versión de la app y plataforma. El nivel de batería: **(propuesto, pendiente)**.
+   - `GPS_LOST`: errores del GPS durante el turno. `GPS_SIGNAL_RESTORED`: **(propuesto, pendiente)**.
+   - `LOW_MEMORY_ALERT`: **(propuesto, pendiente)**.
+   - `NETWORK_LOST` / `NETWORK_FAIL`: pérdida de conexión con Realtime Database y escrituras fallidas. Las repeticiones se agrupan en un solo evento con contador, con un tope de 300 eventos por turno.
+   - `SHIFT_END`: duración del turno y eventos acumulados. Los kilómetros recorridos: **(propuesto, pendiente)**.
 3. **Sincronización por Tandas (Batching):**
-   - El log se envía al servidor **únicamente al cerrar el turno** o **cuando el teléfono detecta red WiFi**.
+   - El log se envía al servidor al cerrar el turno. Si no hay señal, queda en cola y se reintenta al abrir la app, al iniciar sesión o al terminar otro turno (no se detecta la red WiFi).
    - Se almacena en la colección `garitas/{garitaId}/auditoria_turnos/{sessionId}`.
-   - Si ocurre un cierre inesperado (crasheo), el log pendiente se despacha automáticamente en el siguiente inicio de la aplicación.
-4. **Crash Reporting en Tiempo Real:** Integración con **Firebase Crashlytics** para capturar cualquier excepción no controlada con stack trace y estado de la memoria al momento del fallo.
+   - Si la app se cierra a mitad del turno, el turno se recupera en el siguiente inicio y se sube marcado `interrumpida: true`.
+4. **Crash Reporting en Tiempo Real:** Integración con **Firebase Crashlytics** **(propuesto, pendiente)**.
 
 ---
 
@@ -122,15 +125,13 @@ flowchart TD
     FallbackOSM --> RenderLocal
 ```
 
-1. **Implementación de Caché en Disco (`flutter_map_cache`):**
-   - Configurar un almacén local con expiración de 30 días.
-   - Dado que el área operativa de Serrano se concentra en Quilpué y alrededores, las teselas de la comuna se descargan **una sola vez** por dispositivo.
-   - **Resultado:** Reducción del 92% en solicitudes remotas a MapTiler.
-2. **Fallback Transparente a Fuentes Abiertas:**
-   - Si MapTiler devuelve `429 Too Many Requests` o `403 Forbidden`, la app conmuta automáticamente a:
-     - `https://tile.openstreetmap.org/{z}/{x}/{y}.png` o
-     - `https://basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png`
-   - El piloto con Serrano nunca se detendrá por agotamiento de cuota.
+1. **Caché en Disco:** se usa la caché integrada de flutter_map 8 (no `flutter_map_cache`), que guarda las teselas en el teléfono y respeta la vigencia que indica MapTiler. La reducción del 92% era una estimación; no está medida.
+2. **Causa principal corregida (auditoría de octubre):** la plantilla de MapTiler no tenía el marcador `{r}`, y con `retinaMode` flutter_map simulaba el modo retina pidiendo **cuatro teselas por casilla**. Ahora se piden teselas de 256 px con `{r}` (versión `@2x` del servidor): una petición por casilla.
+3. **Fallback Transparente a Fuentes Abiertas:**
+   - Si una tesela de MapTiler falla (error de red o HTTP, incluidos `429` y `403`), flutter_map pide esa tesela a:
+     - CARTO (`light_all` / `dark_all`) para el mapa de calles, o
+     - Esri World Imagery para el satelital.
+   - El piloto con Serrano no se detiene por agotamiento de cuota.
 
 ---
 
@@ -148,16 +149,14 @@ flowchart LR
     ExtGeo --> ResExt["Retorna Dirección Geocodificada"]
 ```
 
-1. **Catálogo Local de POIs de Quilpué (`poi_catalog_quilpue.json`):**
-   - Diccionario pre-cargado en la app con los 40 puntos estratégicos de Quilpué:
+1. **Catálogo Local de POIs de Quilpué (`lib/data/quilpue_pois.dart`):**
+   - Catálogo incluido en la app con **26 puntos** de Quilpué (búsqueda sin tildes ni orden de palabras):
      - Supermercados: Líder Belloto, Santa Isabel Freire, Unimarc Blanco.
      - Salud: Hospital de Quilpué, CESFAM Aviador Acevedo, Policlínico Pompeya.
      - Educación: Colegio Aconcagua, Liceo Guillermo Gronemeyer, Duoc UC.
      - Hitos urbanos: Plaza de Armas, Plaza Vieja, Estaciones EFE (Quilpué, El Sol, Belloto).
-   - Respuesta instantánea (0 ms) con ícono distintivo (`store`, `local_hospital`, `school`).
-2. **Geocodificador Abierto Photon (OpenStreetMap):**
-   - Indexa tags como `amenity`, `leisure`, `shop` y `building`.
-   - Consulta gratuita y abierta sin consumo de cuota de MapTiler.
+   - Respuesta instantánea con un ícono destacado (`Icons.stars_rounded`). Íconos por tipo de lugar: **(propuesto, pendiente)**.
+2. **Geocodificación remota:** si faltan resultados locales se consulta MapTiler, y **Photon (OpenStreetMap)** como respaldo cuando MapTiler falla, ambos acotados a la Quinta Región.
 
 ---
 
@@ -165,7 +164,9 @@ flowchart LR
 
 Transportes Serrano opera con múltiples terminales en la comuna (Garita Cumming, Las Rosas, Belloto 2000). El sistema debe reflejar esta estructura organizativa sin mezclar los datos operativos entre garitas, pero ofreciendo una consola unificada para la gerencia.
 
-### 6.1. Modelo de Jerarquía en Firestore
+> **Estado:** lo implementado es una colección plana `garitas` y el campo `garitaId` en usuarios, paraderos y recorridos, con dos roles (`colectivero`, `administrador`). La jerarquía `empresas/…`, los roles `admin_garita` y `super_admin` y las llaves de acceso simplificadas de §6.3 son **(propuesto, pendiente)**. La consola de flota ya filtra por garita (§3.7 de la arquitectura).
+
+### 6.1. Modelo de Jerarquía en Firestore **(propuesto, pendiente)**
 
 ```
 empresas/transportes_serrano
@@ -192,7 +193,10 @@ empresas/transportes_serrano
    - Posee `empresaId: 'transportes_serrano'` con vista global.
    - En su pantalla de control dispone de un selector: `[ Ver Toda la Flota | Cumming | Las Rosas | Belloto 2000 ]`.
 
-### 6.3. Sistema de Llaves de Acceso Simplificado (Onboarding sin Fricción)
+### 6.3. Sistema de Llaves de Acceso Simplificado (Onboarding sin Fricción) **(propuesto, pendiente)**
+
+Hoy el chofer se registra con su nombre, su patente, una contraseña y el código de garita.
+
 Para choferes e inspectores con baja alfabetización digital:
 1. El inspector presiona **"Crear Llave de Acceso"** en su panel y digita la patente (ej. `BXZR-88`).
 2. La app genera un código simple de 6 caracteres (ej. `SR-4819`).
@@ -205,23 +209,23 @@ Para choferes e inspectores con baja alfabetización digital:
 
 ### 7.1. Filtrado de Visualización por Radio de Cercanía
 Para no abrumar al pasajero con decenas de marcadores en comunas lejanas:
-- El cliente móvil aplica un filtro espacial sobre el stream de Realtime Database: sólo se renderizan vehículos situados en un radio de **3.5 km** respecto a la posición actual del usuario o dentro del cuadrante visible de la pantalla.
-- Al tocar un colectivo específico, se despliega una tarjeta de detalle y **se ilumina en el mapa el trazado completo del recorrido que está cubriendo**.
+- El cliente móvil aplica un filtro espacial: con más de 4 unidades en servicio, sólo se dibujan las que están a **6 km** o menos de la posición del usuario (o del centro de Quilpué si no hay posición). El filtro por cuadrante visible: **(propuesto, pendiente)**.
+- Al tocar un colectivo se despliega una tarjeta de detalle y **se ilumina en el mapa el trazado del recorrido que está cubriendo**, si el chofer lo eligió en su pantalla de turno.
 
 ### 7.2. Persistencia Ininterrumpida del Turno
-- **Eliminación del borrado abrupto en `onDisconnect`:** En vez de `onDisconnect().remove()`, el nodo del colectivo permanece en la base de datos con un campo `conectado: false` o estado atenuado durante un periodo de gracia de **3 minutos**.
-- Si el colectivo cruza un túnel, una zona de sombra en los cerros de Quilpué o la red conmuta entre antenas 3G/4G, el vehículo **no desaparece del mapa**, sino que el marcador se muestra semi-transparente indicando *"Última señal hace X segundos"*.
+- **Eliminación del borrado abrupto en `onDisconnect`:** en vez de `onDisconnect().remove()`, el servidor marca el nodo con `conectado: false` cuando detecta la desconexión, y la unidad sigue visible durante un periodo de gracia de **3 minutos**.
+- Si el colectivo cruza un túnel o una zona de sombra, el vehículo **no desaparece del mapa**: con `conectado: false` o tras 45 s sin posición, el marcador se muestra atenuado y la tarjeta indica *"Última señal hace X"*.
 
 ### 7.3. Protección contra el Low Memory Killer (OOM) en Android
 Los choferes de la locomoción colectiva suelen utilizar smartphones de gama de entrada con 2 GB o 3 GB de memoria RAM. Cuando el chofer bloquea la pantalla o recibe una llamada, Android puede terminar el proceso de ColeTotal para liberar memoria.
 
-**Estrategia de Blindaje Implementada:**
-1. **Foreground Service con Notificación Continua:**
-   - La notificación `notificationText: 'Transmitiendo tu posición a los pasajeros'` posee prioridad `PRIORITY_HIGH` y bandera `ongoing: true`, elevando el proceso a categoría de primer plano ante el kernel de Linux.
-2. **Exención de Optimización de Batería:**
-   - Al iniciar turno por primera vez, la app solicita al conductor la exención de ahorro de batería (`ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS`), impidiendo que el fabricante (Xiaomi MIUI, Samsung OneUI) congele el hilo de GPS.
-3. **Frecuencia Adaptativa:**
-   - Si el vehículo se encuentra detenido en un semáforo o en la garita (velocidad < 2 km/h), el intervalo de actualización satelital se reduce de 3 segundos a 10 segundos, disminuyendo el consumo de energía en un 60% y evitando que el sistema operativo califique la app como abusiva.
+**Estrategia de Blindaje:**
+1. **Foreground Service con Notificación Continua (implementado):**
+   - Durante el turno el GPS corre en un servicio en primer plano con notificación fija ("ColeTotal — en servicio") y wake lock. La auditoría de octubre encontró que esta configuración no se aplicaba (el mapa abría antes su propio stream y el plugin ignoraba la del turno); se corrigió con un único dueño del GPS (`LocationService`).
+2. **Exención de Optimización de Batería** **(propuesto, pendiente)**:
+   - Solicitar al conductor la exención de ahorro de batería (`ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS`) para que el fabricante (Xiaomi MIUI, Samsung OneUI) no congele el GPS.
+3. **Frecuencia Adaptativa** **(propuesto, pendiente)**:
+   - Con el vehículo detenido (velocidad < 2 km/h), subir el intervalo de 3 a 10 segundos para ahorrar batería.
 
 ---
 
@@ -229,9 +233,10 @@ Los choferes de la locomoción colectiva suelen utilizar smartphones de gama de 
 
 | Paso | Acción Técnica | Componentes Afectados |
 | :---: | :--- | :--- |
-| **1** | Actualizar etiqueta de versión en `pubspec.yaml` a `0.4.3+3` y documentar changelog. | `pubspec.yaml` |
-| **2** | Implementar `flutter_map_cache` y fallback a OSM en `lib/config/map_config.dart`. | `map_config.dart`, `TileLayer` |
-| **3** | Integrar catálogo de POIs de Quilpué y búsqueda híbrida en `GeocodingService`. | `geocoding_service.dart`, `poi_catalog.dart` |
-| **4** | Refactorizar `FirebaseTelemetriaService` para eliminar el parpadeo de `onDisconnect` y añadir `recorridoId`. | `firebase_telemetria_service.dart`, `colectivo_activo.dart` |
-| **5** | Implementar `SessionLogger` con almacenamiento local y sincronización por lotes. | `session_log_service.dart` |
-| **6** | Implementar diálogo emergente (In-App OTA Update) contra Firestore. | `update_service.dart`, `update_dialog.dart` |
+| **1** | Versión en `pubspec.yaml` (`0.4.3+4`), leída por la app desde el APK. ✅ | `pubspec.yaml`, `app_version.dart` |
+| **2** | Caché de teselas (integrada en flutter_map 8), retina con `{r}` y respaldo CARTO/Esri. ✅ | `map_config.dart`, `app_tile_layer.dart` |
+| **3** | Catálogo de POIs de Quilpué y búsqueda híbrida en `GeocodingService`. ✅ | `geocoding_service.dart`, `quilpue_pois.dart` |
+| **4** | Telemetría con presencia (`conectado`), `recorridoId` elegido por el chofer y GPS en primer plano. ✅ | `firebase_telemetria_service.dart`, `location_service.dart`, `turno_screen.dart` |
+| **5** | Auditoría de turnos con almacenamiento local, tope de eventos y recuperación tras cierre. ✅ | `session_log_service.dart` |
+| **6** | Diálogo de actualización (In-App OTA Update) contra Firestore. ✅ | `app_update_service.dart`, `app_update_dialog.dart` |
+| **7** | Crashlytics, exención de batería y frecuencia adaptativa. (propuesto, pendiente) | — |

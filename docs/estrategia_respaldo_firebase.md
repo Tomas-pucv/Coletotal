@@ -8,6 +8,9 @@
 
 ---
 
+> [!NOTE]
+> **Estado de implementación (revisado el 5 de octubre de 2026).** Implementado: el script de respaldo `scripts/backup_coletotal.js` (§3.2), la caché offline de Firestore y la semilla local de paraderos (§6), y la auditoría de turnos en `garitas/{garitaId}/auditoria_turnos` (§4.1). Lo demás de este documento es **propuesta, todavía no implementada**, y va marcado así.
+
 ## 1. Introducción y Justificación ante la Comisión
 
 Durante la defensa de avance del proyecto de título, la comisión evaluadora formuló una observación de ingeniería fundamental sobre la arquitectura de persistencia:
@@ -49,7 +52,7 @@ Para garantizar la **portabilidad absoluta** y evitar formatos binarios cerrados
 2. **GeoJSON Estándar (RFC 7946):** Para la red de paraderos georreferenciados. Este formato permite abrir los datos directamente en herramientas GIS de escritorio (QGIS, ArcGIS) o importarlos en motores espaciales como **PostgreSQL con extensión PostGIS**.
 
 ### 3.2. Herramienta Ejecutable de Respaldo Local (`backup_coletotal.js`)
-Se implementó un script en Node.js que interactúa con la REST API de Google Cloud Firestore mediante tokens de administración, descargando de forma íntegra las colecciones a un directorio local con marca de tiempo:
+Se implementó un script en Node.js que interactúa con la REST API de Google Cloud Firestore mediante la sesión de Firebase CLI (`firebase login`), descargando de forma íntegra (con paginación) las colecciones a un directorio local con marca de tiempo:
 
 ```
 backups/backup_2026-09-30T02-28-33/
@@ -60,11 +63,13 @@ backups/backup_2026-09-30T02-28-33/
 ├── paraderos.json           # Lista de paraderos en JSON
 ├── paraderos.geojson        # Puntos vectoriales espaciales RFC 7946
 ├── recorridos.json          # Las 7 líneas con sus paraderos ordenados
+├── config.json              # Versión publicada para la actualización OTA
+├── auditoria_turnos.json    # Auditoría de turnos, agrupada por garita
 └── colectivos_activos.json  # Snapshot de vehículos en servicio
 ```
 
-### 3.3. Botón de Exportación en el Panel de Garita
-Para que la administración de Transportes Serrano posea control autónomo sin depender de desarrolladores, el panel web/móvil de Garita incluye la acción **"Exportar Datos de Línea"**, que descarga un archivo comprimido `.json` con la totalidad de sus recorridos y paraderos al almacenamiento local del equipo.
+### 3.3. Botón de Exportación en el Panel de Garita **(propuesto, pendiente)**
+Para que la administración de Transportes Serrano posea control autónomo sin depender de desarrolladores, se propone que el panel de Garita incluya la acción **"Exportar Datos de Línea"**, que descarga un archivo comprimido `.json` con la totalidad de sus recorridos y paraderos al almacenamiento local del equipo.
 
 ---
 
@@ -75,6 +80,8 @@ Un respaldo tradicional de una base de datos en tiempo real resulta ineficiente:
 La solución de ingeniería implementada aborda la telemetría en dos fases:
 
 ### 4.1. Bitácora Consolidada al Cierre de Turno (*Turn Summary Logging*)
+
+**Implementado:** al terminar el turno se sube un documento con los eventos de la jornada (inicio y fin, pérdidas de GPS y de señal, cambios de capacidad y de recorrido) a `garitas/{garitaId}/auditoria_turnos/{sessionId}`. Si la app se cierra a mitad del turno, se recupera y se sube en el siguiente inicio. **Propuesto, pendiente:** el resumen calculado (tiempo en cada estado de capacidad, distancia recorrida) y la colección `turnos_historicos` que se describen a continuación.
 Mientras el colectivo circula, las coordenadas viajan únicamente por WebSockets hacia Realtime Database (efímero, latencia < 300 ms, costo $0). 
 
 Cuando el conductor presiona **"Finalizar Turno"**:
@@ -84,18 +91,20 @@ Cuando el conductor presiona **"Finalizar Turno"**:
   * Distancia total recorrida estimada sobre el trazado.
 * Este resumen se almacena como un registro permanente en la colección `turnos_historicos` de Firestore o en un archivo local de auditoría.
 
-### 4.2. Sifón Local en la Garita (*Local Telemetry Siphon*)
+### 4.2. Sifón Local en la Garita (*Local Telemetry Siphon*) **(propuesto, pendiente)**
 Como el computador de la Garita mantiene abierta la pantalla de supervisión de flota, un proceso en segundo plano almacena en un archivo `.csv` local las emisiones de los colectivos activos. 
 
 Esto entrega un registro histórico continuo para responder reclamos de usuarios o fiscalizaciones del Ministerio de Transportes (MTT) con costo de infraestructura cero.
 
 ---
 
-## 5. Propuesta 3: Desacoplamiento de Software (Patrón Repositorio en Flutter)
+## 5. Propuesta 3: Desacoplamiento de Software (Patrón Repositorio en Flutter) **(propuesto, pendiente)**
+
+> Hoy los servicios (`StopsService`, `RecorridosService`, `GaritaService`, etc.) usan directamente los SDK de Firebase. Lo que sigue es el diseño propuesto para desacoplarlos.
 
 Para eliminar el *Vendor Lock-in* a nivel de código fuente, la aplicación no debe acoplarse directamente a los SDKs de Firebase (`FirebaseFirestore.instance`).
 
-Se formaliza la adopción del **Patrón Repositorio (*Repository Pattern*)** mediante contratos e interfaces abstractas en Dart:
+Se propone adoptar el **Patrón Repositorio (*Repository Pattern*)** mediante contratos e interfaces abstractas en Dart:
 
 ```dart
 // 1. Contrato abstracto puro (agnóstico de la nube)
@@ -124,7 +133,7 @@ class SupabaseStopsRepository implements IStopsRepository {
 ```
 
 ### Impacto Arquitectónico:
-La lógica de negocio (`StopsService`) y las pantallas de Flutter interactúan únicamente con `IStopsRepository`. Si la empresa decide migrar a **Supabase, CouchDB o un servidor PostgreSQL propio**, solo se reemplaza la clase repositorio concreta en la inicialización sin tocar una sola línea de la interfaz de usuario ni de los algoritmos de recomendación.
+Con este patrón, la lógica de negocio (`StopsService`) y las pantallas de Flutter interactuarían únicamente con `IStopsRepository`. Si la empresa decide migrar a **Supabase, CouchDB o un servidor PostgreSQL propio**, solo se reemplaza la clase repositorio concreta en la inicialización sin tocar una sola línea de la interfaz de usuario ni de los algoritmos de recomendación.
 
 ---
 
@@ -139,7 +148,7 @@ Se establecen las métricas operacionales de continuidad de negocio:
 
 ### Procedimiento Operativo de Emergencia (SOP):
 1. **Detección:** Caída mayor reportada en la región `us-central1` de Google Cloud.
-2. **Modo Autónomo Local (Cero Interrupción para el Pasajero):** Los usuarios siguen consultando paraderos y trazados gracias a la **semilla síncrona en memoria y la caché SQLite en disco** del dispositivo (OE2).
+2. **Modo Autónomo Local (Cero Interrupción para el Pasajero):** Los usuarios siguen consultando paraderos y trazados gracias a la **semilla síncrona en memoria y la caché offline de Firestore en disco** del dispositivo (OE2).
 3. **Restauración:** Ejecución del script de inyección sobre la base de datos de contingencia (ej. Supabase) y actualización del puntero en el repositorio abstracto.
 
 ---
@@ -151,5 +160,5 @@ Si el profesor **Francisco Ponce** o la profesora **Claudia Vasconcellos** inter
 > *"Profesor, abordamos su observación de manera integral en tres niveles:*
 >
 > 1. *En la **Soberanía de Datos**, garantizamos que Transportes Serrano no sea cautivo de Google. Diseñamos un mecanismo de extracción periódica que convierte paraderos y recorridos a formatos abiertos estándar (JSON y GeoJSON espacial RFC 7946), permitiendo migrar la infraestructura a cualquier base de datos relacional en menos de media hora.*
-> 2. *En la **Telemetría**, distinguimos la coordinación efímera del segundo a segundo respecto a la auditoría histórica. Al cerrar turno, se consolida una bitácora operacional en almacenamiento persistente, evitando sobrecostos de almacenamiento sin perder trazabilidad.*
-> 3. *En la **Arquitectura de Software**, implementamos el Patrón Repositorio en Flutter, desacoplando los widgets de los SDKs de Firebase. Si la línea decide cambiar de proveedor cloud, la aplicación está preparada para intercambiar adaptadores sin alterar su lógica ni su diseño."*
+> 2. *En la **Telemetría**, distinguimos la coordinación efímera del segundo a segundo respecto a la auditoría histórica. Al cerrar turno se guarda la bitácora de incidencias de la jornada en Firestore, sin almacenar cada coordenada.*
+> 3. *En la **Arquitectura de Software**, la lógica de acceso a datos ya está concentrada en servicios, fuera de las pantallas, y dejamos diseñado el Patrón Repositorio para desacoplar esos servicios de los SDK de Firebase: es el siguiente paso si la línea decide cambiar de proveedor cloud."*

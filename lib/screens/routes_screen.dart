@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
-import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 
 import 'package:taxi1/l10n/app_localizations.dart';
 import 'package:taxi1/models/bus_stop.dart';
 import 'package:taxi1/screens/main_screen.dart';
+import 'package:taxi1/services/location_service.dart';
 import 'package:taxi1/services/route_service.dart';
 import 'package:taxi1/services/stop_history_service.dart';
 import 'package:taxi1/services/stops_service.dart';
@@ -13,19 +13,11 @@ import 'package:taxi1/theme/app_spacing.dart';
 import 'package:taxi1/theme/breakpoints.dart';
 import 'package:taxi1/utils/distance_format.dart';
 import 'package:taxi1/utils/route_error.dart';
+import 'package:taxi1/utils/text_search.dart';
 import 'package:taxi1/widgets/metric_chip.dart';
 import 'package:taxi1/widgets/paradero_sheet.dart';
 import 'package:taxi1/widgets/settings_section.dart';
 import 'package:taxi1/widgets/state_views.dart';
-
-/// Resultado de intentar obtener la ubicación del usuario.
-enum _LocationState {
-  loading,
-  ready,
-  serviceDisabled,
-  permissionDenied,
-  failed,
-}
 
 /// Cómo se ordena la lista de paraderos.
 ///
@@ -41,16 +33,20 @@ class RoutesScreen extends StatefulWidget {
 }
 
 class _RoutesScreenState extends State<RoutesScreen> {
-  LatLng? _currentPosition;
-  _LocationState _locationState = _LocationState.loading;
+  /// Cuánto hay que moverse para volver a ordenar la lista. Reordenar con
+  /// cada punto del GPS haría saltar las filas bajo el dedo del usuario.
+  static const double _metrosParaReordenar = 50;
+
   bool _fetchingRoute = false;
   List<BusStop> _sortedStops = [];
+  LatLng? _sortedFrom;
   String _searchQuery = '';
   _SortMode _sortMode = _SortMode.cercanos;
 
   final routeService = RouteService.instance;
   final history = StopHistoryService.instance;
   final stopsService = StopsService.instance;
+  final location = LocationService.instance;
   final _searchController = TextEditingController();
 
   @override
@@ -60,16 +56,21 @@ class _RoutesScreenState extends State<RoutesScreen> {
     history.addListener(_onChanged);
     // Los paraderos son datos vivos: el administrador puede agregar o dar de
     // baja uno mientras esta pantalla está abierta.
-    stopsService.addListener(_onStopsChanged);
-    history.load();
-    _initLocation();
+    stopsService.addListener(_resort);
+    // La posición también: antes se pedía una sola vez al abrir la app, así que
+    // tras caminar unas cuadras "Cercanos" seguía ordenado desde el punto de
+    // partida. Y mientras esa única lectura llegaba (en interiores, decenas de
+    // segundos), un spinner a pantalla completa tapaba la lista entera.
+    location.addListener(_onLocationChanged);
+    _sortedStops = _sortStops(stopsService.stops);
   }
 
   @override
   void dispose() {
     routeService.removeListener(_onChanged);
     history.removeListener(_onChanged);
-    stopsService.removeListener(_onStopsChanged);
+    stopsService.removeListener(_resort);
+    location.removeListener(_onLocationChanged);
     _searchController.dispose();
     super.dispose();
   }
@@ -78,84 +79,41 @@ class _RoutesScreenState extends State<RoutesScreen> {
     if (mounted) setState(() {});
   }
 
-  Future<void> _initLocation() async {
-    // Los paraderos se muestran igual aunque no haya GPS: StopsService ya trae
-    // la semilla local aunque Firestore todavía no haya respondido.
-    // Lo que cambia es que sin posición no se puede afirmar cercanía, y antes
-    // la pantalla resolvía eso poniendo `0.0` metros, con lo que *todos* los
-    // paraderos aparecían como "0 m — Muy cerca".
-    _sortedStops = _sortStops(stopsService.stops);
-
-    // Todo el bloque va en try/catch: en plataformas donde geolocator no está
-    // implementado (Windows, web) la primera llamada lanza y, sin esto, el
-    // estado se quedaba en `loading` para siempre — un spinner infinito.
-    try {
-      if (!await Geolocator.isLocationServiceEnabled()) {
-        return _finishLocation(_LocationState.serviceDisabled);
-      }
-
-      var permission = await Geolocator.checkPermission();
-      if (permission == LocationPermission.denied) {
-        permission = await Geolocator.requestPermission();
-      }
-      if (permission == LocationPermission.denied ||
-          permission == LocationPermission.deniedForever) {
-        return _finishLocation(_LocationState.permissionDenied);
-      }
-
-      final position = await Geolocator.getCurrentPosition(
-        locationSettings: const LocationSettings(
-          accuracy: LocationAccuracy.high,
-        ),
-      );
-      final lat = position.latitude;
-      final lng = position.longitude;
-      // Filtrar posiciones inválidas (NaN o 0,0 — común en emuladores).
-      if (!lat.isFinite || !lng.isFinite || (lat == 0.0 && lng == 0.0)) {
-        return _finishLocation(_LocationState.failed);
-      }
-
-      _currentPosition = LatLng(lat, lng);
-      routeService.setOrigin(_currentPosition!);
-      _sortedStops = _sortStops(stopsService.stops);
-      _finishLocation(_LocationState.ready);
-    } catch (_) {
-      _finishLocation(_LocationState.failed);
+  void _onLocationChanged() {
+    final position = location.position;
+    final from = _sortedFrom;
+    final moved =
+        position != null &&
+        (from == null ||
+            const Distance().as(LengthUnit.Meter, from, position) >
+                _metrosParaReordenar);
+    if (moved) {
+      _resort();
+    } else if (mounted) {
+      // Igual hay que redibujar: cambian las distancias y el aviso de GPS.
+      setState(() {});
     }
   }
 
-  /// Copia la lista y la ordena por cercanía si hay posición conocida.
-  ///
-  /// Antes esto se hacía una sola vez, sobre una constante. Con los paraderos
-  /// viniendo de Firestore la lista cambia mientras la pantalla está abierta,
-  /// así que ordenar tiene que ser una función y no un efecto secundario del
-  /// arranque: si no, un paradero recién creado por el administrador no
-  /// aparecería hasta reabrir la pestaña.
-  List<BusStop> _sortStops(List<BusStop> source) {
-    final sorted = List.of(source);
-    final position = _currentPosition;
-    if (position != null) {
-      sorted.sort(
-        (a, b) =>
-            a.distanceFrom(position).compareTo(b.distanceFrom(position)),
-      );
-    }
-    return sorted;
-  }
-
-  void _onStopsChanged() {
+  void _resort() {
     if (!mounted) return;
     setState(() => _sortedStops = _sortStops(stopsService.stops));
   }
 
-  void _finishLocation(_LocationState state) {
-    if (!mounted) return;
-    setState(() => _locationState = state);
-  }
-
-  Future<void> _retryLocation() async {
-    setState(() => _locationState = _LocationState.loading);
-    await _initLocation();
+  /// Copia la lista y la ordena por cercanía si hay posición conocida.
+  ///
+  /// Ordenar es una función y no un efecto secundario del arranque: los
+  /// paraderos y la posición cambian mientras la pantalla está abierta.
+  List<BusStop> _sortStops(List<BusStop> source) {
+    final sorted = List.of(source);
+    final position = location.position;
+    _sortedFrom = position;
+    if (position != null) {
+      sorted.sort(
+        (a, b) => a.distanceFrom(position).compareTo(b.distanceFrom(position)),
+      );
+    }
+    return sorted;
   }
 
   /// Selección + cálculo de ruta + cambio de tab al mapa.
@@ -163,23 +121,15 @@ class _RoutesScreenState extends State<RoutesScreen> {
     if (_fetchingRoute) return;
     final l10n = AppLocalizations.of(context)!;
 
-    if (_currentPosition != null) {
-      routeService.setOrigin(_currentPosition!);
-    }
-    routeService.setDestination(stop);
-
-    final origin = routeService.origin;
-    if (origin == null ||
-        !origin.latitude.isFinite ||
-        !origin.longitude.isFinite) {
-      routeService.clearDestination();
-      if (!mounted) return;
+    final origin = location.position;
+    if (origin == null) {
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text(l10n.locationUnavailable)));
       return;
     }
 
+    routeService.setDestination(stop);
     setState(() => _fetchingRoute = true);
     final ok = await routeService.fetchRoute(origin, stop);
     if (!mounted) return;
@@ -202,25 +152,23 @@ class _RoutesScreenState extends State<RoutesScreen> {
   /// La lista según el orden elegido, ya filtrada por el buscador.
   ///
   /// Buscar por texto ignora el modo a propósito: si el usuario escribe un
-  /// nombre, quiere ese paradero, no los que ha visitado antes.
+  /// nombre, quiere ese paradero, no los que ha visitado antes. La búsqueda no
+  /// distingue tildes ni el orden de las palabras.
   List<BusStop> get _filteredStops {
     final base = _sortMode == _SortMode.recientes && _searchQuery.isEmpty
         ? history.recentStops
         : _sortedStops;
 
     if (_searchQuery.isEmpty) return base;
-    final q = _searchQuery.toLowerCase();
     return base
-        .where(
-          (s) =>
-              s.name.toLowerCase().contains(q) ||
-              s.address.toLowerCase().contains(q),
-        )
+        .where((s) => matchesAllTokens(_searchQuery, [s.name, s.address]))
         .toList();
   }
 
-  double? _metersTo(BusStop stop) =>
-      _currentPosition == null ? null : stop.distanceFrom(_currentPosition!);
+  double? _metersTo(BusStop stop) {
+    final position = location.position;
+    return position == null ? null : stop.distanceFrom(position);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -273,12 +221,7 @@ class _RoutesScreenState extends State<RoutesScreen> {
                         ),
                       ),
 
-                    if (_locationState == _LocationState.loading)
-                      SliverFillRemaining(
-                        hasScrollBody: false,
-                        child: LoadingView(message: l10n.searchingLocation),
-                      )
-                    else if (stops.isEmpty)
+                    if (stops.isEmpty)
                       SliverFillRemaining(
                         hasScrollBody: false,
                         // "Sin resultados para ''" no significaba nada cuando la
@@ -352,7 +295,7 @@ class _RoutesScreenState extends State<RoutesScreen> {
 
   Widget _header(AppLocalizations l10n) {
     // Ambos campos heredan radio, relleno y bordes del `inputDecorationTheme`.
-    // Antes uno tenía radio 4 y el otro 12, con rellenos distintos.
+    final position = location.position;
     return Padding(
       padding: const EdgeInsets.fromLTRB(
         AppSpacing.lg,
@@ -368,10 +311,10 @@ class _RoutesScreenState extends State<RoutesScreen> {
             decoration: InputDecoration(
               labelText: l10n.originLabel,
               prefixIcon: const Icon(Icons.my_location),
-              hintText: _currentPosition != null
+              hintText: position != null
                   ? l10n.coordsLabel(
-                      _currentPosition!.latitude.toStringAsFixed(5),
-                      _currentPosition!.longitude.toStringAsFixed(5),
+                      position.latitude.toStringAsFixed(5),
+                      position.longitude.toStringAsFixed(5),
                     )
                   : l10n.searchingLocation,
             ),
@@ -394,7 +337,7 @@ class _RoutesScreenState extends State<RoutesScreen> {
                       },
                     ),
             ),
-            onChanged: (value) => setState(() => _searchQuery = value),
+            onChanged: (value) => setState(() => _searchQuery = value.trim()),
           ),
 
           // Con una búsqueda activa el orden no se aplica (manda el texto), así
@@ -427,26 +370,39 @@ class _RoutesScreenState extends State<RoutesScreen> {
   /// Aviso en línea cuando no hay posición: la lista sigue siendo útil, pero el
   /// usuario tiene que saber por qué no está ordenada por cercanía.
   Widget? _locationNotice(AppLocalizations l10n) {
-    final message = switch (_locationState) {
-      _LocationState.serviceDisabled => l10n.locationOffMessage,
-      _LocationState.permissionDenied => l10n.locationDeniedMessage,
-      _LocationState.failed => l10n.enableLocationForSorting,
-      _ => null,
+    return switch (location.issue) {
+      LocationIssue.serviceDisabled => InlineNotice(
+        icon: Icons.location_off_outlined,
+        message: l10n.locationOffMessage,
+        actionLabel: l10n.openSettings,
+        onAction: location.openLocationSettings,
+      ),
+      LocationIssue.denied => InlineNotice(
+        icon: Icons.lock_outline,
+        message: l10n.locationDeniedMessage,
+        actionLabel: l10n.openSettings,
+        onAction: location.openAppSettings,
+      ),
+      LocationIssue.disabledByPreference => InlineNotice(
+        icon: Icons.location_disabled,
+        message: l10n.enableLocationForSorting,
+        actionLabel: l10n.preferencesTitle,
+        onAction: () =>
+            MainNavigationController.instance.openPreferences(context),
+      ),
+      LocationIssue.none when location.position == null => InlineNotice(
+        icon: Icons.location_searching,
+        message: l10n.searchingLocation,
+        tone: StatusTone.neutral,
+      ),
+      LocationIssue.none => null,
     };
-    if (message == null) return null;
-
-    return InlineNotice(
-      icon: Icons.location_off_outlined,
-      message: message,
-      actionLabel: l10n.retry,
-      onAction: _retryLocation,
-    );
   }
 
   Widget _nearestStopButton(AppLocalizations l10n) {
     // Sin posición no existe "el más cercano": la lista está sin ordenar y el
     // botón elegiría un paradero arbitrario.
-    if (_currentPosition == null || _sortedStops.isEmpty) {
+    if (location.position == null || _sortedStops.isEmpty) {
       return const SizedBox.shrink();
     }
 

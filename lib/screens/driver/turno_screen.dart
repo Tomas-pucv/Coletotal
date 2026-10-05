@@ -1,14 +1,18 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import 'package:taxi1/l10n/app_localizations.dart';
 import 'package:taxi1/models/app_user.dart';
 import 'package:taxi1/models/colectivo_activo.dart';
+import 'package:taxi1/models/recorrido.dart';
 import 'package:taxi1/screens/main_screen.dart';
 import 'package:taxi1/services/auth_service.dart';
 import 'package:taxi1/services/turno_service.dart';
 import 'package:taxi1/theme/app_colors.dart';
 import 'package:taxi1/theme/app_spacing.dart';
 import 'package:taxi1/theme/breakpoints.dart';
+import 'package:taxi1/utils/distance_format.dart';
 import 'package:taxi1/utils/patente.dart';
 import 'package:taxi1/widgets/settings_section.dart';
 import 'package:taxi1/widgets/state_views.dart';
@@ -16,10 +20,10 @@ import 'package:taxi1/widgets/state_views.dart';
 /// Pantalla de jornada del colectivero — el "módulo conductor" del informe
 /// (§7.3.1-A).
 ///
-/// Dos controles y nada más, porque quien la usa está manejando: un interruptor
-/// grande de turno y un selector de capacidad de un solo toque. Todo lo demás
-/// es información de confirmación, para que el chofer sepa sin dudar si está
-/// transmitiendo o no.
+/// Pocos controles, porque quien la usa está manejando: un interruptor grande
+/// de turno, el recorrido que cubre y un selector de capacidad de un solo
+/// toque. Todo lo demás es información de confirmación, para que el chofer
+/// sepa sin dudar si está transmitiendo o no.
 class TurnoScreen extends StatefulWidget {
   const TurnoScreen({super.key});
 
@@ -79,6 +83,8 @@ class _TurnoScreenState extends State<TurnoScreen> {
                   children: [
                     const SizedBox(height: AppSpacing.md),
                     _turnoCard(l10n),
+                    const SizedBox(height: AppSpacing.xl),
+                    _recorridoSection(l10n),
                     const SizedBox(height: AppSpacing.xl),
                     if (_turno.enTurno) ...[
                       _capacitySection(l10n),
@@ -184,20 +190,111 @@ class _TurnoScreenState extends State<TurnoScreen> {
 
               if (activo) ...[
                 const SizedBox(height: AppSpacing.md),
-                Text(
-                  _turno.ultimoEnvio == null
-                      ? l10n.turnoNoSignal
-                      : l10n.turnoLastSent(_formatHora(_turno.ultimoEnvio!)),
-                  style: theme.textTheme.labelSmall?.copyWith(
-                    color: scheme.onPrimaryContainer,
-                  ),
-                ),
+                _UltimoEnvioLabel(color: scheme.onPrimaryContainer),
               ],
             ],
           ),
         ),
       ),
     );
+  }
+
+  /// La línea que se está cubriendo. Es lo que ve el pasajero al tocar el
+  /// colectivo en el mapa: su trazado se ilumina. Antes no había dónde
+  /// elegirla y esa función del mapa nunca se activaba.
+  Widget _recorridoSection(AppLocalizations l10n) {
+    final theme = Theme.of(context);
+    final recorrido = _turno.recorridoAsignado;
+    final opciones = _turno.recorridosDisponibles;
+
+    return SettingsSection(
+      icon: Icons.timeline_outlined,
+      title: l10n.turnoRoute,
+      children: [
+        Padding(
+          padding: AppSpacing.pageHorizontal,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Card(
+                child: ListTile(
+                  leading: CircleAvatar(
+                    backgroundColor: recorrido == null
+                        ? theme.colorScheme.surfaceContainerHighest
+                        : Color(recorrido.colorValue),
+                    child: Icon(
+                      recorrido == null ? Icons.block : Icons.timeline,
+                      color: recorrido == null
+                          ? theme.colorScheme.onSurfaceVariant
+                          : Colors.white,
+                      size: 20,
+                    ),
+                  ),
+                  title: Text(recorrido?.nombre ?? l10n.turnoRouteNone),
+                  trailing: const Icon(Icons.chevron_right),
+                  enabled: opciones.isNotEmpty,
+                  onTap: opciones.isEmpty ? null : () => _pickRecorrido(l10n),
+                ),
+              ),
+              const SizedBox(height: AppSpacing.sm),
+              Text(
+                opciones.isEmpty ? l10n.turnoRouteEmpty : l10n.turnoRouteHelp,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _pickRecorrido(AppLocalizations l10n) async {
+    final opciones = _turno.recorridosDisponibles;
+    final actual = _turno.recorridoAsignado;
+
+    final elegido = await showModalBottomSheet<_RecorridoChoice>(
+      context: context,
+      isScrollControlled: true,
+      builder: (context) => SafeArea(
+        child: ListView(
+          shrinkWrap: true,
+          children: [
+            Padding(
+              padding: const EdgeInsets.all(AppSpacing.lg),
+              child: Text(
+                l10n.turnoRoutePick,
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+            ),
+            ListTile(
+              leading: const Icon(Icons.block),
+              title: Text(l10n.turnoRouteNone),
+              selected: actual == null,
+              onTap: () => Navigator.pop(context, const _RecorridoChoice(null)),
+            ),
+            for (final r in opciones)
+              ListTile(
+                leading: CircleAvatar(
+                  radius: 14,
+                  backgroundColor: Color(r.colorValue),
+                ),
+                title: Text(r.nombre),
+                subtitle: Text(
+                  l10n.routeStopCount('${r.paraderoIds.length}'),
+                ),
+                selected: actual?.id == r.id,
+                onTap: () => Navigator.pop(context, _RecorridoChoice(r)),
+              ),
+          ],
+        ),
+      ),
+    );
+
+    // `null` es cerrar la hoja sin elegir; "Sin recorrido" viene envuelto.
+    if (elegido == null) return;
+    await _turno.setRecorridoAsignado(elegido.recorrido);
   }
 
   /// Semaforización del informe §7.3.1-C.
@@ -287,11 +384,79 @@ class _TurnoScreenState extends State<TurnoScreen> {
     TurnoIssue.cuentaInactiva => l10n.turnoIssueInactive,
     TurnoIssue.ubicacionNoDisponible => l10n.turnoIssueLocation,
   };
+}
 
-  static String _formatHora(DateTime time) {
-    final h = time.hour.toString().padLeft(2, '0');
-    final m = time.minute.toString().padLeft(2, '0');
-    final s = time.second.toString().padLeft(2, '0');
-    return '$h:$m:$s';
+/// Lo que devuelve la hoja de recorridos. Envolverlo distingue "eligió Sin
+/// recorrido" (`recorrido` nulo) de "cerró la hoja" (la hoja devuelve `null`).
+class _RecorridoChoice {
+  const _RecorridoChoice(this.recorrido);
+  final Recorrido? recorrido;
+}
+
+/// "Última posición enviada hace X" y, sin conexión, el aviso de que se
+/// enviará al volver la señal.
+///
+/// Antes esta línea sólo se redibujaba cuando cambiaba algo del turno: el
+/// envío de posiciones no avisaba a nadie, así que mostraba siempre la misma
+/// hora (o "aún no se ha enviado") y el chofer no podía confirmar que estaba
+/// transmitiendo. Ahora escucha cada envío y avanza segundo a segundo.
+class _UltimoEnvioLabel extends StatefulWidget {
+  const _UltimoEnvioLabel({required this.color});
+
+  final Color color;
+
+  @override
+  State<_UltimoEnvioLabel> createState() => _UltimoEnvioLabelState();
+}
+
+class _UltimoEnvioLabelState extends State<_UltimoEnvioLabel> {
+  late final Timer _tick;
+
+  @override
+  void initState() {
+    super.initState();
+    _tick = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _tick.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final turno = TurnoService.instance;
+    final l10n = AppLocalizations.of(context)!;
+    final theme = Theme.of(context);
+
+    return ListenableBuilder(
+      listenable: Listenable.merge([turno.ultimoEnvio, turno.conectado]),
+      builder: (context, _) {
+        final ultimo = turno.ultimoEnvio.value;
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              ultimo == null
+                  ? l10n.turnoNoSignal
+                  : l10n.turnoLastSent(
+                      formatAgo(DateTime.now().difference(ultimo), l10n),
+                    ),
+              style: theme.textTheme.labelSmall?.copyWith(color: widget.color),
+            ),
+            if (!turno.conectado.value) ...[
+              const SizedBox(height: AppSpacing.sm),
+              InlineNotice(
+                icon: Icons.signal_cellular_connected_no_internet_0_bar,
+                message: l10n.turnoOffline,
+              ),
+            ],
+          ],
+        );
+      },
+    );
   }
 }

@@ -4,6 +4,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import 'package:taxi1/config/app_version.dart';
+
 class AppUpdateInfo {
   const AppUpdateInfo({
     required this.versionCode,
@@ -18,31 +20,48 @@ class AppUpdateInfo {
   final String versionName;
   final int minRequiredVersionCode;
   final String apkUrl;
+
+  /// Novedades de la versión. Vacío si el documento no las trae: el diálogo
+  /// pone entonces un texto genérico, traducido.
   final String changelog;
+
+  /// Marcada a mano como obligatoria en `config/app_version`.
   final bool mandatory;
 
-  factory AppUpdateInfo.fromMap(Map<String, dynamic> data) => AppUpdateInfo(
-    versionCode: (data['versionCode'] as num?)?.toInt() ?? 1,
-    versionName: (data['versionName'] as String?) ?? '0.4.3',
-    minRequiredVersionCode:
-        (data['minRequiredVersionCode'] as num?)?.toInt() ?? 1,
-    apkUrl: (data['apkUrl'] as String?) ?? '',
-    changelog:
-        (data['changelog'] as String?) ??
-        'Nueva versión con mejoras operacionales.',
-    mandatory: (data['esObligatoria'] as bool?) ?? false,
-  );
+  factory AppUpdateInfo.fromMap(Map<String, dynamic> data) {
+    final versionCode = (data['versionCode'] as num?)?.toInt() ?? 1;
+    return AppUpdateInfo(
+      versionCode: versionCode,
+      versionName: (data['versionName'] as String?) ?? '$versionCode',
+      minRequiredVersionCode:
+          (data['minRequiredVersionCode'] as num?)?.toInt() ?? 1,
+      apkUrl: (data['apkUrl'] as String?)?.trim() ?? '',
+      changelog: (data['changelog'] as String?)?.trim() ?? '',
+      mandatory: (data['esObligatoria'] as bool?) ?? false,
+    );
+  }
+
+  /// Si esta versión es más nueva que la instalada ([installedCode]).
+  bool isNewerThan(int installedCode) => versionCode > installedCode;
+
+  /// Si la versión instalada ya no puede seguir operando sin actualizar.
+  ///
+  /// `minRequiredVersionCode` se leía de Firestore y no se usaba: una versión
+  /// con un error grave no había forma de retirarla. Y una actualización
+  /// obligatoria **sin enlace** no se considera obligatoria: el diálogo no se
+  /// podría cerrar ni completar y dejaría la app inutilizable.
+  bool isMandatoryFor(int installedCode) =>
+      apkUrl.isNotEmpty && (mandatory || installedCode < minRequiredVersionCode);
 }
 
 /// Servicio que comprueba la versión remota contra Firestore y avisa
 /// de nuevas actualizaciones para descarga directa sin fricción (OTA).
+///
+/// La versión instalada sale de [AppVersion] (el `version:` del pubspec), ya
+/// no de constantes escritas a mano en este archivo.
 class AppUpdateService extends ChangeNotifier {
   AppUpdateService._();
   static final AppUpdateService instance = AppUpdateService._();
-
-  /// Versión actual instalada en el dispositivo (alineada con pubspec.yaml 0.4.3+4).
-  static const int currentVersionCode = 4;
-  static const String currentVersionName = '0.4.3.1';
 
   FirebaseFirestore get _db => FirebaseFirestore.instance;
 
@@ -51,10 +70,18 @@ class AppUpdateService extends ChangeNotifier {
   bool _dismissedThisSession = false;
 
   AppUpdateInfo? get availableUpdate => _availableUpdate;
+  bool get checking => _checking;
+
   bool get hasUpdate =>
-      _availableUpdate != null &&
-      _availableUpdate!.versionCode > currentVersionCode;
-  bool get shouldShowDialog => hasUpdate && !_dismissedThisSession;
+      _availableUpdate?.isNewerThan(AppVersion.code) ?? false;
+
+  bool get isMandatory =>
+      hasUpdate && _availableUpdate!.isMandatoryFor(AppVersion.code);
+
+  /// Una actualización obligatoria se vuelve a mostrar aunque se haya
+  /// postergado.
+  bool get shouldShowDialog =>
+      hasUpdate && (!_dismissedThisSession || isMandatory);
 
   void dismissForNow() {
     _dismissedThisSession = true;
@@ -65,30 +92,30 @@ class AppUpdateService extends ChangeNotifier {
   Future<void> checkForUpdates() async {
     if (_checking) return;
     _checking = true;
+    notifyListeners();
 
     try {
       final doc = await _db.collection('config').doc('app_version').get();
-      if (!doc.exists || doc.data() == null) {
-        _checking = false;
-        return;
-      }
-
-      final info = AppUpdateInfo.fromMap(doc.data()!);
-      if (info.versionCode > currentVersionCode) {
-        _availableUpdate = info;
-        notifyListeners();
+      final data = doc.data();
+      if (doc.exists && data != null) {
+        final info = AppUpdateInfo.fromMap(data);
+        _availableUpdate = info.isNewerThan(AppVersion.code) ? info : null;
       }
     } catch (e) {
       debugPrint('AppUpdateService: error al consultar actualización: $e');
     } finally {
       _checking = false;
+      notifyListeners();
     }
   }
 
-  /// Inicia la descarga del nuevo APK abriendo la URL directa de Firebase / GitHub.
+  /// Abre la URL directa del APK en el navegador.
+  ///
+  /// Sólo `https`: la URL viene de Firestore y abrir cualquier esquema que
+  /// llegara ahí sería confiar demasiado en un documento remoto.
   Future<bool> launchDownload(String apkUrl) async {
-    if (apkUrl.trim().isEmpty) return false;
-    final uri = Uri.parse(apkUrl);
+    final uri = Uri.tryParse(apkUrl.trim());
+    if (uri == null || uri.scheme != 'https' || uri.host.isEmpty) return false;
     try {
       return await launchUrl(uri, mode: LaunchMode.externalApplication);
     } catch (e) {

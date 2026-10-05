@@ -97,43 +97,53 @@ void main() {
   });
 
   group('migración del historial', () {
-    setUp(() async {
-      PreferencesService.instance.setHistoryEnabled(true);
-    });
+    final stops = StopsService.instance;
 
-    test('las entradas guardadas por nombre se convierten a ids', () async {
+    test('las entradas guardadas por nombre se convierten a ids', () {
       // Un teléfono que ya tenía la app guardó nombres. Al actualizar, ese
       // historial tiene que seguir significando algo.
-      SharedPreferences.setMockInitialValues({
-        'stop_history': ['Plaza de Armas', 'Belloto', 'Un paradero que ya no existe'],
-        'history_enabled': true,
-      });
-
-      final prefs = await SharedPreferences.getInstance();
-      // El servicio es singleton y otros tests ya lo cargaron, así que se
-      // ejercita la migración directamente sobre lo persistido.
-      final stored = prefs.getStringList('stop_history')!;
-      final migrated = <String>[];
-      for (final entry in stored) {
-        final byId = StopsService.instance.byId(entry);
-        if (byId != null) {
-          migrated.add(byId.id);
-          continue;
-        }
-        final byName = StopsService.instance.byName(entry);
-        if (byName != null) migrated.add(byName.id);
-      }
-
-      expect(migrated, ['seed-plaza-de-armas', 'seed-belloto']);
-      expect(
-        migrated,
-        isNot(contains('Un paradero que ya no existe')),
-        reason: 'lo que ya no resuelve se cae del historial en vez de romperlo',
+      final migrated = StopHistoryService.migrateHistory(
+        ['Plaza de Armas', 'Belloto'],
+        byId: stops.byId,
+        byName: stops.byName,
       );
+      expect(migrated, ['seed-plaza-de-armas', 'seed-belloto']);
+    });
+
+    test('un id que todavía no resuelve se conserva', () {
+      // Regresión: al arrancar sólo están cargados los paraderos semilla, así
+      // que los ids de Firestore no resolvían y la "migración" los borraba del
+      // disco. El historial de "Recientes" se perdía en cada arranque en frío.
+      final migrated = StopHistoryService.migrateHistory(
+        ['aB3xYz9QwErTyUiOpAsD', 'seed-el-sol'],
+        byId: stops.byId,
+        byName: stops.byName,
+      );
+      expect(migrated, ['aB3xYz9QwErTyUiOpAsD', 'seed-el-sol']);
+    });
+
+    test('no duplica ni supera el tope', () {
+      final migrated = StopHistoryService.migrateHistory(
+        [
+          'Plaza de Armas',
+          'seed-plaza-de-armas',
+          'a',
+          'b',
+          'c',
+          'd',
+          'e',
+        ],
+        byId: stops.byId,
+        byName: stops.byName,
+      );
+      expect(migrated.first, 'seed-plaza-de-armas');
+      expect(migrated.toSet(), hasLength(migrated.length));
+      expect(migrated.length, StopHistoryService.maxEntries);
     });
 
     test('el historial resuelve ids contra la lista viva', () async {
       SharedPreferences.setMockInitialValues({'history_enabled': true});
+      await PreferencesService.instance.setHistoryEnabled(true);
       await StopHistoryService.instance.clear();
       await StopHistoryService.instance.record(quilpueBusStops.first);
 
@@ -141,6 +151,23 @@ void main() {
         StopHistoryService.instance.recentStops.first,
         quilpueBusStops.first,
       );
+    });
+
+    test('un id que no resuelve no se muestra roto', () async {
+      SharedPreferences.setMockInitialValues({'history_enabled': true});
+      await PreferencesService.instance.setHistoryEnabled(true);
+      await StopHistoryService.instance.clear();
+      await StopHistoryService.instance.record(
+        const BusStop(
+          id: 'paradero-de-otra-sesion',
+          name: 'X',
+          address: 'X',
+          location: LatLng(-33.05, -71.44),
+        ),
+      );
+      await StopHistoryService.instance.record(quilpueBusStops.first);
+
+      expect(StopHistoryService.instance.recentStops, [quilpueBusStops.first]);
     });
   });
 }

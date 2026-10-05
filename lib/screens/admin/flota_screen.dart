@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_map_animations/flutter_map_animations.dart';
@@ -8,13 +6,18 @@ import 'package:latlong2/latlong.dart';
 import 'package:taxi1/config/map_config.dart';
 import 'package:taxi1/l10n/app_localizations.dart';
 import 'package:taxi1/models/colectivo_activo.dart';
+import 'package:taxi1/models/garita.dart';
 import 'package:taxi1/navigation/app_destination.dart';
 import 'package:taxi1/screens/main_screen.dart';
 import 'package:taxi1/services/auth_service.dart';
 import 'package:taxi1/services/firebase_telemetria_service.dart';
+import 'package:taxi1/services/garita_service.dart';
+import 'package:taxi1/services/recorridos_service.dart';
 import 'package:taxi1/theme/app_colors.dart';
 import 'package:taxi1/theme/app_spacing.dart';
+import 'package:taxi1/utils/estado_format.dart';
 import 'package:taxi1/utils/patente.dart';
+import 'package:taxi1/widgets/app_tile_layer.dart';
 import 'package:taxi1/widgets/map_overlay_card.dart';
 import 'package:taxi1/widgets/state_views.dart';
 
@@ -34,26 +37,29 @@ class _FlotaScreenState extends State<FlotaScreen>
     with TickerProviderStateMixin {
   late final AnimatedMapController _mapController;
   final _auth = AuthService.instance;
+  final _nav = MainNavigationController.instance;
+  final _telemetria = FirebaseTelemetriaService.instance;
+  final _recorridos = RecorridosService.instance;
 
-  StreamSubscription<List<ColectivoActivo>>? _sub;
-  List<ColectivoActivo> _unidades = const [];
-  bool _failed = false;
+  TelemetriaState _estado = const TelemetriaState();
   String? _selected;
 
-  static const _garitasOpciones = [
-    ('todas', 'Toda la Flota Serrano'),
-    ('garita_quilpue_01', 'Garita Cumming'),
-    ('garita_serranos_rosas', 'Garita Las Rosas'),
-    ('garita_serranos_belloto2000', 'Garita Belloto 2000'),
-  ];
-  String _filtroGarita = 'todas';
+  /// Garitas para el filtro. Antes eran cuatro chips escritos a mano en esta
+  /// pantalla, con ids fijos y un caso especial para unidades sin garita.
+  List<Garita> _garitas = const [];
+
+  /// Garita filtrada; `null` es "todas". Arranca en la del administrador: es
+  /// la que gestiona y la que las reglas le dejan administrar.
+  String? _filtroGarita;
+
+  bool get _visible => _nav.destination == AppDestination.flota;
 
   List<ColectivoActivo> get _unidadesFiltradas {
-    if (_filtroGarita == 'todas') return _unidades;
-    return _unidades.where((c) {
-      if (c.garitaId.isEmpty && _filtroGarita == 'garita_quilpue_01') return true;
-      return c.garitaId == _filtroGarita;
-    }).toList(growable: false);
+    final filtro = _filtroGarita;
+    if (filtro == null) return _estado.colectivos;
+    return _estado.colectivos
+        .where((c) => c.garitaId == filtro)
+        .toList(growable: false);
   }
 
   @override
@@ -64,32 +70,45 @@ class _FlotaScreenState extends State<FlotaScreen>
       duration: const Duration(milliseconds: 500),
       curve: Curves.easeInOut,
     );
-    _auth.addListener(_onChanged);
+    _filtroGarita = _auth.garitaId;
+    _estado = _telemetria.state.value;
 
-    _sub = FirebaseTelemetriaService.instance.telemetriaStream.listen(
-      (data) {
-        if (!mounted) return;
-        setState(() {
-          _unidades = data;
-          _failed = false;
-        });
-      },
-      onError: (Object _) {
-        if (mounted) setState(() => _failed = true);
-      },
-    );
+    _auth.addListener(_onChanged);
+    _recorridos.addListener(_onChanged);
+    _nav.addListener(_onNavChanged);
+    _telemetria.state.addListener(_onTelemetria);
+
+    GaritaService.instance.loadGaritas().then((garitas) {
+      if (mounted) setState(() => _garitas = garitas);
+    });
   }
 
   @override
   void dispose() {
     _auth.removeListener(_onChanged);
-    _sub?.cancel();
+    _recorridos.removeListener(_onChanged);
+    _nav.removeListener(_onNavChanged);
+    _telemetria.state.removeListener(_onTelemetria);
     _mapController.dispose();
     super.dispose();
   }
 
   void _onChanged() {
     if (mounted) setState(() {});
+  }
+
+  /// La pestaña sigue montada aunque no se vea (el `IndexedStack` conserva su
+  /// estado). Mientras está oculta no se redibuja con cada movimiento de la
+  /// flota; al volver a ella se pone al día de una vez.
+  void _onTelemetria() {
+    if (!_visible || !mounted) return;
+    setState(() => _estado = _telemetria.state.value);
+  }
+
+  void _onNavChanged() {
+    if (_visible && mounted) {
+      setState(() => _estado = _telemetria.state.value);
+    }
   }
 
   void _focus(ColectivoActivo unidad) {
@@ -100,19 +119,18 @@ class _FlotaScreenState extends State<FlotaScreen>
     );
   }
 
-  Color _colorFor(ColectivoActivo unidad, AppStatusColors status) =>
-      switch (unidad.estado) {
-        EstadoCapacidad.disponible => status.disponible,
-        EstadoCapacidad.medioLleno => status.medioLleno,
-        EstadoCapacidad.lleno => status.lleno,
-      };
+  ColectivoActivo? get _unidadSeleccionada {
+    for (final c in _estado.colectivos) {
+      if (c.uid == _selected) return c;
+    }
+    return null;
+  }
 
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final theme = Theme.of(context);
     final status = AppStatusColors.of(context);
-    final isDark = theme.brightness == Brightness.dark;
 
     if (!_auth.isAdmin) {
       return Scaffold(
@@ -132,6 +150,18 @@ class _FlotaScreenState extends State<FlotaScreen>
       );
     }
 
+    final unidades = _unidadesFiltradas;
+    final ahora = _telemetria.serverNow();
+    final seleccionada = _unidadSeleccionada;
+    final linea = seleccionada?.recorridoId == null
+        ? null
+        : _recorridos.byId(seleccionada!.recorridoId!);
+    final trazado = linea == null
+        ? const <LatLng>[]
+        : (linea.trazado.length >= 2
+              ? linea.trazado
+              : _recorridos.puntosDe(linea));
+
     return Scaffold(
       appBar: AppBar(
         title: Text(AppDestination.flota.label(l10n)),
@@ -145,7 +175,7 @@ class _FlotaScreenState extends State<FlotaScreen>
             padding: const EdgeInsets.only(right: AppSpacing.lg),
             child: Center(
               child: Text(
-                l10n.fleetUnitsInService('${_unidadesFiltradas.length}'),
+                l10n.fleetUnitsInService('${unidades.length}'),
                 style: theme.textTheme.labelLarge?.copyWith(
                   color: theme.colorScheme.primary,
                 ),
@@ -156,38 +186,9 @@ class _FlotaScreenState extends State<FlotaScreen>
       ),
       body: Column(
         children: [
-          Container(
-            height: 48,
-            color: theme.colorScheme.surface,
-            child: ListView.separated(
-              scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.symmetric(
-                horizontal: AppSpacing.lg,
-                vertical: 6,
-              ),
-              itemCount: _garitasOpciones.length,
-              separatorBuilder: (_, _) => const SizedBox(width: AppSpacing.sm),
-              itemBuilder: (context, i) {
-                final (gid, gNombre) = _garitasOpciones[i];
-                final isSel = _filtroGarita == gid;
-                return ChoiceChip(
-                  selected: isSel,
-                  showCheckmark: false,
-                  label: Text(gNombre),
-                  labelStyle: theme.textTheme.labelMedium?.copyWith(
-                    color: isSel
-                        ? theme.colorScheme.onPrimary
-                        : theme.colorScheme.onSurface,
-                    fontWeight: isSel ? FontWeight.bold : FontWeight.normal,
-                  ),
-                  selectedColor: theme.colorScheme.primary,
-                  onSelected: (val) {
-                    if (val) setState(() => _filtroGarita = gid);
-                  },
-                );
-              },
-            ),
-          ),
+          _filtroGarita == null && _garitas.isEmpty
+              ? const SizedBox.shrink()
+              : _garitaChips(l10n),
           Expanded(
             flex: 3,
             child: Stack(
@@ -199,20 +200,26 @@ class _FlotaScreenState extends State<FlotaScreen>
                     initialZoom: kInitialZoom,
                   ),
                   children: [
-                    TileLayer(
-                      urlTemplate: mapTileUrlTemplate(
-                        MapStyle.normal,
-                        isDark: isDark,
+                    const AppTileLayer(),
+                    // Al elegir una unidad se ilumina la línea que informa
+                    // estar cubriendo.
+                    if (linea != null && trazado.length > 1)
+                      PolylineLayer(
+                        polylines: [
+                          Polyline(
+                            points: trazado,
+                            strokeWidth: 5,
+                            color: Color(
+                              linea.colorValue,
+                            ).withValues(alpha: 0.85),
+                            borderColor: status.routeLineCasing,
+                            borderStrokeWidth: 1.5,
+                          ),
+                        ],
                       ),
-                      fallbackUrl: fallbackTileUrlTemplate(
-                        MapStyle.normal,
-                        isDark: isDark,
-                      ),
-                      userAgentPackageName: 'cl.coletotal.app',
-                    ),
                     MarkerLayer(
                       markers: [
-                        for (final unidad in _unidadesFiltradas)
+                        for (final unidad in unidades)
                           Marker(
                             point: LatLng(unidad.latitud, unidad.longitud),
                             width: 44,
@@ -220,9 +227,10 @@ class _FlotaScreenState extends State<FlotaScreen>
                             child: GestureDetector(
                               onTap: () => _focus(unidad),
                               child: _UnidadMarker(
-                                color: _colorFor(unidad, status),
+                                color: status.forEstado(unidad.estado),
                                 borderColor: status.markerBorder,
                                 selected: _selected == unidad.uid,
+                                offline: unidad.seemsOffline(ahora),
                               ),
                             ),
                           ),
@@ -230,7 +238,7 @@ class _FlotaScreenState extends State<FlotaScreen>
                     ),
                   ],
                 ),
-                if (_failed)
+                if (_estado.failed)
                   Positioned(
                     left: AppSpacing.lg,
                     right: AppSpacing.lg,
@@ -246,27 +254,27 @@ class _FlotaScreenState extends State<FlotaScreen>
           ),
           Expanded(
             flex: 2,
-            child: _unidadesFiltradas.isEmpty
-                ? StatusMessageView(
-                    icon: Icons.local_taxi_outlined,
-                    title: l10n.fleetEmpty,
-                    message: l10n.fleetEmptyHint,
-                  )
+            child: unidades.isEmpty
+                ? (_estado.loaded
+                      ? StatusMessageView(
+                          icon: Icons.local_taxi_outlined,
+                          title: l10n.fleetEmpty,
+                          message: l10n.fleetEmptyHint,
+                        )
+                      : const LoadingView())
                 : ListView.separated(
                     padding: const EdgeInsets.all(AppSpacing.lg),
-                    itemCount: _unidadesFiltradas.length,
+                    itemCount: unidades.length,
                     separatorBuilder: (_, _) =>
                         const SizedBox(height: AppSpacing.sm),
                     itemBuilder: (context, index) {
-                      final unidad = _unidadesFiltradas[index];
+                      final unidad = unidades[index];
+                      final color = status.forEstado(unidad.estado);
                       return MapOverlayCard(
                         onTap: () => _focus(unidad),
                         child: Row(
                           children: [
-                            Icon(
-                              Icons.directions_car,
-                              color: _colorFor(unidad, status),
-                            ),
+                            Icon(Icons.directions_car, color: color),
                             const SizedBox(width: AppSpacing.md),
                             Expanded(
                               child: Column(
@@ -290,9 +298,13 @@ class _FlotaScreenState extends State<FlotaScreen>
                                     ),
                                   ],
                                   Text(
-                                    _estadoLabel(unidad.estado, l10n),
+                                    unidad.seemsOffline(ahora)
+                                        ? l10n.colectivoNoSignal
+                                        : estadoLabel(unidad.estado, l10n),
                                     style: theme.textTheme.bodySmall?.copyWith(
-                                      color: _colorFor(unidad, status),
+                                      color: unidad.seemsOffline(ahora)
+                                          ? theme.colorScheme.onSurfaceVariant
+                                          : color,
                                       fontWeight: FontWeight.w600,
                                     ),
                                   ),
@@ -300,7 +312,7 @@ class _FlotaScreenState extends State<FlotaScreen>
                               ),
                             ),
                             Text(
-                              _seenLabel(unidad, l10n),
+                              _seenLabel(unidad, ahora, l10n),
                               style: theme.textTheme.labelSmall?.copyWith(
                                 color: theme.colorScheme.onSurfaceVariant,
                               ),
@@ -316,21 +328,64 @@ class _FlotaScreenState extends State<FlotaScreen>
     );
   }
 
-  static String _estadoLabel(EstadoCapacidad estado, AppLocalizations l10n) =>
-      switch (estado) {
-        EstadoCapacidad.disponible => l10n.capacityAvailable,
-        EstadoCapacidad.medioLleno => l10n.capacityHalf,
-        EstadoCapacidad.lleno => l10n.capacityFull,
-      };
+  Widget _garitaChips(AppLocalizations l10n) {
+    final theme = Theme.of(context);
+    final propia = _auth.garitaId;
+    // La propia garita aparece aunque la lista no se haya podido leer.
+    final garitas = [
+      ..._garitas,
+      if (propia != null && !_garitas.any((g) => g.id == propia))
+        Garita(id: propia, nombre: propia),
+    ];
+    final opciones = <(String?, String)>[
+      (null, l10n.fleetAllGaritas),
+      for (final g in garitas) (g.id, g.nombre),
+    ];
 
-  static String _seenLabel(ColectivoActivo unidad, AppLocalizations l10n) {
-    final ts = unidad.ts;
-    if (ts == null) return l10n.fleetSeenNow;
-    final minutos =
-        DateTime.now()
-            .difference(DateTime.fromMillisecondsSinceEpoch(ts))
-            .inMinutes;
-    return minutos < 1 ? l10n.fleetSeenNow : l10n.fleetSeenAgo('$minutos');
+    return Container(
+      height: 48,
+      color: theme.colorScheme.surface,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.lg,
+          vertical: 6,
+        ),
+        itemCount: opciones.length,
+        separatorBuilder: (_, _) => const SizedBox(width: AppSpacing.sm),
+        itemBuilder: (context, i) {
+          final (gid, nombre) = opciones[i];
+          final isSel = _filtroGarita == gid;
+          return ChoiceChip(
+            selected: isSel,
+            showCheckmark: false,
+            label: Text(nombre),
+            labelStyle: theme.textTheme.labelMedium?.copyWith(
+              color: isSel
+                  ? theme.colorScheme.onPrimary
+                  : theme.colorScheme.onSurface,
+              fontWeight: isSel ? FontWeight.bold : FontWeight.normal,
+            ),
+            selectedColor: theme.colorScheme.primary,
+            onSelected: (val) {
+              if (val) setState(() => _filtroGarita = gid);
+            },
+          );
+        },
+      ),
+    );
+  }
+
+  /// "Ahora mismo" o "Hace N min", medido contra la hora del servidor: el
+  /// reloj del teléfono del administrador puede estar desfasado.
+  static String _seenLabel(
+    ColectivoActivo unidad,
+    DateTime ahora,
+    AppLocalizations l10n,
+  ) {
+    final age = unidad.antiguedad(ahora);
+    if (age == null || age.inMinutes < 1) return l10n.fleetSeenNow;
+    return l10n.fleetSeenAgo('${age.inMinutes}');
   }
 }
 
@@ -339,35 +394,42 @@ class _UnidadMarker extends StatelessWidget {
     required this.color,
     required this.borderColor,
     required this.selected,
+    required this.offline,
   });
 
   final Color color;
   final Color borderColor;
   final bool selected;
 
+  /// Sin señal reciente: se atenúa, igual que en el mapa del pasajero.
+  final bool offline;
+
   @override
   Widget build(BuildContext context) {
     final size = selected ? 40.0 : 32.0;
     return Center(
-      child: Container(
-        width: size,
-        height: size,
-        decoration: BoxDecoration(
-          color: color,
-          shape: BoxShape.circle,
-          border: Border.all(color: borderColor, width: selected ? 4 : 2),
-          boxShadow: const [
-            BoxShadow(
-              color: Color(0x59000000),
-              blurRadius: 6,
-              offset: Offset(0, 2),
-            ),
-          ],
-        ),
-        child: Icon(
-          Icons.directions_car,
-          color: AppStatusColors.onColorFor(color),
-          size: selected ? 22 : 18,
+      child: Opacity(
+        opacity: offline ? 0.45 : 1,
+        child: Container(
+          width: size,
+          height: size,
+          decoration: BoxDecoration(
+            color: color,
+            shape: BoxShape.circle,
+            border: Border.all(color: borderColor, width: selected ? 4 : 2),
+            boxShadow: const [
+              BoxShadow(
+                color: Color(0x59000000),
+                blurRadius: 6,
+                offset: Offset(0, 2),
+              ),
+            ],
+          ),
+          child: Icon(
+            Icons.directions_car,
+            color: AppStatusColors.onColorFor(color),
+            size: selected ? 22 : 18,
+          ),
         ),
       ),
     );

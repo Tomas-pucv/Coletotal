@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import 'package:taxi1/l10n/app_localizations.dart';
+import 'package:taxi1/models/place_result.dart';
 import 'package:taxi1/services/geocoding_service.dart';
 import 'package:taxi1/theme/app_spacing.dart';
 import 'package:taxi1/widgets/map_overlay_card.dart';

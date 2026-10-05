@@ -37,8 +37,13 @@ class RecorridosService extends ChangeNotifier {
 
   Recorrido? _selected;
   bool _loadingTrazado = false;
+  bool _loaded = false;
 
   List<Recorrido> get recorridos => _recorridos;
+
+  /// Si ya llegó el primer snapshot. Mientras no, una lista vacía significa
+  /// "todavía no sé", no "la garita no tiene recorridos".
+  bool get loaded => _loaded;
 
   /// Recorrido que el usuario está viendo dibujado en el mapa.
   Recorrido? get selected => _selected;
@@ -82,6 +87,7 @@ class RecorridosService extends ChangeNotifier {
         _recorridos = snapshot.docs
             .map((doc) => Recorrido.fromMap(doc.id, doc.data()))
             .toList(growable: false);
+        _loaded = true;
 
         // Un recorrido editado puede tener otros paraderos: su trazado viejo ya
         // no lo describe.
@@ -182,13 +188,16 @@ class RecorridosService extends ChangeNotifier {
     // pero deja ver por dónde va la línea, que es lo que se estaba preguntando;
     // no dibujar nada sería el peor de los resultados.
     _trazados[recorrido.id] = trazado ?? puntos;
-    _loadingTrazado = false;
+    // Si mientras tanto el usuario eligió otra línea, el indicador de carga es
+    // de esa otra petición y no se apaga acá.
+    if (_selected?.id == recorrido.id) _loadingTrazado = false;
     notifyListeners();
   }
 
   @visibleForTesting
   void debugSetRecorridos(List<Recorrido> recorridos) {
     _recorridos = List.unmodifiable(recorridos);
+    _loaded = true;
     _trazados.clear();
     notifyListeners();
   }

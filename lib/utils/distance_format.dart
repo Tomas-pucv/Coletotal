@@ -82,3 +82,11 @@ String formatDurationSeconds(double? seconds, AppLocalizations l10n) {
   final m = minutes % 60;
   return m == 0 ? l10n.durationHour('$h') : l10n.durationHourMin('$h', '$m');
 }
+
+/// Antigüedad legible para "hace X": segundos bajo el minuto, minutos encima.
+String formatAgo(Duration age, AppLocalizations l10n) {
+  if (age.inSeconds < 60) {
+    return l10n.agoSeconds('${age.inSeconds < 0 ? 0 : age.inSeconds}');
+  }
+  return l10n.agoMinutes('${age.inMinutes}');
+}

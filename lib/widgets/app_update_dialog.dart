@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'package:taxi1/config/app_version.dart';
+import 'package:taxi1/l10n/app_localizations.dart';
 import 'package:taxi1/services/app_update_service.dart';
 import 'package:taxi1/theme/app_spacing.dart';
 
@@ -16,18 +18,20 @@ class AppUpdateDialog extends StatelessWidget {
   ) async {
     await showDialog<void>(
       context: context,
-      barrierDismissible: !info.mandatory,
+      barrierDismissible: !info.isMandatoryFor(AppVersion.code),
       builder: (_) => AppUpdateDialog(info: info),
     );
   }
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
+    final mandatory = info.isMandatoryFor(AppVersion.code);
 
     return PopScope(
-      canPop: !info.mandatory,
+      canPop: !mandatory,
       child: AlertDialog(
         icon: Icon(
           Icons.system_update_rounded,
@@ -35,95 +39,96 @@ class AppUpdateDialog extends StatelessWidget {
           color: scheme.primary,
         ),
         title: Text(
-          '¡Nueva versión disponible!',
+          l10n.updateTitle,
           style: theme.textTheme.titleLarge?.copyWith(
             fontWeight: FontWeight.bold,
           ),
           textAlign: TextAlign.center,
         ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Container(
-              padding: const EdgeInsets.symmetric(
-                horizontal: AppSpacing.md,
-                vertical: AppSpacing.xs,
-              ),
-              decoration: BoxDecoration(
-                color: scheme.primaryContainer,
-                borderRadius: BorderRadius.circular(AppSpacing.radiusSm),
-              ),
-              child: Text(
-                'Versión ${info.versionName} (Instalada: ${AppUpdateService.currentVersionName})',
-                style: theme.textTheme.labelMedium?.copyWith(
-                  color: scheme.onPrimaryContainer,
-                  fontWeight: FontWeight.w600,
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: AppSpacing.md,
+                  vertical: AppSpacing.xs,
                 ),
-                textAlign: TextAlign.center,
-              ),
-            ),
-            const SizedBox(height: AppSpacing.md),
-            Text(
-              'Novedades y mejoras:',
-              style: theme.textTheme.bodyMedium?.copyWith(
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-            const SizedBox(height: AppSpacing.xs),
-            Container(
-              padding: const EdgeInsets.all(AppSpacing.md),
-              decoration: BoxDecoration(
-                color: scheme.surfaceContainerHighest.withValues(alpha: 0.5),
-                borderRadius: BorderRadius.circular(AppSpacing.radiusSm),
-                border: Border.all(
-                  color: scheme.outlineVariant.withValues(alpha: 0.5),
+                decoration: BoxDecoration(
+                  color: scheme.primaryContainer,
+                  borderRadius: BorderRadius.circular(AppSpacing.radiusSm),
+                ),
+                child: Text(
+                  l10n.updateVersions(info.versionName, AppVersion.label),
+                  style: theme.textTheme.labelMedium?.copyWith(
+                    color: scheme.onPrimaryContainer,
+                    fontWeight: FontWeight.w600,
+                  ),
+                  textAlign: TextAlign.center,
                 ),
               ),
-              child: Text(
-                info.changelog,
-                style: theme.textTheme.bodyMedium,
-              ),
-            ),
-            if (info.mandatory) ...[
               const SizedBox(height: AppSpacing.md),
               Text(
-                'Esta actualización es obligatoria para continuar operando en la garita.',
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: scheme.error,
-                  fontWeight: FontWeight.w500,
+                l10n.updateChangelogTitle,
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  fontWeight: FontWeight.w600,
                 ),
-                textAlign: TextAlign.center,
               ),
+              const SizedBox(height: AppSpacing.xs),
+              Container(
+                padding: const EdgeInsets.all(AppSpacing.md),
+                decoration: BoxDecoration(
+                  color: scheme.surfaceContainerHighest.withValues(alpha: 0.5),
+                  borderRadius: BorderRadius.circular(AppSpacing.radiusSm),
+                  border: Border.all(
+                    color: scheme.outlineVariant.withValues(alpha: 0.5),
+                  ),
+                ),
+                child: Text(
+                  info.changelog.isEmpty
+                      ? l10n.updateDefaultChangelog
+                      : info.changelog,
+                  style: theme.textTheme.bodyMedium,
+                ),
+              ),
+              if (mandatory) ...[
+                const SizedBox(height: AppSpacing.md),
+                Text(
+                  l10n.updateMandatory,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: scheme.error,
+                    fontWeight: FontWeight.w500,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+              ],
             ],
-          ],
+          ),
         ),
         actions: [
-          if (!info.mandatory)
+          if (!mandatory)
             TextButton(
               onPressed: () {
                 AppUpdateService.instance.dismissForNow();
                 Navigator.of(context).pop();
               },
-              child: const Text('Recordar más tarde'),
+              child: Text(l10n.updateLater),
             ),
           FilledButton.icon(
             onPressed: () async {
+              final messenger = ScaffoldMessenger.of(context);
               final ok = await AppUpdateService.instance.launchDownload(
                 info.apkUrl,
               );
-              if (!ok && context.mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text(
-                      'No se pudo abrir el enlace de descarga del APK.',
-                    ),
-                  ),
+              if (!ok) {
+                messenger.showSnackBar(
+                  SnackBar(content: Text(l10n.updateOpenFailed)),
                 );
               }
             },
             icon: const Icon(Icons.download_rounded),
-            label: const Text('Actualizar ahora'),
+            label: Text(l10n.updateNow),
           ),
         ],
       ),

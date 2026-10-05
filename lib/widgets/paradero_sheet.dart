@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:latlong2/latlong.dart';
 
 import 'package:taxi1/l10n/app_localizations.dart';
 import 'package:taxi1/models/bus_stop.dart';
 import 'package:taxi1/models/recorrido.dart';
 import 'package:taxi1/screens/main_screen.dart';
+import 'package:taxi1/services/location_service.dart';
 import 'package:taxi1/services/recorridos_service.dart';
 import 'package:taxi1/services/route_service.dart';
 import 'package:taxi1/services/stop_history_service.dart';
@@ -39,6 +41,7 @@ class _ParaderoSheet extends StatefulWidget {
 class _ParaderoSheetState extends State<_ParaderoSheet> {
   final _recorridos = RecorridosService.instance;
   final _routes = RouteService.instance;
+  final _location = LocationService.instance;
 
   bool _fetchingWalk = false;
 
@@ -46,13 +49,21 @@ class _ParaderoSheetState extends State<_ParaderoSheet> {
   void initState() {
     super.initState();
     _recorridos.addListener(_onChanged);
+    _location.addListener(_onChanged);
   }
 
   @override
   void dispose() {
     _recorridos.removeListener(_onChanged);
+    _location.removeListener(_onChanged);
     super.dispose();
   }
+
+  /// Desde dónde se mide y se rutea: la posición **actual**. Antes era el
+  /// origen guardado en `RouteService`, que se fijaba con el primer punto GPS
+  /// de la sesión, así que "Cómo llegar" trazaba la ruta desde donde el
+  /// usuario estaba al abrir la app.
+  LatLng? get _origin => _location.position ?? _routes.origin;
 
   void _onChanged() {
     if (mounted) setState(() {});
@@ -79,7 +90,7 @@ class _ParaderoSheetState extends State<_ParaderoSheet> {
     // muerte del elemento.
     final messenger = ScaffoldMessenger.of(context);
     final navigator = Navigator.of(context);
-    final origin = _routes.origin;
+    final origin = _origin;
 
     if (origin == null) {
       navigator.pop();
@@ -118,7 +129,7 @@ class _ParaderoSheetState extends State<_ParaderoSheet> {
     final scheme = theme.colorScheme;
     final lineas = _recorridos.porParadero(widget.stop.id);
 
-    final origin = _routes.origin;
+    final origin = _origin;
     final metros = origin == null
         ? null
         : widget.stop.distanceFrom(origin);

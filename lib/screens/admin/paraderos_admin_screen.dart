@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
@@ -7,14 +9,24 @@ import 'package:taxi1/l10n/app_localizations.dart';
 import 'package:taxi1/models/bus_stop.dart';
 import 'package:taxi1/navigation/app_destination.dart';
 import 'package:taxi1/services/auth_service.dart';
+import 'package:taxi1/services/firestore_writes.dart';
+import 'package:taxi1/services/garita_service.dart';
 import 'package:taxi1/services/stops_service.dart';
 import 'package:taxi1/theme/app_colors.dart';
 import 'package:taxi1/theme/app_spacing.dart';
 import 'package:taxi1/theme/breakpoints.dart';
+import 'package:taxi1/utils/text_search.dart';
+import 'package:taxi1/widgets/app_tile_layer.dart';
+import 'package:taxi1/widgets/metric_chip.dart';
 import 'package:taxi1/widgets/setting_tile.dart';
 import 'package:taxi1/widgets/state_views.dart';
 
 /// CRUD de paraderos para el administrador de garita.
+///
+/// Lista **los de su garita, incluidos los dados de baja**. Antes mostraba la
+/// lista pública: paraderos de todas las garitas (editar uno ajeno terminaba
+/// en un error de permisos) y sólo los activos, así que un paradero dado de
+/// baja desaparecía del panel y ya no había forma de reactivarlo.
 class ParaderosAdminScreen extends StatefulWidget {
   const ParaderosAdminScreen({super.key});
 
@@ -47,16 +59,16 @@ class _ParaderosAdminScreenState extends State<ParaderosAdminScreen> {
     if (mounted) setState(() {});
   }
 
+  /// Activos primero y por nombre; la búsqueda no distingue tildes.
   List<BusStop> get _visible {
-    final q = _query.trim().toLowerCase();
-    if (q.isEmpty) return _stops.stops;
-    return _stops.stops
-        .where(
-          (s) =>
-              s.name.toLowerCase().contains(q) ||
-              s.address.toLowerCase().contains(q),
-        )
-        .toList(growable: false);
+    final filtrados = _stops.garitaStops
+        .where((s) => matchesAllTokens(_query, [s.name, s.address]))
+        .toList();
+    filtrados.sort((a, b) {
+      if (a.activo != b.activo) return a.activo ? -1 : 1;
+      return a.name.compareTo(b.name);
+    });
+    return filtrados;
   }
 
   void _toast(String message) {
@@ -68,7 +80,7 @@ class _ParaderosAdminScreenState extends State<ParaderosAdminScreen> {
 
   Future<void> _edit(BusStop? stop) async {
     final l10n = AppLocalizations.of(context)!;
-    final saved = await Navigator.of(context).push<bool>(
+    final outcome = await Navigator.of(context).push<WriteOutcome>(
       MaterialPageRoute(
         builder: (_) => ParaderoEditorScreen(
           stop: stop,
@@ -76,7 +88,10 @@ class _ParaderosAdminScreenState extends State<ParaderosAdminScreen> {
         ),
       ),
     );
-    if (saved ?? false) _toast(l10n.stopSaved);
+    if (outcome == null) return;
+    _toast(
+      outcome == WriteOutcome.queuedOffline ? l10n.savedOffline : l10n.stopSaved,
+    );
   }
 
   Future<void> _confirmDeactivate(BusStop stop) async {
@@ -100,15 +115,37 @@ class _ParaderosAdminScreenState extends State<ParaderosAdminScreen> {
       ),
     );
     if (!(confirmed ?? false)) return;
-    await _stops.desactivar(stop);
-    _toast(l10n.stopDeleted);
+    try {
+      final outcome = await _stops.desactivar(stop);
+      _toast(
+        outcome == WriteOutcome.queuedOffline
+            ? l10n.savedOffline
+            : l10n.stopDeleted,
+      );
+    } catch (_) {
+      _toast(l10n.errAuthUnknown);
+    }
+  }
+
+  Future<void> _reactivate(BusStop stop) async {
+    final l10n = AppLocalizations.of(context)!;
+    try {
+      final outcome = await _stops.reactivar(stop);
+      _toast(
+        outcome == WriteOutcome.queuedOffline
+            ? l10n.savedOffline
+            : l10n.stopReactivated,
+      );
+    } catch (_) {
+      _toast(l10n.errAuthUnknown);
+    }
   }
 
   Future<void> _importSeed() async {
     final l10n = AppLocalizations.of(context)!;
     setState(() => _importing = true);
     try {
-      final count = await _stops.importarSemilla(_auth.garitaId ?? '');
+      final (count, _) = await _stops.importarSemilla(_auth.garitaId ?? '');
       _toast(l10n.stopsImported('$count'));
     } catch (_) {
       _toast(l10n.errAuthUnknown);
@@ -120,7 +157,6 @@ class _ParaderosAdminScreenState extends State<ParaderosAdminScreen> {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final stops = _visible;
 
     return Scaffold(
       appBar: AppBar(title: Text(AppDestination.paraderos.label(l10n))),
@@ -135,89 +171,112 @@ class _ParaderosAdminScreenState extends State<ParaderosAdminScreen> {
               title: AppDestination.paraderos.label(l10n),
               message: l10n.adminOnly,
             )
-          : Center(
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(
-                  maxWidth: Breakpoints.maxContentWidth,
+          : !_stops.garitaStopsLoaded
+          ? const LoadingView()
+          : _body(l10n),
+    );
+  }
+
+  Widget _body(AppLocalizations l10n) {
+    final stops = _visible;
+    final sinParaderos = _stops.garitaStops.isEmpty;
+
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(
+          maxWidth: Breakpoints.maxContentWidth,
+        ),
+        child: Column(
+          children: [
+            // Una garita sin paraderos todavía puede partir de la semilla de
+            // ejemplo en vez de cargarlos uno por uno.
+            if (sinParaderos)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(
+                  AppSpacing.lg,
+                  AppSpacing.lg,
+                  AppSpacing.lg,
+                  0,
                 ),
-                child: Column(
-                  children: [
-                    // Mientras la garita no haya importado sus paraderos, lo
-                    // que se ve son las semillas locales: editarlas sin avisar
-                    // daría la impresión de que se guardó algo que no existe.
-                    if (!_stops.hasRemoteData)
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(
-                          AppSpacing.lg,
-                          AppSpacing.lg,
-                          AppSpacing.lg,
-                          0,
-                        ),
-                        child: InlineNotice(
-                          icon: Icons.cloud_upload_outlined,
-                          message: l10n.stopsSeedNotice,
-                          actionLabel: _importing
-                              ? null
-                              : l10n.stopsImportSeed,
-                          onAction: _importing ? null : _importSeed,
-                        ),
-                      ),
-                    Padding(
-                      padding: const EdgeInsets.all(AppSpacing.lg),
-                      child: TextField(
-                        controller: _searchController,
-                        onChanged: (v) => setState(() => _query = v),
-                        decoration: InputDecoration(
-                          hintText: l10n.stopSearchHint,
-                          prefixIcon: const Icon(Icons.search),
-                        ),
-                      ),
-                    ),
-                    Expanded(
-                      child: stops.isEmpty
-                          ? StatusMessageView(
-                              icon: Icons.pin_drop_outlined,
-                              title: l10n.stopsEmpty,
-                            )
-                          : ListView.separated(
-                              padding: const EdgeInsets.fromLTRB(
-                                AppSpacing.lg,
-                                0,
-                                AppSpacing.lg,
-                                96,
-                              ),
-                              itemCount: stops.length,
-                              separatorBuilder: (_, _) =>
-                                  const SizedBox(height: AppSpacing.sm),
-                              itemBuilder: (context, index) {
-                                final stop = stops[index];
-                                return Card(
-                                  child: ListTile(
-                                    leading: const Icon(Icons.pin_drop),
-                                    title: Text(stop.name),
-                                    subtitle: Text(
-                                      stop.address,
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                    trailing: IconButton(
-                                      icon: const Icon(
-                                        Icons.visibility_off_outlined,
-                                      ),
-                                      tooltip: l10n.stopDeactivate,
-                                      onPressed: () =>
-                                          _confirmDeactivate(stop),
-                                    ),
-                                    onTap: () => _edit(stop),
-                                  ),
-                                );
-                              },
-                            ),
-                    ),
-                  ],
+                child: InlineNotice(
+                  icon: Icons.cloud_upload_outlined,
+                  message: l10n.stopsSeedNotice,
+                  actionLabel: _importing ? null : l10n.stopsImportSeed,
+                  onAction: _importing ? null : _importSeed,
+                ),
+              ),
+            Padding(
+              padding: const EdgeInsets.all(AppSpacing.lg),
+              child: TextField(
+                controller: _searchController,
+                onChanged: (v) => setState(() => _query = v),
+                decoration: InputDecoration(
+                  hintText: l10n.stopSearchHint,
+                  prefixIcon: const Icon(Icons.search),
                 ),
               ),
             ),
+            Expanded(
+              child: stops.isEmpty
+                  ? StatusMessageView(
+                      icon: Icons.pin_drop_outlined,
+                      title: l10n.stopsEmpty,
+                    )
+                  : ListView.separated(
+                      padding: const EdgeInsets.fromLTRB(
+                        AppSpacing.lg,
+                        0,
+                        AppSpacing.lg,
+                        96,
+                      ),
+                      itemCount: stops.length,
+                      separatorBuilder: (_, _) =>
+                          const SizedBox(height: AppSpacing.sm),
+                      itemBuilder: (context, index) =>
+                          _stopTile(stops[index], l10n),
+                    ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _stopTile(BusStop stop, AppLocalizations l10n) {
+    final theme = Theme.of(context);
+    return Card(
+      child: ListTile(
+        leading: Icon(
+          stop.activo ? Icons.pin_drop : Icons.location_off_outlined,
+          color: stop.activo ? null : theme.colorScheme.onSurfaceVariant,
+        ),
+        title: Text(stop.name),
+        subtitle: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(stop.address, maxLines: 1, overflow: TextOverflow.ellipsis),
+            if (!stop.activo) ...[
+              const SizedBox(height: AppSpacing.xs),
+              MetricChip(
+                label: l10n.stopInactive,
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ],
+          ],
+        ),
+        trailing: stop.activo
+            ? IconButton(
+                icon: const Icon(Icons.visibility_off_outlined),
+                tooltip: l10n.stopDeactivate,
+                onPressed: () => _confirmDeactivate(stop),
+              )
+            : IconButton(
+                icon: const Icon(Icons.visibility_outlined),
+                tooltip: l10n.stopReactivate,
+                onPressed: () => _reactivate(stop),
+              ),
+        onTap: () => _edit(stop),
+      ),
     );
   }
 }
@@ -226,6 +285,8 @@ class _ParaderosAdminScreenState extends State<ParaderosAdminScreen> {
 ///
 /// La ubicación se elige **sobre el mapa** y no escribiendo coordenadas: quien
 /// administra una garita conoce la esquina, no su latitud.
+///
+/// Devuelve, al cerrarse, si el guardado quedó confirmado o encolado sin red.
 class ParaderoEditorScreen extends StatefulWidget {
   const ParaderoEditorScreen({
     super.key,
@@ -273,9 +334,16 @@ class _ParaderoEditorScreenState extends State<ParaderoEditorScreen> {
     if (_saving) return;
     if (!(_formKey.currentState?.validate() ?? false)) return;
 
+    final l10n = AppLocalizations.of(context)!;
+    // Se capturan antes de cerrar el editor: el aviso del trazado llega
+    // después, cuando esta pantalla ya no existe.
+    final messenger = ScaffoldMessenger.of(context);
+    final navigator = Navigator.of(context);
+
     setState(() => _saving = true);
+    final original = widget.stop;
     final base =
-        widget.stop ??
+        original ??
         BusStop(
           id: '',
           name: '',
@@ -285,7 +353,7 @@ class _ParaderoEditorScreenState extends State<ParaderoEditorScreen> {
         );
 
     try {
-      await StopsService.instance.upsert(
+      final (id, outcome) = await StopsService.instance.upsert(
         base.copyWith(
           name: _nombre.text.trim(),
           address: _direccion.text.trim(),
@@ -294,12 +362,31 @@ class _ParaderoEditorScreenState extends State<ParaderoEditorScreen> {
           activo: _activo,
         ),
       );
-      if (mounted) Navigator.of(context).pop(true);
+
+      // Mover un paradero cambia el trazado de las líneas que pasan por él.
+      // Ese trazado se guarda ya calculado, así que antes las líneas seguían
+      // dibujando la ubicación vieja. Se rehace en segundo plano.
+      if (original != null &&
+          original.location != _location &&
+          !original.id.startsWith('seed-')) {
+        unawaited(
+          GaritaService.instance.recomputeGeometriasFor(id, _location).then((
+            count,
+          ) {
+            if (count > 0) {
+              messenger.showSnackBar(
+                SnackBar(content: Text(l10n.routeGeometryUpdated('$count'))),
+              );
+            }
+          }),
+        );
+      }
+
+      if (mounted) navigator.pop(outcome);
     } catch (_) {
       if (!mounted) return;
       setState(() => _saving = false);
-      final l10n = AppLocalizations.of(context)!;
-      ScaffoldMessenger.of(context)
+      messenger
         ..hideCurrentSnackBar()
         ..showSnackBar(SnackBar(content: Text(l10n.errAuthUnknown)));
     }
@@ -310,7 +397,6 @@ class _ParaderoEditorScreenState extends State<ParaderoEditorScreen> {
     final l10n = AppLocalizations.of(context)!;
     final theme = Theme.of(context);
     final status = AppStatusColors.of(context);
-    final isDark = theme.brightness == Brightness.dark;
 
     return Scaffold(
       appBar: AppBar(
@@ -331,13 +417,7 @@ class _ParaderoEditorScreenState extends State<ParaderoEditorScreen> {
                         setState(() => _location = point),
                   ),
                   children: [
-                    TileLayer(
-                      urlTemplate: mapTileUrlTemplate(
-                        MapStyle.fromPref('normal'),
-                        isDark: isDark,
-                      ),
-                      userAgentPackageName: 'com.example.taxi1',
-                    ),
+                    const AppTileLayer(),
                     MarkerLayer(
                       markers: [
                         Marker(
@@ -376,6 +456,7 @@ class _ParaderoEditorScreenState extends State<ParaderoEditorScreen> {
                   TextFormField(
                     controller: _nombre,
                     textCapitalization: TextCapitalization.words,
+                    maxLength: 60,
                     decoration: InputDecoration(
                       labelText: l10n.stopName,
                       prefixIcon: const Icon(Icons.label_outline),
@@ -387,6 +468,7 @@ class _ParaderoEditorScreenState extends State<ParaderoEditorScreen> {
                   TextFormField(
                     controller: _direccion,
                     textCapitalization: TextCapitalization.sentences,
+                    maxLength: 120,
                     decoration: InputDecoration(
                       labelText: l10n.stopAddress,
                       prefixIcon: const Icon(Icons.map_outlined),

@@ -4,38 +4,10 @@ import 'package:taxi1/theme/app_spacing.dart';
 
 /// Controles de la pantalla de Preferencias.
 ///
-/// Reemplazan a `_buildRadioOption` y `_buildSwitchOption`, que dibujaban un
-/// radio a mano (círculo + punto dentro de un `InkWell`) con ~44dp de alto y
-/// sin semántica, y una fila donde solo el `Switch` respondía al toque.
-/// Usar los widgets de Material trae gratis el target de 48dp, el anillo de
-/// foco, el soporte de lector de pantalla y la fila entera tappable.
-
-/// Opción de radio. Debe ir dentro de un [RadioGroup] del mismo tipo `T`.
-class SettingRadioTile<T> extends StatelessWidget {
-  const SettingRadioTile({
-    super.key,
-    required this.value,
-    required this.title,
-    this.subtitle,
-    this.enabled = true,
-  });
-
-  final T value;
-  final String title;
-  final String? subtitle;
-  final bool enabled;
-
-  @override
-  Widget build(BuildContext context) {
-    return RadioListTile<T>(
-      value: value,
-      enabled: enabled,
-      title: Text(title),
-      subtitle: subtitle == null ? null : Text(subtitle!),
-      contentPadding: const EdgeInsets.symmetric(horizontal: AppSpacing.sm),
-    );
-  }
-}
+/// Reemplazan a `_buildSwitchOption`, que dibujaba una fila donde solo el
+/// `Switch` respondía al toque. Usar los widgets de Material trae gratis el
+/// target de 48dp, el anillo de foco, el soporte de lector de pantalla y la
+/// fila entera tappable.
 
 /// Interruptor con etiqueta. La fila completa alterna el valor.
 class SettingSwitchTile extends StatelessWidget {

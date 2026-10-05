@@ -50,7 +50,14 @@ class Recorrido {
     List<LatLng> trazado = const [];
     if (rawGeo != null && rawGeo.isNotEmpty) {
       try {
-        trazado = OsrmClient.decodePolyline(rawGeo, precision: 6);
+        // Sólo puntos válidos: una geometría corrupta ya no se dibuja fuera del
+        // mapa. Si no quedan al menos dos, se trata como si no hubiera, y el
+        // trazado se recalcula siguiendo las calles.
+        final puntos = OsrmClient.decodePolyline(
+          rawGeo,
+          precision: 6,
+        ).where(OsrmClient.isValidLatLng).toList(growable: false);
+        trazado = puntos.length >= 2 ? puntos : const [];
       } catch (_) {
         trazado = const [];
       }
@@ -112,7 +119,7 @@ class Recorrido {
 /// capacidad): esos cuatro están reservados y un recorrido pintado de verde
 /// sobre el mapa se leería como "hay cupo". Ver `theme/app_colors.dart`.
 const List<int> kRecorridoColors = [
-  0xFF4A3F9E, // índigo de marca
+  0xFF4A3F9E, // índigo (la marca original, antes del amarillo colectivo)
   0xFF7B3FA0, // violeta
   0xFFB0338A, // magenta
   0xFF00727C, // teal oscuro

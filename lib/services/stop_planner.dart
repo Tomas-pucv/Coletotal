@@ -58,6 +58,10 @@ abstract final class StopPlanner {
   /// que tiene alguna parada más cerca del destino; esa parada es la bajada. El
   /// paradero se puntúa con el promedio de los dos tramos caminando.
   ///
+  /// La bajada nunca es la propia subida: si la parada de una línea más cercana
+  /// al destino es justo donde uno se sube, el colectivo no lleva a ninguna
+  /// parte y se usa la siguiente mejor de esa línea.
+  ///
   /// **Simplificación conocida:** no se modela el sentido de marcha. Un
   /// recorrido se trata como el conjunto de sus paraderos, así que se asume que
   /// desde la subida se puede alcanzar cualquier otra parada de esa línea. Con
@@ -72,33 +76,53 @@ abstract final class StopPlanner {
     final todosLosParaderos = stops ?? StopsService.instance.stops;
     final todosLosRecorridos =
         recorridos ?? RecorridosService.instance.recorridos;
-    if (todosLosParaderos.isEmpty) return const [];
 
-    final activos = todosLosRecorridos.where((r) => r.activo).toList();
-    final porId = {for (final s in todosLosParaderos) s.id: s};
+    final activos = todosLosParaderos
+        .where((s) => s.activo)
+        .toList(growable: false);
+    if (activos.isEmpty) return const [];
+    final porId = {for (final s in activos) s.id: s};
+
+    // Cada distancia se calcula una sola vez. Antes se medía de nuevo por cada
+    // combinación de subida, línea y bajada: miles de cálculos geodésicos
+    // (Vincenty, iterativo) en cada búsqueda.
+    final alDestino = {
+      for (final s in activos) s.id: _metros(destino, s.location),
+    };
+
+    // Por línea, sus dos mejores bajadas; y por paradero, las líneas que lo
+    // sirven.
+    final bajadas = <String, _MejoresBajadas>{};
+    final lineasPorParadero = <String, List<Recorrido>>{};
+    for (final recorrido in todosLosRecorridos) {
+      if (!recorrido.activo) continue;
+      final mejores = _MejoresBajadas();
+      for (final id in recorrido.paraderoIds.toSet()) {
+        final stop = porId[id];
+        if (stop == null) continue;
+        lineasPorParadero.putIfAbsent(id, () => []).add(recorrido);
+        mejores.ofrecer(stop, alDestino[id]!);
+      }
+      bajadas[recorrido.id] = mejores;
+    }
 
     final suggestions = <StopSuggestion>[];
 
-    for (final subida in todosLosParaderos) {
-      if (!subida.activo) continue;
-      final metrosAlUsuario = _metros(user, subida.location);
+    for (final subida in activos) {
+      final lineas = lineasPorParadero[subida.id];
+      if (lineas == null) continue;
 
       Recorrido? mejorRecorrido;
       BusStop? mejorBajada;
       var mejorDistancia = double.infinity;
 
-      for (final recorrido in activos) {
-        if (!recorrido.paraderoIds.contains(subida.id)) continue;
-
-        for (final id in recorrido.paraderoIds) {
-          final candidata = porId[id];
-          if (candidata == null || !candidata.activo) continue;
-          final d = _metros(destino, candidata.location);
-          if (d < mejorDistancia) {
-            mejorDistancia = d;
-            mejorBajada = candidata;
-            mejorRecorrido = recorrido;
-          }
+      for (final recorrido in lineas) {
+        final candidata = bajadas[recorrido.id]!.distintaDe(subida.id);
+        if (candidata == null) continue;
+        if (candidata.$2 < mejorDistancia) {
+          mejorDistancia = candidata.$2;
+          mejorBajada = candidata.$1;
+          mejorRecorrido = recorrido;
         }
       }
 
@@ -107,7 +131,7 @@ abstract final class StopPlanner {
       suggestions.add(
         StopSuggestion(
           stop: subida,
-          metersToUser: metrosAlUsuario,
+          metersToUser: _metros(user, subida.location),
           metersToDestination: mejorDistancia,
           recorrido: mejorRecorrido,
           bajada: mejorBajada,
@@ -119,13 +143,12 @@ abstract final class StopPlanner {
     // colectivo. En vez de no mostrar nada, se degrada a "paraderos entre tú y
     // el destino"; la interfaz avisa de que es una aproximación.
     if (suggestions.isEmpty) {
-      for (final stop in todosLosParaderos) {
-        if (!stop.activo) continue;
+      for (final stop in activos) {
         suggestions.add(
           StopSuggestion(
             stop: stop,
             metersToUser: _metros(user, stop.location),
-            metersToDestination: _metros(destino, stop.location),
+            metersToDestination: alDestino[stop.id]!,
             recorrido: null,
             bajada: null,
           ),
@@ -141,4 +164,36 @@ abstract final class StopPlanner {
 
   static double _metros(LatLng a, LatLng b) =>
       _distance.as(LengthUnit.Meter, a, b);
+}
+
+/// Las dos paradas de una línea más cercanas al destino.
+///
+/// Con la mejor sola no alcanza: si coincide con la subida, la respuesta es la
+/// segunda.
+class _MejoresBajadas {
+  BusStop? _primera;
+  var _dPrimera = double.infinity;
+  BusStop? _segunda;
+  var _dSegunda = double.infinity;
+
+  void ofrecer(BusStop stop, double metros) {
+    if (metros < _dPrimera) {
+      _segunda = _primera;
+      _dSegunda = _dPrimera;
+      _primera = stop;
+      _dPrimera = metros;
+    } else if (metros < _dSegunda) {
+      _segunda = stop;
+      _dSegunda = metros;
+    }
+  }
+
+  /// La mejor bajada que no sea [subidaId], con su distancia al destino.
+  (BusStop, double)? distintaDe(String subidaId) {
+    final primera = _primera;
+    if (primera != null && primera.id != subidaId) return (primera, _dPrimera);
+    final segunda = _segunda;
+    if (segunda != null) return (segunda, _dSegunda);
+    return null;
+  }
 }

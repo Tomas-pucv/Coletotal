@@ -1,11 +1,9 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 
 import 'package:taxi1/l10n/app_localizations.dart';
 import 'package:taxi1/models/app_user.dart';
-import 'package:taxi1/models/colectivo_activo.dart';
 import 'package:taxi1/navigation/app_destination.dart';
+import 'package:taxi1/services/firestore_writes.dart';
 import 'package:taxi1/services/auth_service.dart';
 import 'package:taxi1/services/firebase_telemetria_service.dart';
 import 'package:taxi1/services/garita_service.dart';
@@ -33,31 +31,26 @@ class ChoferesAdminScreen extends StatefulWidget {
 class _ChoferesAdminScreenState extends State<ChoferesAdminScreen> {
   final _garita = GaritaService.instance;
   final _auth = AuthService.instance;
-
-  StreamSubscription<List<ColectivoActivo>>? _fleetSub;
-  Set<String> _enServicio = const {};
+  final _telemetria = FirebaseTelemetriaService.instance;
 
   @override
   void initState() {
     super.initState();
     _garita.addListener(_onChanged);
-
     // Cruzar el padrón con la telemetría en vivo es lo que convierte una lista
     // de nombres en información útil: quién está trabajando ahora.
-    _fleetSub = FirebaseTelemetriaService.instance.telemetriaStream.listen((
-      data,
-    ) {
-      if (!mounted) return;
-      setState(() => _enServicio = data.map((c) => c.uid).toSet());
-    }, onError: (Object _) {});
+    _telemetria.state.addListener(_onChanged);
   }
 
   @override
   void dispose() {
     _garita.removeListener(_onChanged);
-    _fleetSub?.cancel();
+    _telemetria.state.removeListener(_onChanged);
     super.dispose();
   }
+
+  Set<String> get _enServicio =>
+      _telemetria.state.value.colectivos.map((c) => c.uid).toSet();
 
   void _onChanged() {
     if (mounted) setState(() {});
@@ -66,11 +59,19 @@ class _ChoferesAdminScreenState extends State<ChoferesAdminScreen> {
   Future<void> _toggle(AppUser chofer, bool activo) async {
     final l10n = AppLocalizations.of(context)!;
     try {
-      await _garita.setChoferActivo(chofer, activo);
+      final outcome = await _garita.setChoferActivo(chofer, activo);
       if (!mounted) return;
       ScaffoldMessenger.of(context)
         ..hideCurrentSnackBar()
-        ..showSnackBar(SnackBar(content: Text(l10n.driverSaved)));
+        ..showSnackBar(
+          SnackBar(
+            content: Text(
+              outcome == WriteOutcome.queuedOffline
+                  ? l10n.savedOffline
+                  : l10n.driverSaved,
+            ),
+          ),
+        );
     } catch (_) {
       if (!mounted) return;
       ScaffoldMessenger.of(context)
@@ -83,6 +84,7 @@ class _ChoferesAdminScreenState extends State<ChoferesAdminScreen> {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final choferes = _garita.choferes;
+    final enServicio = _enServicio;
 
     return Scaffold(
       appBar: AppBar(title: Text(AppDestination.choferes.label(l10n))),
@@ -97,7 +99,9 @@ class _ChoferesAdminScreenState extends State<ChoferesAdminScreen> {
                 constraints: const BoxConstraints(
                   maxWidth: Breakpoints.maxContentWidth,
                 ),
-                child: choferes.isEmpty
+                child: _garita.loading
+                    ? const LoadingView()
+                    : choferes.isEmpty
                     ? StatusMessageView(
                         icon: Icons.badge_outlined,
                         title: l10n.driversEmpty,
@@ -115,7 +119,7 @@ class _ChoferesAdminScreenState extends State<ChoferesAdminScreen> {
                           for (final chofer in choferes) ...[
                             _ChoferTile(
                               chofer: chofer,
-                              enServicio: _enServicio.contains(chofer.uid),
+                              enServicio: enServicio.contains(chofer.uid),
                               onChanged: (v) => _toggle(chofer, v),
                             ),
                             const SizedBox(height: AppSpacing.sm),

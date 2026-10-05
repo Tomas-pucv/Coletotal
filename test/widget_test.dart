@@ -152,6 +152,19 @@ void main() {
       );
     });
 
+    test('pide teselas de 256 px con retina del servidor ({r})', () {
+      // Sin `{r}` flutter_map simulaba el modo retina pidiendo cuatro teselas
+      // por casilla: cuatro veces más cuota de MapTiler y texto diminuto.
+      for (final style in MapStyle.values) {
+        final url = mapTileUrlTemplate(style, isDark: false);
+        expect(url, contains('/256/{z}/{x}/{y}{r}.'));
+      }
+      expect(
+        fallbackTileUrlTemplate(MapStyle.normal, isDark: true),
+        contains('{r}'),
+      );
+    });
+
     test('la miniatura usa el mismo estilo que el mapa real', () {
       // Si divergieran, la vista previa mentiría sobre lo que se va a ver.
       expect(

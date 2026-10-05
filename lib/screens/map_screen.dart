@@ -3,26 +3,30 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_map_animations/flutter_map_animations.dart';
-import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 
 import 'package:taxi1/config/map_config.dart';
 import 'package:taxi1/l10n/app_localizations.dart';
 import 'package:taxi1/models/bus_stop.dart';
 import 'package:taxi1/models/colectivo_activo.dart';
+import 'package:taxi1/models/place_result.dart';
 import 'package:taxi1/screens/main_screen.dart';
 import 'package:taxi1/services/auth_service.dart';
 import 'package:taxi1/services/firebase_telemetria_service.dart';
-import 'package:taxi1/services/geocoding_service.dart';
+import 'package:taxi1/services/location_service.dart';
 import 'package:taxi1/services/preferences_service.dart';
 import 'package:taxi1/services/recorridos_service.dart';
 import 'package:taxi1/services/route_service.dart';
 import 'package:taxi1/services/stop_history_service.dart';
 import 'package:taxi1/services/stop_planner.dart';
 import 'package:taxi1/services/stops_service.dart';
+import 'package:taxi1/services/turno_service.dart';
 import 'package:taxi1/theme/app_colors.dart';
 import 'package:taxi1/theme/app_spacing.dart';
 import 'package:taxi1/utils/distance_format.dart';
+import 'package:taxi1/utils/estado_format.dart';
+import 'package:taxi1/utils/patente.dart';
+import 'package:taxi1/widgets/app_tile_layer.dart';
 import 'package:taxi1/widgets/map_overlay_card.dart';
 import 'package:taxi1/widgets/map_search_bar.dart';
 import 'package:taxi1/widgets/map_style_sheet.dart';
@@ -30,9 +34,6 @@ import 'package:taxi1/widgets/metric_chip.dart';
 import 'package:taxi1/widgets/paradero_sheet.dart';
 import 'package:taxi1/widgets/state_views.dart';
 import 'package:taxi1/widgets/stop_suggestions_sheet.dart';
-
-/// Motivo por el que no hay posición del usuario.
-enum _LocationIssue { none, disabledByPreference, serviceDisabled, denied }
 
 class MapScreen extends StatefulWidget {
   const MapScreen({super.key});
@@ -43,23 +44,15 @@ class MapScreen extends StatefulWidget {
 
 class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
   late final AnimatedMapController _mapController;
-  StreamSubscription<Position>? _positionStream;
-  StreamSubscription<List<ColectivoActivo>>? _telemetriaStream;
 
   bool _followUser = true;
-  LatLng? _currentPosition;
-  double? _currentAccuracy;
   bool _showBusStops = true;
-  _LocationIssue _locationIssue = _LocationIssue.none;
-
-  List<ColectivoActivo> _colectivos = const [];
-  bool _telemetriaFailed = false;
+  bool _mapReady = false;
 
   final routeService = RouteService.instance;
   final prefs = PreferencesService.instance;
-  final auth = AuthService.instance;
-  final stopsService = StopsService.instance;
   final recorridos = RecorridosService.instance;
+  final location = LocationService.instance;
 
   /// Dirección buscada por el usuario, si la hay. Es el destino *final* del
   /// viaje, distinto del paradero (que es sólo dónde se toma el colectivo).
@@ -78,15 +71,15 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
       curve: Curves.easeInOut,
     );
 
-    prefs.addListener(_onPrefsChanged);
-    routeService.addListener(_onRouteChanged);
-    // El rol decide si se dibuja el punto azul del pasajero: al chofer lo
-    // representa su propio marcador de vehículo, no un segundo punto encima.
-    auth.addListener(_onRouteChanged);
-    // Los paraderos ahora son datos vivos: si el administrador agrega uno, el
-    // mapa del pasajero tiene que mostrarlo sin reiniciar la app.
-    stopsService.addListener(_onRouteChanged);
-    recorridos.addListener(_onRouteChanged);
+    // Sólo lo que cambia la estructura de la pantalla la reconstruye entera.
+    // La posición del GPS, los paraderos y la flota en vivo los escuchan sus
+    // propias capas (`_UserLocationLayer`, `_StopsLayer`, `_ColectivosLayer`):
+    // antes cada movimiento de cada colectivo volvía a construir las teselas,
+    // todos los paraderos y todos los controles flotantes.
+    prefs.addListener(_onChanged);
+    routeService.addListener(_onChanged);
+    recorridos.addListener(_onChanged);
+    location.addListener(_onLocationChanged);
 
     _centerBtnController = AnimationController(
       vsync: this,
@@ -95,65 +88,65 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     _centerScale = Tween<double>(begin: 1.0, end: 1.12).animate(
       CurvedAnimation(parent: _centerBtnController, curve: Curves.easeOut),
     );
-
-    // Una sola suscripción en vez de un StreamBuilder: así el fallo del stream
-    // se puede mostrar en la interfaz. Antes el builder hacía
-    // `if (!snapshot.hasData) return SizedBox.shrink()`, con lo que una caída
-    // de Firebase era literalmente invisible.
-    _telemetriaStream = FirebaseTelemetriaService.instance.telemetriaStream
-        .listen(
-          (data) {
-            if (!mounted) return;
-            setState(() {
-              _colectivos = data;
-              _telemetriaFailed = false;
-            });
-          },
-          onError: (Object _) {
-            if (!mounted) return;
-            setState(() => _telemetriaFailed = true);
-          },
-        );
-
-    _initLocationTracking();
   }
 
   @override
   void dispose() {
-    // La telemetría ya NO se detiene acá. Vivía en esta pantalla y sólo
-    // funcionaba porque el IndexedStack la mantenía montada para siempre; con
-    // las pantallas dependiendo del rol, cambiar de rol la habría destruido y
-    // cortado la transmisión del chofer en silencio. Ahora manda TurnoService.
-    prefs.removeListener(_onPrefsChanged);
-    routeService.removeListener(_onRouteChanged);
-    auth.removeListener(_onRouteChanged);
-    stopsService.removeListener(_onRouteChanged);
-    recorridos.removeListener(_onRouteChanged);
+    // La telemetría del chofer no se detiene acá: la gobierna TurnoService.
+    prefs.removeListener(_onChanged);
+    routeService.removeListener(_onChanged);
+    recorridos.removeListener(_onChanged);
+    location.removeListener(_onLocationChanged);
     _centerBtnController.dispose();
-    _positionStream?.cancel();
-    _telemetriaStream?.cancel();
     _mapController.dispose();
     super.dispose();
   }
 
-  void _onPrefsChanged() {
-    if (!prefs.locationTracking) {
-      _positionStream?.cancel();
-      _positionStream = null;
-      if (mounted) {
-        setState(() {
-          _followUser = false;
-          _locationIssue = _LocationIssue.disabledByPreference;
-        });
-      }
-    } else if (_positionStream == null) {
-      _initLocationTracking();
-    }
+  void _onChanged() {
     if (mounted) setState(() {});
   }
 
-  void _onRouteChanged() {
-    if (mounted) setState(() {});
+  /// Seguir al usuario mueve la cámara, pero no reconstruye la pantalla.
+  void _onLocationChanged() {
+    final position = location.position;
+    if (position == null) {
+      if (location.issue == LocationIssue.disabledByPreference &&
+          _followUser &&
+          mounted) {
+        setState(() => _followUser = false);
+      }
+      return;
+    }
+    if (_followUser && _mapReady) {
+      _mapController.mapController.move(
+        position,
+        _mapController.mapController.camera.zoom,
+      );
+    }
+  }
+
+  void _onMapReady() {
+    _mapReady = true;
+    final position = location.position;
+    if (_followUser && position != null) {
+      _mapController.mapController.move(
+        position,
+        _mapController.mapController.camera.zoom,
+      );
+    }
+  }
+
+  /// Centra la cámara respetando la preferencia "Animaciones".
+  Future<void> _centerOn(LatLng point, {double? zoom}) async {
+    if (!_mapReady) return;
+    if (prefs.animationsEnabled) {
+      await _mapController.centerOnPoint(point, zoom: zoom);
+    } else {
+      _mapController.mapController.move(
+        point,
+        zoom ?? _mapController.mapController.camera.zoom,
+      );
+    }
   }
 
   /// El usuario eligió una dirección en el buscador.
@@ -164,13 +157,13 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
   /// [StopPlanner]).
   Future<void> _onDestinationSelected(PlaceResult place) async {
     final l10n = AppLocalizations.of(context)!;
-    setState(() => _destino = place);
+    setState(() {
+      _destino = place;
+      _followUser = false;
+    });
+    unawaited(_centerOn(place.location, zoom: 15));
 
-    // Encuadrar destino y usuario juntos da contexto antes de abrir la hoja.
-    _mapController.centerOnPoint(place.location, zoom: 15);
-    setState(() => _followUser = false);
-
-    final origin = _currentPosition ?? routeService.origin;
+    final origin = location.position ?? routeService.origin;
     if (origin == null) {
       ScaffoldMessenger.of(context)
         ..hideCurrentSnackBar()
@@ -194,10 +187,11 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     // El paradero elegido pasa a ser el destino de la ruta a pie, y su línea
     // se dibuja para que se vea a dónde lleva.
     recorridos.clearSelection();
-    routeService.setOrigin(origin);
     routeService.setDestination(elegido.stop);
     StopHistoryService.instance.record(elegido.stop);
-    await routeService.fetchRoute(origin, elegido.stop);
+    // Desde donde el usuario está *ahora*: elegir en la hoja puede tomar un
+    // rato, y antes la ruta salía del primer punto GPS de la sesión.
+    await routeService.fetchRoute(location.position ?? origin, elegido.stop);
 
     final linea = elegido.recorrido;
     if (linea != null && mounted) await recorridos.select(linea);
@@ -209,143 +203,61 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     recorridos.clearSelection();
   }
 
-  Future<void> _initLocationTracking() async {
-    // Cada salida temprana ahora deja registrado el motivo. Antes eran `return`
-    // secos: el mapa simplemente no centraba nunca y el usuario no tenía forma
-    // de saber si faltaba un permiso, si el GPS estaba apagado, o si la app
-    // estaba rota.
-    if (!prefs.locationTracking) {
-      _setIssue(_LocationIssue.disabledByPreference);
-      _followUser = false;
-      return;
-    }
-
-    // En plataformas sin geolocator (Windows, web) estas llamadas lanzan; sin
-    // el try/catch la excepción quedaba sin manejar y el mapa nunca centraba
-    // ni explicaba por qué.
-    try {
-      if (!await Geolocator.isLocationServiceEnabled()) {
-        _setIssue(_LocationIssue.serviceDisabled);
-        return;
-      }
-
-      var permission = await Geolocator.checkPermission();
-      if (permission == LocationPermission.denied) {
-        permission = await Geolocator.requestPermission();
-      }
-      if (permission == LocationPermission.denied ||
-          permission == LocationPermission.deniedForever) {
-        _setIssue(_LocationIssue.denied);
-        return;
-      }
-    } catch (_) {
-      _setIssue(_LocationIssue.serviceDisabled);
-      return;
-    }
-
-    _setIssue(_LocationIssue.none);
-
-    const locationSettings = LocationSettings(
-      accuracy: LocationAccuracy.high,
-      distanceFilter: 5,
-    );
-
-    _positionStream?.cancel();
-    _positionStream =
-        Geolocator.getPositionStream(locationSettings: locationSettings).listen(
-          (Position position) {
-            // En emuladores o antes del primer fix real, Geolocator puede
-            // devolver 0,0 o NaN, lo que rompe flutter_map ("LatLng is not
-            // finite").
-            final lat = position.latitude;
-            final lng = position.longitude;
-            if (!lat.isFinite || !lng.isFinite) return;
-            if (lat == 0.0 && lng == 0.0) return;
-            if (!mounted) return;
-
-            setState(() {
-              _currentPosition = LatLng(lat, lng);
-              _currentAccuracy = position.accuracy;
-              if (routeService.origin == null) {
-                routeService.setOrigin(_currentPosition!);
-              }
-              if (_followUser) {
-                _mapController.mapController.move(
-                  _currentPosition!,
-                  _mapController.mapController.camera.zoom,
-                );
-              }
-            });
-          },
-          onError: (Object _) {
-            if (mounted) _setIssue(_LocationIssue.serviceDisabled);
-          },
-        );
-  }
-
-  void _setIssue(_LocationIssue issue) {
-    if (!mounted) {
-      _locationIssue = issue;
-      return;
-    }
-    setState(() => _locationIssue = issue);
-  }
-
   Future<void> _recenter() async {
-    if (_currentPosition == null) {
+    final position = location.position;
+    if (position == null) {
       // Sin posición el botón no puede centrar: en vez de no hacer nada,
-      // reintenta obtenerla.
-      await _initLocationTracking();
+      // reintenta obtenerla (por ejemplo, tras encender el GPS).
+      await location.retry();
       return;
     }
     _centerBtnController.forward(from: 0);
-    await _mapController.centerOnPoint(_currentPosition!, zoom: 16.0);
+    await _centerOn(position, zoom: 16.0);
     _centerBtnController.reverse();
     if (mounted) setState(() => _followUser = true);
   }
 
   Future<void> _reorient() => _mapController.animatedRotateReset();
 
-  /// Toca un paradero del mapa: setea destino y pide la ruta.
-  /// Tocar un paradero abre su ficha, igual que en la pestaña Paraderos.
-  ///
-  /// Antes calculaba directo la ruta a pie. Ahora los dos sitios desde los que
-  /// se toca un paradero llevan a la misma pregunta —qué colectivos pasan por
-  /// aquí—, y desde ahí se elige ver una línea o cómo llegar caminando.
+  /// Tocar un paradero abre su ficha, igual que en la pestaña Paraderos: qué
+  /// colectivos pasan por aquí, y desde ahí ver una línea o cómo llegar.
   Future<void> _onTapStop(BusStop stop) async {
     // Se registra en el historial al consultarlo, no sólo al rutear: abrir la
     // ficha ya es interactuar con el paradero, que es lo que ordena la lista
     // en modo "Recientes".
     StopHistoryService.instance.record(stop);
-    await _mapController.centerOnPoint(stop.location, zoom: 16.0);
+    // Sin esto, el siguiente punto del GPS devolvía la cámara al usuario y el
+    // paradero tocado se salía de la pantalla.
+    setState(() => _followUser = false);
+    await _centerOn(stop.location, zoom: 16.0);
     if (!mounted) return;
     await showParaderoSheet(context, stop);
   }
 
-  Color _stopColor(BusStop stop, AppStatusColors status) {
-    final origin = routeService.origin ?? _currentPosition;
-    final meters = origin == null ? null : stop.distanceFrom(origin);
-    return proximityColor(proximityOf(meters), status);
+  Future<void> _onTapColectivo(ColectivoActivo colectivo) async {
+    // Si informa un recorrido, se ilumina su trazado. Sin esperar al trazado:
+    // la ficha tiene que abrirse al instante.
+    if (colectivo.recorridoId case final id?) {
+      final linea = recorridos.byId(id);
+      if (linea != null) unawaited(recorridos.select(linea));
+    }
+    if (!mounted) return;
+
+    final ahora = FirebaseTelemetriaService.instance.serverNow();
+    await showModalBottomSheet<void>(
+      context: context,
+      builder: (context) => _ColectivoSheet(colectivo: colectivo, ahora: ahora),
+    );
   }
-
-  /// La construcción de la URL de teselas vive en `config/map_config.dart`,
-  /// compartida con las miniaturas del selector de estilo: así la vista previa
-  /// no puede quedar mostrando una cartografía distinta de la real.
-  String _tileUrl(bool isDark) =>
-      mapTileUrlTemplate(MapStyle.fromPref(prefs.mapType), isDark: isDark);
-
-  String _fallbackTileUrl(bool isDark) =>
-      fallbackTileUrlTemplate(MapStyle.fromPref(prefs.mapType), isDark: isDark);
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     final l10n = AppLocalizations.of(context)!;
     final status = AppStatusColors.of(context);
-    final isDark = theme.brightness == Brightness.dark;
 
     final destination = routeService.destination;
-    final origin = routeService.origin ?? _currentPosition;
+    final linea = recorridos.selected;
+    final trazado = recorridos.trazadoSeleccionado;
 
     return Scaffold(
       body: Stack(
@@ -353,7 +265,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
           FlutterMap(
             mapController: _mapController.mapController,
             options: MapOptions(
-              initialCenter: kQuilpueCenter,
+              initialCenter: location.position ?? kQuilpueCenter,
               initialZoom: kInitialZoom,
               interactionOptions: const InteractionOptions(
                 flags:
@@ -366,32 +278,26 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                 enableMultiFingerGestureRace: true,
                 rotationThreshold: 30.0,
               ),
-              onPositionChanged: (position, hasGesture) {
+              onMapReady: _onMapReady,
+              onPositionChanged: (camera, hasGesture) {
                 if (hasGesture && _followUser) {
                   setState(() => _followUser = false);
                 }
               },
             ),
             children: [
-              TileLayer(
-                urlTemplate: _tileUrl(isDark),
-                fallbackUrl: _fallbackTileUrl(isDark),
-                userAgentPackageName: 'cl.coletotal.app',
-                retinaMode: RetinaMode.isHighDensity(context),
-              ),
+              AppTileLayer(style: MapStyle.fromPref(prefs.mapType)),
 
               // Recorrido de una línea de colectivos. Va debajo de la ruta a
               // pie: es contexto ("por aquí pasa la 5"), no la indicación que
               // el usuario tiene que seguir ahora.
-              if (recorridos.trazadoSeleccionado.length > 1)
+              if (linea != null && trazado.length > 1)
                 PolylineLayer(
                   polylines: [
                     Polyline(
-                      points: recorridos.trazadoSeleccionado,
+                      points: trazado,
                       strokeWidth: 6.0,
-                      color: Color(
-                        recorridos.selected!.colorValue,
-                      ).withValues(alpha: 0.85),
+                      color: Color(linea.colorValue).withValues(alpha: 0.85),
                       borderColor: status.routeLineCasing,
                       borderStrokeWidth: 1.5,
                     ),
@@ -399,9 +305,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                 ),
 
               // La ruta va antes que los marcadores para que no los tape.
-              if (destination != null &&
-                  origin != null &&
-                  routeService.routePoints.isNotEmpty)
+              if (destination != null && routeService.routePoints.isNotEmpty)
                 PolylineLayer(
                   polylines: [
                     Polyline(
@@ -441,93 +345,16 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                   ],
                 ),
 
-              // Halo de precisión real del GPS (antes eran 50 px fijos).
-              if (_currentPosition != null && !auth.isColectivero)
-                CircleLayer(
-                  circles: [
-                    CircleMarker(
-                      point: _currentPosition!,
-                      radius: (_currentAccuracy ?? 30).clamp(10, 200),
-                      useRadiusInMeter: true,
-                      color: status.userLocation.withValues(alpha: 0.15),
-                      borderColor: status.userLocation.withValues(alpha: 0.5),
-                      borderStrokeWidth: 2,
-                    ),
-                  ],
-                ),
-
-              // Colectivos en vivo (telemetría Firebase filtrada por proximidad).
-              MarkerLayer(
-                markers: [
-                  for (final colectivo in _colectivosVisibles())
-                    _colectivoMarker(colectivo, status, l10n),
-                ],
-              ),
-
-              // Marcador del pasajero.
-              if (_currentPosition != null && !auth.isColectivero)
-                MarkerLayer(
-                  markers: [
-                    Marker(
-                      point: _currentPosition!,
-                      width: 24,
-                      height: 24,
-                      child: DecoratedBox(
-                        decoration: BoxDecoration(
-                          color: status.userLocation,
-                          shape: BoxShape.circle,
-                          border: Border.all(
-                            color: status.markerBorder,
-                            width: 3,
-                          ),
-                          boxShadow: const [
-                            BoxShadow(
-                              color: Color(0x40000000),
-                              blurRadius: 4,
-                              offset: Offset(0, 2),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-
-              if (_showBusStops)
-                MarkerLayer(
-                  markers: [
-                    for (final stop in stopsService.stops)
-                      Marker(
-                        point: stop.location,
-                        width: AppSpacing.minTapTarget,
-                        height: AppSpacing.minTapTarget,
-                        child: Semantics(
-                          button: true,
-                          label: l10n.stopSemanticLabel(
-                            stop.name,
-                            stop.address,
-                          ),
-                          child: GestureDetector(
-                            onTap: () => _onTapStop(stop),
-                            child: _BusStopPin(
-                              color: _stopColor(stop, status),
-                              borderColor: status.markerBorder,
-                              selected: destination == stop,
-                              animate: prefs.animationsEnabled,
-                            ),
-                          ),
-                        ),
-                      ),
-                  ],
-                ),
+              const _UserLocationLayer(dot: false),
+              _ColectivosLayer(onTap: _onTapColectivo),
+              const _UserLocationLayer(dot: true),
+              if (_showBusStops) _StopsLayer(onTap: _onTapStop),
             ],
           ),
 
           // Todos los controles flotantes viven en un solo Column que ocupa la
-          // pantalla. Esto elimina los offsets mágicos que había antes
-          // (`bottom: destination != null ? 155 : 85`, `top: topPadding + 56`):
-          // ahora el botón de recentrado sube solo cuando la tarjeta de estado
-          // crece, ya sea por la info de ruta o por el tamaño de fuente.
+          // pantalla: el botón de recentrado sube solo cuando la tarjeta de
+          // estado crece, ya sea por la info de ruta o por el tamaño de fuente.
           Positioned.fill(
             child: SafeArea(
               child: Padding(
@@ -541,197 +368,27 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                       alignment: Alignment.centerRight,
                       child: _recenterButton(l10n),
                     ),
-                    const SizedBox(height: AppSpacing.md),
-                    _StatusCard(
-                      destination: destination,
-                      currentPosition: _currentPosition,
-                      followUser: _followUser,
-                      routeInfo: routeService.routeInfo,
-                      provider: routeService.activeProvider,
-                      onClose: routeService.clearDestination,
-                      onTap: destination == null
-                          ? null
-                          : () {
-                              _mapController.centerOnPoint(
-                                destination.location,
-                                zoom: 16.0,
-                              );
-                              setState(() => _followUser = false);
-                            },
-                    ),
+                    // Sólo con una ruta activa: paradero, distancia y tiempo
+                    // a pie. Sin ruta no hay tarjeta abajo.
+                    if (destination != null) ...[
+                      const SizedBox(height: AppSpacing.md),
+                      _StatusCard(
+                        destination: destination,
+                        routeInfo: routeService.routeInfo,
+                        provider: routeService.activeProvider,
+                        onClose: routeService.clearDestination,
+                        onTap: () {
+                          setState(() => _followUser = false);
+                          _centerOn(destination.location, zoom: 16.0);
+                        },
+                      ),
+                    ],
                   ],
                 ),
               ),
             ),
           ),
         ],
-      ),
-    );
-  }
-
-  List<ColectivoActivo> _colectivosVisibles() {
-    if (_colectivos.length <= 4) return _colectivos;
-    final center = _currentPosition ?? kQuilpueCenter;
-    const distance = Distance();
-    final filtrados = _colectivos.where((c) {
-      if (c.latitud == 0.0 && c.longitud == 0.0) return false;
-      final km = distance.as(
-        LengthUnit.Kilometer,
-        center,
-        LatLng(c.latitud, c.longitud),
-      );
-      return km <= 6.0;
-    }).toList();
-    return filtrados.isEmpty ? _colectivos : filtrados;
-  }
-
-  Future<void> _onTapColectivo(ColectivoActivo colectivo) async {
-    final status = AppStatusColors.of(context);
-    final theme = Theme.of(context);
-
-    // Si tiene un recorrido asignado, seleccionamos e iluminamos su trazado vial en el mapa
-    if (colectivo.recorridoId != null) {
-      final linea = recorridos.byId(colectivo.recorridoId!);
-      if (linea != null) {
-        await recorridos.select(linea);
-      }
-    }
-
-    if (!mounted) return;
-
-    final estadoLabel = switch (colectivo.estado) {
-      EstadoCapacidad.disponible => 'Disponible (con asientos)',
-      EstadoCapacidad.medioLleno => 'Medio lleno (pocos cupos)',
-      EstadoCapacidad.lleno => 'Lleno (sin cupos)',
-    };
-
-    final estadoColor = switch (colectivo.estado) {
-      EstadoCapacidad.disponible => status.disponible,
-      EstadoCapacidad.medioLleno => status.medioLleno,
-      EstadoCapacidad.lleno => status.lleno,
-    };
-
-    showModalBottomSheet<void>(
-      context: context,
-      showDragHandle: true,
-      builder: (context) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg, vertical: AppSpacing.sm),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(AppSpacing.sm),
-                    decoration: BoxDecoration(
-                      color: estadoColor.withValues(alpha: 0.15),
-                      shape: BoxShape.circle,
-                    ),
-                    child: Icon(Icons.directions_car, color: estadoColor, size: 28),
-                  ),
-                  const SizedBox(width: AppSpacing.md),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Colectivo ${colectivo.idVehiculo}',
-                          style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
-                        ),
-                        Text(
-                          colectivo.recorridoNombre ?? 'En servicio activo',
-                          style: theme.textTheme.bodyMedium?.copyWith(
-                            color: theme.colorScheme.onSurfaceVariant,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: AppSpacing.md),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md, vertical: AppSpacing.sm),
-                decoration: BoxDecoration(
-                  color: estadoColor.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(AppSpacing.radiusSm),
-                  border: Border.all(color: estadoColor.withValues(alpha: 0.3)),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Container(
-                      width: 10,
-                      height: 10,
-                      decoration: BoxDecoration(
-                        color: estadoColor,
-                        shape: BoxShape.circle,
-                      ),
-                    ),
-                    const SizedBox(width: AppSpacing.sm),
-                    Text(
-                      estadoLabel,
-                      style: theme.textTheme.labelMedium?.copyWith(
-                        color: estadoColor,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: AppSpacing.lg),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Marker _colectivoMarker(
-    ColectivoActivo colectivo,
-    AppStatusColors status,
-    AppLocalizations l10n,
-  ) {
-    // Antes se comparaba contra un id generado en el teléfono; ahora la clave
-    // del nodo es el uid de la sesión, que es también lo que autoriza la
-    // escritura en Realtime Database.
-    final isMe = auth.isColectivero && colectivo.uid == auth.uid;
-
-    // Semaforización de capacidad (informe §7.3.1-C): el color lo reporta el
-    // chofer desde su pantalla de turno.
-    final color = isMe
-        ? Theme.of(context).colorScheme.primary
-        : switch (colectivo.estado) {
-            EstadoCapacidad.disponible => status.disponible,
-            EstadoCapacidad.medioLleno => status.medioLleno,
-            EstadoCapacidad.lleno => status.lleno,
-          };
-    final onColor = AppStatusColors.onColorFor(color);
-
-    return Marker(
-      point: LatLng(colectivo.latitud, colectivo.longitud),
-      width: isMe ? 46 : 40,
-      height: isMe ? 46 : 40,
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: () => _onTapColectivo(colectivo),
-        child: Container(
-          decoration: BoxDecoration(
-            color: color,
-            shape: BoxShape.circle,
-            border: Border.all(color: status.markerBorder, width: isMe ? 3 : 2),
-            boxShadow: const [
-              BoxShadow(
-                color: Color(0x59000000),
-                blurRadius: 6,
-                offset: Offset(0, 2),
-              ),
-            ],
-          ),
-          child: Icon(Icons.directions_car, color: onColor, size: isMe ? 24 : 20),
-        ),
       ),
     );
   }
@@ -746,8 +403,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
         Row(
           children: [
             // El mapa no tiene AppBar (la cartografía ocupa la pantalla
-            // entera), así que el acceso al menú es este botón flotante. Va
-            // arriba a la izquierda, donde estaría el de una AppBar.
+            // entera), así que el acceso al menú es este botón flotante.
             FloatingActionButton.small(
               heroTag: 'menu',
               tooltip: l10n.openMenu,
@@ -815,7 +471,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                 ),
                 const SizedBox(height: AppSpacing.sm),
               ],
-              if (routeService.loadingRoute)
+              if (routeService.loadingRoute) ...[
                 MapOverlayCard(
                   padding: const EdgeInsets.symmetric(
                     horizontal: AppSpacing.lg,
@@ -839,19 +495,29 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                     ],
                   ),
                 ),
-              if (_locationNotice(l10n) case final notice?) ...[
-                if (routeService.loadingRoute)
-                  const SizedBox(height: AppSpacing.sm),
-                notice,
-              ],
-              if (_telemetriaFailed) ...[
                 const SizedBox(height: AppSpacing.sm),
-                InlineNotice(
-                  icon: Icons.cloud_off,
-                  message: l10n.telemetryUnavailable,
-                  tone: StatusTone.error,
-                ),
               ],
+              ListenableBuilder(
+                listenable: location,
+                builder: (context, _) {
+                  final notice = _locationNotice(l10n);
+                  if (notice == null) return const SizedBox.shrink();
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+                    child: notice,
+                  );
+                },
+              ),
+              ValueListenableBuilder<TelemetriaState>(
+                valueListenable: FirebaseTelemetriaService.instance.state,
+                builder: (context, state, _) => state.failed
+                    ? InlineNotice(
+                        icon: Icons.cloud_off,
+                        message: l10n.telemetryUnavailable,
+                        tone: StatusTone.error,
+                      )
+                    : const SizedBox.shrink(),
+              ),
             ],
           ),
         ),
@@ -860,7 +526,6 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
           children: [
             FloatingActionButton.small(
               heroTag: 'reorient',
-              // Antes este botón era el único sin tooltip de los tres.
               tooltip: l10n.reorientMap,
               onPressed: _reorient,
               child: const Icon(Icons.explore),
@@ -876,8 +541,8 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
             ),
             const SizedBox(height: AppSpacing.sm),
             // Cambiar entre calles y satélite es el ajuste que más se toca con
-            // el mapa a la vista; tenerlo solo en la tercera pestaña obligaba a
-            // salir del mapa para volver a entrar.
+            // el mapa a la vista; tenerlo solo en Preferencias obligaba a salir
+            // del mapa para volver a entrar.
             FloatingActionButton.small(
               heroTag: 'map_layers',
               tooltip: l10n.mapLayers,
@@ -909,28 +574,292 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
   }
 
   Widget? _locationNotice(AppLocalizations l10n) {
-    return switch (_locationIssue) {
-      _LocationIssue.none => null,
-      _LocationIssue.disabledByPreference => InlineNotice(
+    return switch (location.issue) {
+      LocationIssue.none => null,
+      LocationIssue.disabledByPreference => InlineNotice(
         icon: Icons.location_disabled,
         message: l10n.locationDisabledByPreference,
         actionLabel: l10n.preferencesTitle,
         onAction: () =>
             MainNavigationController.instance.openPreferences(context),
       ),
-      _LocationIssue.serviceDisabled => InlineNotice(
+      LocationIssue.serviceDisabled => InlineNotice(
         icon: Icons.location_off_outlined,
         message: l10n.locationOffMessage,
         actionLabel: l10n.openSettings,
-        onAction: Geolocator.openLocationSettings,
+        onAction: location.openLocationSettings,
       ),
-      _LocationIssue.denied => InlineNotice(
+      LocationIssue.denied => InlineNotice(
         icon: Icons.lock_outline,
         message: l10n.locationDeniedMessage,
         actionLabel: l10n.openSettings,
-        onAction: Geolocator.openAppSettings,
+        onAction: location.openAppSettings,
       ),
     };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Capas del mapa que escuchan sus propios datos
+// ---------------------------------------------------------------------------
+
+/// Halo de precisión ([dot] en `false`) o punto azul del usuario.
+///
+/// Son dos capas y no una para que los colectivos queden entre ambas, como
+/// estaban.
+class _UserLocationLayer extends StatelessWidget {
+  const _UserLocationLayer({required this.dot});
+
+  final bool dot;
+
+  @override
+  Widget build(BuildContext context) {
+    final location = LocationService.instance;
+    final auth = AuthService.instance;
+    final turno = TurnoService.instance;
+
+    return ListenableBuilder(
+      listenable: Listenable.merge([location, auth, turno]),
+      builder: (context, _) {
+        final position = location.position;
+        // El chofer en turno ya aparece como su propio colectivo: un punto azul
+        // encima sería un segundo marcador para la misma persona. Fuera de
+        // turno, en cambio, sí ve dónde está.
+        if (position == null || (auth.isColectivero && turno.enTurno)) {
+          return const SizedBox.shrink();
+        }
+        final status = AppStatusColors.of(context);
+
+        if (!dot) {
+          // Halo de precisión real del GPS (antes eran 50 px fijos).
+          return CircleLayer(
+            circles: [
+              CircleMarker(
+                point: position,
+                radius: (location.accuracy ?? 30).clamp(10, 200),
+                useRadiusInMeter: true,
+                color: status.userLocation.withValues(alpha: 0.15),
+                borderColor: status.userLocation.withValues(alpha: 0.5),
+                borderStrokeWidth: 2,
+              ),
+            ],
+          );
+        }
+
+        return MarkerLayer(
+          markers: [
+            Marker(
+              point: position,
+              width: 24,
+              height: 24,
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: status.userLocation,
+                  shape: BoxShape.circle,
+                  border: Border.all(color: status.markerBorder, width: 3),
+                  boxShadow: const [
+                    BoxShadow(
+                      color: Color(0x40000000),
+                      blurRadius: 4,
+                      offset: Offset(0, 2),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+/// Colectivos en vivo, con la semaforización de capacidad.
+class _ColectivosLayer extends StatelessWidget {
+  const _ColectivosLayer({required this.onTap});
+
+  final ValueChanged<ColectivoActivo> onTap;
+
+  /// Con muchas unidades sólo se dibujan las de este radio alrededor del
+  /// usuario (o del centro de Quilpué si no hay posición).
+  static const double radioKm = 6.0;
+
+  /// Con pocas unidades se muestran todas; con más, sólo las cercanas, salvo
+  /// que ninguna lo esté.
+  static List<ColectivoActivo> visiblesCerca(
+    List<ColectivoActivo> todos,
+    LatLng centro,
+  ) {
+    final validos = todos
+        .where((c) => !(c.latitud == 0.0 && c.longitud == 0.0))
+        .toList(growable: false);
+    if (validos.length <= 4) return validos;
+    const distance = Distance();
+    final cerca = validos
+        .where(
+          (c) =>
+              distance.as(
+                LengthUnit.Kilometer,
+                centro,
+                LatLng(c.latitud, c.longitud),
+              ) <=
+              radioKm,
+        )
+        .toList(growable: false);
+    return cerca.isEmpty ? validos : cerca;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final telemetria = FirebaseTelemetriaService.instance;
+    final location = LocationService.instance;
+    final auth = AuthService.instance;
+
+    return ListenableBuilder(
+      listenable: Listenable.merge([telemetria.state, location, auth]),
+      builder: (context, _) {
+        final l10n = AppLocalizations.of(context)!;
+        final status = AppStatusColors.of(context);
+        final scheme = Theme.of(context).colorScheme;
+        final ahora = telemetria.serverNow();
+        final visibles = visiblesCerca(
+          telemetria.state.value.colectivos,
+          location.position ?? kQuilpueCenter,
+        );
+
+        return MarkerLayer(
+          markers: [
+            for (final colectivo in visibles)
+              _marker(
+                colectivo,
+                isMe: auth.isColectivero && colectivo.uid == auth.uid,
+                offline: colectivo.seemsOffline(ahora),
+                status: status,
+                primary: scheme.primary,
+                l10n: l10n,
+              ),
+          ],
+        );
+      },
+    );
+  }
+
+  Marker _marker(
+    ColectivoActivo colectivo, {
+    required bool isMe,
+    required bool offline,
+    required AppStatusColors status,
+    required Color primary,
+    required AppLocalizations l10n,
+  }) {
+    // Semaforización de capacidad (informe §7.3.1-C): el color lo reporta el
+    // chofer desde su pantalla de turno.
+    final color = isMe ? primary : status.forEstado(colectivo.estado);
+    final onColor = AppStatusColors.onColorFor(color);
+    final size = isMe ? 46.0 : 40.0;
+
+    return Marker(
+      point: LatLng(colectivo.latitud, colectivo.longitud),
+      width: size,
+      height: size,
+      child: Semantics(
+        button: true,
+        label: l10n.colectivoSemanticLabel(
+          formatPatente(colectivo.idVehiculo),
+          offline
+              ? l10n.colectivoNoSignal
+              : estadoLabel(colectivo.estado, l10n),
+        ),
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: () => onTap(colectivo),
+          // Sin señal se atenúa en vez de desaparecer: la unidad existe, pero
+          // su posición puede estar desfasada (túnel, cerro sin cobertura).
+          child: Opacity(
+            opacity: offline ? 0.45 : 1,
+            child: Container(
+              decoration: BoxDecoration(
+                color: color,
+                shape: BoxShape.circle,
+                border: Border.all(
+                  color: status.markerBorder,
+                  width: isMe ? 3 : 2,
+                ),
+                boxShadow: const [
+                  BoxShadow(
+                    color: Color(0x59000000),
+                    blurRadius: 6,
+                    offset: Offset(0, 2),
+                  ),
+                ],
+              ),
+              child: Icon(
+                Icons.directions_car,
+                color: onColor,
+                size: isMe ? 24 : 20,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Paraderos, coloreados por cercanía a la posición **actual** del usuario.
+///
+/// Antes el color se calculaba contra el primer punto GPS de la sesión: tras
+/// caminar un kilómetro, el paradero de al lado seguía marcado "lejos".
+class _StopsLayer extends StatelessWidget {
+  const _StopsLayer({required this.onTap});
+
+  final ValueChanged<BusStop> onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final stops = StopsService.instance;
+    final location = LocationService.instance;
+    final route = RouteService.instance;
+    final prefs = PreferencesService.instance;
+
+    return ListenableBuilder(
+      listenable: Listenable.merge([stops, location, route, prefs]),
+      builder: (context, _) {
+        final l10n = AppLocalizations.of(context)!;
+        final status = AppStatusColors.of(context);
+        final origin = location.position ?? route.origin;
+        final destination = route.destination;
+
+        return MarkerLayer(
+          markers: [
+            for (final stop in stops.stops)
+              Marker(
+                point: stop.location,
+                width: AppSpacing.minTapTarget,
+                height: AppSpacing.minTapTarget,
+                child: Semantics(
+                  button: true,
+                  label: l10n.stopSemanticLabel(stop.name, stop.address),
+                  child: GestureDetector(
+                    onTap: () => onTap(stop),
+                    child: _BusStopPin(
+                      color: proximityColor(
+                        proximityOf(
+                          origin == null ? null : stop.distanceFrom(origin),
+                        ),
+                        status,
+                      ),
+                      borderColor: status.markerBorder,
+                      selected: destination == stop,
+                      animate: prefs.animationsEnabled,
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        );
+      },
+    );
   }
 }
 
@@ -960,44 +889,57 @@ class _BusStopPin extends StatefulWidget {
 
 class _BusStopPinState extends State<_BusStopPin>
     with SingleTickerProviderStateMixin {
-  late final AnimationController _pulseController;
-  late final Animation<double> _pulseScale;
-  late final Animation<double> _pulseOpacity;
+  /// Se crea recién cuando el paradero se selecciona. Antes cada uno de los
+  /// paraderos del mapa tenía su propio controlador de animación aunque nunca
+  /// fuera a latir.
+  AnimationController? _pulse;
+  Animation<double>? _pulseScale;
+  Animation<double>? _pulseOpacity;
 
   bool get _shouldPulse => widget.selected && widget.animate;
 
   @override
   void initState() {
     super.initState();
-    _pulseController = AnimationController(
+    _syncPulse();
+  }
+
+  @override
+  void didUpdateWidget(covariant _BusStopPin oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    _syncPulse();
+  }
+
+  void _syncPulse() {
+    if (_shouldPulse) {
+      final pulse = _pulse ??= _createPulse();
+      if (!pulse.isAnimating) pulse.repeat();
+    } else if (_pulse?.isAnimating ?? false) {
+      _pulse!
+        ..stop()
+        ..reset();
+    }
+  }
+
+  AnimationController _createPulse() {
+    final controller = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 1400),
     );
     _pulseScale = Tween<double>(
       begin: 1.0,
       end: 2.2,
-    ).animate(CurvedAnimation(parent: _pulseController, curve: Curves.easeOut));
+    ).animate(CurvedAnimation(parent: controller, curve: Curves.easeOut));
     _pulseOpacity = Tween<double>(
       begin: 0.55,
       end: 0.0,
-    ).animate(CurvedAnimation(parent: _pulseController, curve: Curves.easeIn));
-    if (_shouldPulse) _pulseController.repeat();
-  }
-
-  @override
-  void didUpdateWidget(covariant _BusStopPin oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (_shouldPulse && !_pulseController.isAnimating) {
-      _pulseController.repeat();
-    } else if (!_shouldPulse && _pulseController.isAnimating) {
-      _pulseController.stop();
-      _pulseController.reset();
-    }
+    ).animate(CurvedAnimation(parent: controller, curve: Curves.easeIn));
+    return controller;
   }
 
   @override
   void dispose() {
-    _pulseController.dispose();
+    _pulse?.dispose();
     super.dispose();
   }
 
@@ -1007,6 +949,7 @@ class _BusStopPinState extends State<_BusStopPin>
     final size = selected ? 40.0 : 28.0;
     final iconSize = selected ? 22.0 : 16.0;
     final onColor = AppStatusColors.onColorFor(widget.color);
+    final pulse = _pulse;
 
     return SizedBox(
       width: AppSpacing.minTapTarget,
@@ -1015,13 +958,13 @@ class _BusStopPinState extends State<_BusStopPin>
         alignment: Alignment.center,
         clipBehavior: Clip.none,
         children: [
-          if (_shouldPulse)
+          if (_shouldPulse && pulse != null)
             AnimatedBuilder(
-              animation: _pulseController,
+              animation: pulse,
               builder: (context, _) => Transform.scale(
-                scale: _pulseScale.value,
+                scale: _pulseScale!.value,
                 child: Opacity(
-                  opacity: _pulseOpacity.value,
+                  opacity: _pulseOpacity!.value,
                   child: Container(
                     width: size,
                     height: size,
@@ -1059,26 +1002,126 @@ class _BusStopPinState extends State<_BusStopPin>
   }
 }
 
+/// Ficha de un colectivo tocado en el mapa.
+///
+/// Antes sus textos estaban escritos a mano en la pantalla, fuera del ARB.
+class _ColectivoSheet extends StatelessWidget {
+  const _ColectivoSheet({required this.colectivo, required this.ahora});
+
+  final ColectivoActivo colectivo;
+
+  /// Hora del servidor al abrir la ficha.
+  final DateTime ahora;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final theme = Theme.of(context);
+    final status = AppStatusColors.of(context);
+    final offline = colectivo.seemsOffline(ahora);
+    final estadoColor = status.forEstado(colectivo.estado);
+    final antiguedad = colectivo.antiguedad(ahora);
+
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.lg,
+          vertical: AppSpacing.sm,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(AppSpacing.sm),
+                  decoration: BoxDecoration(
+                    color: estadoColor.withValues(alpha: 0.15),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(
+                    Icons.directions_car,
+                    color: estadoColor,
+                    size: 28,
+                  ),
+                ),
+                const SizedBox(width: AppSpacing.md),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        l10n.colectivoTitle(
+                          formatPatente(colectivo.idVehiculo),
+                        ),
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      Text(
+                        colectivo.recorridoNombre ?? l10n.colectivoNoRoute,
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: AppSpacing.md),
+            Wrap(
+              spacing: AppSpacing.sm,
+              runSpacing: AppSpacing.xs,
+              children: [
+                MetricChip(
+                  icon: Icons.circle,
+                  label: estadoLabel(colectivo.estado, l10n, detallado: true),
+                  color: estadoColor,
+                ),
+                if (offline)
+                  MetricChip(
+                    icon: Icons.signal_cellular_off,
+                    label: l10n.colectivoNoSignal,
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+              ],
+            ),
+            if (antiguedad != null) ...[
+              const SizedBox(height: AppSpacing.sm),
+              Text(
+                l10n.colectivoLastSignal(formatAgo(antiguedad, l10n)),
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ],
+            const SizedBox(height: AppSpacing.lg),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Tarjeta de la ruta a pie activa: paradero, distancia y tiempo caminando.
 class _StatusCard extends StatelessWidget {
   const _StatusCard({
     required this.destination,
-    required this.currentPosition,
-    required this.followUser,
     required this.routeInfo,
     required this.provider,
     required this.onClose,
-    this.onTap,
+    required this.onTap,
   });
 
-  final BusStop? destination;
-  final LatLng? currentPosition;
-  final bool followUser;
+  final BusStop destination;
   final RouteResult? routeInfo;
   final String? provider;
   final VoidCallback onClose;
 
-  /// Al tocar la tarjeta con destino, el mapa se centra en el paradero.
-  final VoidCallback? onTap;
+  /// Al tocar la tarjeta, el mapa se centra en el paradero.
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
@@ -1086,33 +1129,6 @@ class _StatusCard extends StatelessWidget {
     final scheme = theme.colorScheme;
     final status = AppStatusColors.of(context);
     final l10n = AppLocalizations.of(context)!;
-
-    // Sin destino: estado del GPS y coordenadas.
-    if (destination == null) {
-      final tracking = followUser && currentPosition != null;
-      return MapOverlayCard(
-        child: Row(
-          children: [
-            Icon(
-              tracking ? Icons.gps_fixed : Icons.gps_off,
-              color: tracking ? status.disponible : scheme.onSurfaceVariant,
-            ),
-            const SizedBox(width: AppSpacing.md),
-            Expanded(
-              child: Text(
-                currentPosition != null
-                    ? l10n.coordsLabel(
-                        currentPosition!.latitude.toStringAsFixed(5),
-                        currentPosition!.longitude.toStringAsFixed(5),
-                      )
-                    : l10n.searchingLocation,
-                style: theme.textTheme.bodySmall,
-              ),
-            ),
-          ],
-        ),
-      );
-    }
 
     return MapOverlayCard(
       onTap: onTap,
@@ -1129,13 +1145,13 @@ class _StatusCard extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      destination!.name,
+                      destination.name,
                       style: theme.textTheme.titleSmall,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
                     Text(
-                      destination!.address,
+                      destination.address,
                       style: theme.textTheme.bodySmall?.copyWith(
                         color: scheme.onSurfaceVariant,
                       ),
@@ -1167,7 +1183,7 @@ class _StatusCard extends StatelessWidget {
                   color: scheme.primary,
                 ),
                 MetricChip(
-                  icon: Icons.schedule,
+                  icon: Icons.directions_walk,
                   label: formatDurationSeconds(
                     routeInfo!.durationSeconds,
                     l10n,
@@ -1185,16 +1201,14 @@ class _StatusCard extends StatelessWidget {
               ],
             ),
           ],
-          if (onTap != null) ...[
-            const SizedBox(height: AppSpacing.xs),
-            Text(
-              l10n.tapToGoStop,
-              style: theme.textTheme.labelSmall?.copyWith(
-                color: scheme.primary,
-                fontStyle: FontStyle.italic,
-              ),
+          const SizedBox(height: AppSpacing.xs),
+          Text(
+            l10n.tapToGoStop,
+            style: theme.textTheme.labelSmall?.copyWith(
+              color: scheme.primary,
+              fontStyle: FontStyle.italic,
             ),
-          ],
+          ),
         ],
       ),
     );

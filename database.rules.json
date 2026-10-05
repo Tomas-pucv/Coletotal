@@ -16,7 +16,10 @@
         "latitud": { ".validate": "newData.isNumber() && newData.val() >= -90 && newData.val() <= 90" },
         "longitud": { ".validate": "newData.isNumber() && newData.val() >= -180 && newData.val() <= 180" },
         "estado": { ".validate": "newData.isString() && newData.val().matches(/^(disponible|medioLleno|lleno)$/)" },
-        "ts": { ".validate": "newData.isNumber()" },
+        "recorridoId": { ".validate": "newData.isString() && newData.val().length <= 128" },
+        "recorridoNombre": { ".validate": "newData.isString() && newData.val().length <= 120" },
+        "conectado": { ".validate": "newData.isBoolean()" },
+        "ts": { ".validate": "newData.isNumber() && newData.val() <= now" },
 
         "$otro": { ".validate": false }
       }

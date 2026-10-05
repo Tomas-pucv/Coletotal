@@ -1,9 +1,6 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 
 import 'package:taxi1/l10n/app_localizations.dart';
-import 'package:taxi1/models/colectivo_activo.dart';
 import 'package:taxi1/navigation/app_destination.dart';
 import 'package:taxi1/screens/admin/choferes_admin_screen.dart';
 import 'package:taxi1/screens/admin/paraderos_admin_screen.dart';
@@ -37,9 +34,7 @@ class _GaritaHubScreenState extends State<GaritaHubScreen> {
   final _garita = GaritaService.instance;
   final _recorridos = RecorridosService.instance;
   final _stops = StopsService.instance;
-
-  StreamSubscription<List<ColectivoActivo>>? _fleetSub;
-  int _unidades = 0;
+  final _telemetria = FirebaseTelemetriaService.instance;
 
   @override
   void initState() {
@@ -48,18 +43,9 @@ class _GaritaHubScreenState extends State<GaritaHubScreen> {
     _garita.addListener(_onChanged);
     _recorridos.addListener(_onChanged);
     _stops.addListener(_onChanged);
-
-    _fleetSub = FirebaseTelemetriaService.instance.telemetriaStream.listen((
-      data,
-    ) {
-      if (!mounted) return;
-      final gid = _auth.garitaId;
-      setState(() {
-        _unidades = gid == null
-            ? data.length
-            : data.where((c) => c.garitaId.isEmpty || c.garitaId == gid).length;
-      });
-    }, onError: (Object _) {});
+    // La flota la lee una sola suscripción compartida por toda la app; acá
+    // sólo se cuenta.
+    _telemetria.state.addListener(_onChanged);
   }
 
   @override
@@ -68,9 +54,24 @@ class _GaritaHubScreenState extends State<GaritaHubScreen> {
     _garita.removeListener(_onChanged);
     _recorridos.removeListener(_onChanged);
     _stops.removeListener(_onChanged);
-    _fleetSub?.cancel();
+    _telemetria.state.removeListener(_onChanged);
     super.dispose();
   }
+
+  /// Unidades en servicio de esta garita.
+  int get _unidades {
+    final gid = _auth.garitaId;
+    final todas = _telemetria.state.value.colectivos;
+    return gid == null
+        ? todas.length
+        : todas.where((c) => c.garitaId == gid).length;
+  }
+
+  /// Paraderos activos de esta garita. Antes contaba los de todas las
+  /// garitas, mientras que los recorridos sí se filtraban por la propia.
+  int get _paraderos => _stops.garitaStopsLoaded
+      ? _stops.garitaStops.where((s) => s.activo).length
+      : _stops.stops.length;
 
   void _onChanged() {
     if (mounted) setState(() {});
@@ -173,7 +174,7 @@ class _GaritaHubScreenState extends State<GaritaHubScreen> {
           Expanded(
             child: _MetricTile(
               icon: Icons.pin_drop_outlined,
-              value: '${_stops.stops.length}',
+              value: '$_paraderos',
               label: l10n.adminMetricStops,
             ),
           ),

@@ -25,6 +25,7 @@ class StopHistoryService extends ChangeNotifier {
 
   List<String> _recentIds = const [];
   bool _loaded = false;
+  bool _listening = false;
 
   bool get isLoaded => _loaded;
 
@@ -33,29 +34,67 @@ class StopHistoryService extends ChangeNotifier {
     final prefs = await SharedPreferences.getInstance();
     final stored = prefs.getStringList(_key) ?? const [];
 
-    // Migración de las entradas guardadas por nombre. Se resuelven una vez
-    // contra los paraderos conocidos y se vuelven a persistir como ids; lo que
-    // ya no exista simplemente se cae del historial.
-    final migrated = <String>[];
-    var changed = false;
-    for (final entry in stored) {
-      if (StopsService.instance.byId(entry) != null) {
-        migrated.add(entry);
-        continue;
-      }
-      final byName = StopsService.instance.byName(entry);
-      if (byName != null) {
-        migrated.add(byName.id);
-        changed = true;
-      } else {
-        changed = true;
-      }
+    final stops = StopsService.instance;
+    final migrated = migrateHistory(
+      stored,
+      byId: stops.byId,
+      byName: stops.byName,
+    );
+    _recentIds = List.unmodifiable(migrated);
+    if (!listEquals(migrated, stored)) await prefs.setStringList(_key, migrated);
+
+    // Cuando llegan los paraderos de Firestore, los ids del historial recién
+    // se pueden resolver, y la pestaña Paraderos tiene que redibujarse.
+    if (!_listening) {
+      _listening = true;
+      stops.addListener(_onStopsChanged);
     }
 
-    _recentIds = List.unmodifiable(migrated);
-    if (changed) await prefs.setStringList(_key, migrated);
-
     _loaded = true;
+    notifyListeners();
+  }
+
+  /// Convierte un historial guardado al formato actual.
+  ///
+  /// Las entradas que resuelven **por nombre** (historiales de cuando se
+  /// guardaban nombres) pasan a ser ids. Lo que no resuelve **se conserva**.
+  ///
+  /// Antes se descartaba, y eso borraba el historial en cada arranque en frío:
+  /// `load()` corre cuando sólo están cargados los paraderos semilla, así que
+  /// ningún id de Firestore resolvía todavía y la "migración" los eliminaba a
+  /// todos y lo guardaba en disco. "Recientes" sólo sobrevivía dentro de una
+  /// misma sesión. Los ids que de verdad ya no existen se podan en
+  /// [_onStopsChanged], cuando se conocen los paraderos reales.
+  @visibleForTesting
+  static List<String> migrateHistory(
+    List<String> stored, {
+    required BusStop? Function(String id) byId,
+    required BusStop? Function(String name) byName,
+  }) {
+    final seen = <String>{};
+    final result = <String>[];
+    for (final entry in stored) {
+      final id = byId(entry) != null ? entry : (byName(entry)?.id ?? entry);
+      if (seen.add(id)) result.add(id);
+    }
+    return result.length > maxEntries ? result.sublist(0, maxEntries) : result;
+  }
+
+  void _onStopsChanged() {
+    final stops = StopsService.instance;
+    if (stops.hasRemoteData) {
+      // Con los paraderos reales ya cargados, un id que no resuelve es un
+      // paradero dado de baja (o una semilla reemplazada): sobra.
+      final vigentes = _recentIds
+          .where((id) => stops.byId(id) != null)
+          .toList(growable: false);
+      if (vigentes.length != _recentIds.length) {
+        _recentIds = List.unmodifiable(vigentes);
+        SharedPreferences.getInstance().then(
+          (prefs) => prefs.setStringList(_key, vigentes),
+        );
+      }
+    }
     notifyListeners();
   }
 

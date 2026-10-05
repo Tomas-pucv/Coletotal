@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'package:taxi1/config/app_version.dart';
 import 'package:taxi1/config/map_config.dart';
 import 'package:taxi1/l10n/app_localizations.dart';
 import 'package:taxi1/models/app_user.dart';
@@ -40,6 +41,7 @@ class _PreferencesScreenState extends State<PreferencesScreen>
   final prefs = PreferencesService.instance;
   final history = StopHistoryService.instance;
   final auth = AuthService.instance;
+  final updates = AppUpdateService.instance;
   late final AnimationController _fadeController;
 
   @override
@@ -48,7 +50,7 @@ class _PreferencesScreenState extends State<PreferencesScreen>
     prefs.addListener(_onChanged);
     history.addListener(_onChanged);
     auth.addListener(_onChanged);
-    history.load();
+    updates.addListener(_onChanged);
 
     _fadeController = AnimationController(
       duration: const Duration(milliseconds: 300),
@@ -71,6 +73,7 @@ class _PreferencesScreenState extends State<PreferencesScreen>
     prefs.removeListener(_onChanged);
     history.removeListener(_onChanged);
     auth.removeListener(_onChanged);
+    updates.removeListener(_onChanged);
     _fadeController.dispose();
     super.dispose();
   }
@@ -458,40 +461,40 @@ class _PreferencesScreenState extends State<PreferencesScreen>
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
+              // La versión sale del propio APK (`AppVersion`): antes estaba
+              // escrita a mano acá y ya no coincidía con la instalada.
               SettingInfoCard(
-                title: l10n.aboutVersion('0.4.3.1'),
+                title: l10n.aboutVersion(AppVersion.label),
                 body: l10n.aboutSubtitle,
               ),
               const SizedBox(height: AppSpacing.sm),
               OutlinedButton.icon(
-                onPressed: () async {
-                  final update = AppUpdateService.instance;
-                  await update.checkForUpdates();
-                  if (!context.mounted) return;
-                  if (update.hasUpdate) {
-                    await AppUpdateDialog.showIfAvailable(
-                      context,
-                      update.availableUpdate!,
-                    );
-                  } else {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text(
-                          'Tienes la versión más reciente (v${AppUpdateService.currentVersionName})',
-                        ),
-                        duration: const Duration(seconds: 3),
-                      ),
-                    );
-                  }
-                },
-                icon: const Icon(Icons.system_update_rounded),
-                label: const Text('Buscar actualizaciones'),
+                onPressed: updates.checking ? null : () => _checkUpdates(l10n),
+                icon: updates.checking
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.system_update_rounded),
+                label: Text(l10n.updateCheck),
               ),
             ],
           ),
         ),
       ],
     );
+  }
+
+  Future<void> _checkUpdates(AppLocalizations l10n) async {
+    await updates.checkForUpdates();
+    if (!mounted) return;
+    final info = updates.availableUpdate;
+    if (updates.hasUpdate && info != null) {
+      await AppUpdateDialog.showIfAvailable(context, info);
+    } else {
+      _toast(l10n.updateUpToDate(AppVersion.label));
+    }
   }
 }
 

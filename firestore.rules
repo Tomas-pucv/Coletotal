@@ -42,6 +42,27 @@ service cloud.firestore {
       return get(/databases/$(database)/documents/codigos_acceso/$(c)).data;
     }
 
+    // Forma de un paradero. Antes sólo se validaban las coordenadas al crear;
+    // un `update` podía dejar cualquier cosa.
+    function paraderoValido() {
+      let d = request.resource.data;
+      return d.lat is number && d.lat >= -90 && d.lat <= 90
+        && d.lng is number && d.lng >= -180 && d.lng <= 180
+        && d.nombre is string && d.nombre.size() > 0 && d.nombre.size() <= 60
+        && d.direccion is string && d.direccion.size() <= 120
+        && d.activo is bool;
+    }
+
+    function recorridoValido() {
+      let d = request.resource.data;
+      return d.nombre is string && d.nombre.size() > 0 && d.nombre.size() <= 80
+        && d.paraderoIds is list && d.paraderoIds.size() <= 200
+        && d.color is int
+        && d.activo is bool
+        && (!('geometria' in d)
+            || (d.geometria is string && d.geometria.size() <= 300000));
+    }
+
     // Códigos de enrolamiento. El id del documento ES el código.
     match /codigos_acceso/{c} {
       allow get: if true;      // validable antes de registrarse…
@@ -63,9 +84,20 @@ service cloud.firestore {
       allow write: if false;
 
       // Auditoría de turnos e incidencias operacionales de los choferes.
+      //
+      // Antes bastaba con tener sesión: cualquier cuenta podía escribir
+      // auditorías en cualquier garita. Ahora cada uno sube sólo las suyas, a
+      // su propia garita y con un tamaño acotado (el cliente agrupa las fallas
+      // repetidas y topa los eventos en 300).
       match /auditoria_turnos/{sessionId} {
         allow read: if isAdminOf(garitaId);
-        allow create: if signedIn();
+        allow create: if signedIn()
+          && exists(/databases/$(database)/documents/usuarios/$(request.auth.uid))
+          && me().garitaId == garitaId
+          && request.resource.data.uid == request.auth.uid
+          && request.resource.data.garitaId == garitaId
+          && request.resource.data.eventos is list
+          && request.resource.data.eventos.size() <= 500;
         allow update, delete: if false;
       }
     }
@@ -74,12 +106,11 @@ service cloud.firestore {
       allow get: if signedIn()
         && (request.auth.uid == uid || isAdminOf(resource.data.garitaId));
 
-      // El administrador lista los choferes de su garita. El filtro por
-      // garitaId de la consulta no se puede exigir desde acá, así que se acota
-      // el tamaño para que la colección no sea un volcado.
-      allow list: if signedIn()
-        && exists(/databases/$(database)/documents/usuarios/$(request.auth.uid))
-        && me().rol == 'administrador'
+      // El administrador lista los choferes de **su** garita. La consulta
+      // filtra por `garitaId`, y las reglas exigen que ese filtro sea el de la
+      // garita del administrador: antes cualquier administrador, incluso uno
+      // deshabilitado, podía listar los usuarios de todas las garitas.
+      allow list: if isAdminOf(resource.data.garitaId)
         && request.query.limit <= 200;
 
       // Este es el corazón del sistema de roles: el rol y la garita que se
@@ -102,7 +133,10 @@ service cloud.firestore {
       // garita, y sobre todo no su propio `activo`.
       allow update: if signedIn()
         && request.auth.uid == uid
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['nombre']);
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['nombre'])
+        && request.resource.data.nombre is string
+        && request.resource.data.nombre.size() > 0
+        && request.resource.data.nombre.size() <= 60;
 
       // El administrador de la garita sólo puede habilitar o deshabilitar.
       allow update: if isAdminOf(resource.data.garitaId)
@@ -119,21 +153,21 @@ service cloud.firestore {
     match /paraderos/{id} {
       allow read: if true;
       allow create: if isAdminOf(request.resource.data.garitaId)
-        && request.resource.data.lat is number
-        && request.resource.data.lat >= -90 && request.resource.data.lat <= 90
-        && request.resource.data.lng is number
-        && request.resource.data.lng >= -180 && request.resource.data.lng <= 180;
+        && paraderoValido();
       // Un paradero no puede cambiar de garita por la vía de un update.
       allow update: if isAdminOf(resource.data.garitaId)
-        && request.resource.data.garitaId == resource.data.garitaId;
+        && request.resource.data.garitaId == resource.data.garitaId
+        && paraderoValido();
       allow delete: if isAdminOf(resource.data.garitaId);
     }
 
     match /recorridos/{id} {
       allow read: if true;
-      allow create: if isAdminOf(request.resource.data.garitaId);
+      allow create: if isAdminOf(request.resource.data.garitaId)
+        && recorridoValido();
       allow update: if isAdminOf(resource.data.garitaId)
-        && request.resource.data.garitaId == resource.data.garitaId;
+        && request.resource.data.garitaId == resource.data.garitaId
+        && recorridoValido();
       allow delete: if isAdminOf(resource.data.garitaId);
     }
 

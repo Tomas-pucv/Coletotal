@@ -1,4 +1,8 @@
+import 'dart:convert';
+
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 import 'package:latlong2/latlong.dart';
 
 import 'package:taxi1/models/bus_stop.dart';
@@ -171,6 +175,32 @@ void main() {
       expect(result.length, StopPlanner.maxSuggestions);
     });
 
+    test('nunca propone bajarse donde uno se sube', () {
+      // El destino está junto a la subida: la parada de la línea más cercana
+      // al destino es la propia subida. Antes eso se proponía como "toma la
+      // línea y bájate en el mismo paradero".
+      final recorridos = [
+        Recorrido(
+          id: 'r1',
+          garitaId: 'g1',
+          nombre: 'A',
+          colorValue: 0,
+          paraderoIds: [cerca.id, lejos.id],
+        ),
+      ];
+
+      final result = StopPlanner.suggest(
+        user: usuario,
+        destino: cerca.location,
+        stops: [cerca, lejos],
+        recorridos: recorridos,
+      );
+
+      for (final s in result) {
+        if (s.bajada != null) expect(s.bajada, isNot(s.stop));
+      }
+    });
+
     test('sin paraderos no revienta', () {
       expect(
         StopPlanner.suggest(
@@ -185,6 +215,107 @@ void main() {
   });
 
   group('OsrmClient', () {
+    tearDown(() => OsrmClient.debugClient = http.Client());
+
+    test('decodifica las coordenadas negativas de Quilpué', () {
+      // Cadena de referencia del algoritmo de Google/OSRM, precisión 6. Todas
+      // las coordenadas de Quilpué son negativas: es el caso que fallaba en la
+      // web, donde `~` devuelve enteros de 32 bits sin signo.
+      const encoded = r'~h``~@fcoggCosEwyE';
+      final puntos = OsrmClient.decodePolyline(encoded);
+
+      expect(puntos, hasLength(2));
+      expect(puntos[0].latitude, closeTo(-33.0472, 1e-9));
+      expect(puntos[0].longitude, closeTo(-71.4425, 1e-9));
+      expect(puntos[1].latitude, closeTo(-33.0438, 1e-9));
+      expect(puntos[1].longitude, closeTo(-71.4390, 1e-9));
+      expect(
+        OsrmClient.encodePolyline(puntos),
+        encoded,
+        reason: 'codificar tiene que dar la misma cadena que OSRM',
+      );
+    });
+
+    test('codificar y decodificar una polilínea es ida y vuelta', () {
+      const puntos = [
+        LatLng(-33.047213, -71.442512),
+        LatLng(-33.043801, -71.439004),
+        LatLng(-33.051002, -71.448013),
+      ];
+      final decoded = OsrmClient.decodePolyline(
+        OsrmClient.encodePolyline(puntos),
+      );
+      expect(decoded, hasLength(3));
+      for (var i = 0; i < puntos.length; i++) {
+        expect(decoded[i].latitude, closeTo(puntos[i].latitude, 1e-6));
+        expect(decoded[i].longitude, closeTo(puntos[i].longitude, 1e-6));
+      }
+    });
+
+    test('trocea las líneas largas en tramos que se solapan', () {
+      // Antes se cortaba en silencio en el paradero 25.
+      final puntos = [
+        for (var i = 0; i < 60; i++) LatLng(-33.0 - i * 0.001, -71.44),
+      ];
+      final tramos = OsrmClient.chunk(puntos, OsrmClient.maxWaypoints);
+
+      expect(tramos.every((t) => t.length <= OsrmClient.maxWaypoints), isTrue);
+      expect(tramos.first.first, puntos.first);
+      expect(tramos.last.last, puntos.last);
+      for (var i = 1; i < tramos.length; i++) {
+        expect(tramos[i].first, tramos[i - 1].last);
+      }
+    });
+
+    test('cose los tramos sin repetir el punto de unión', () async {
+      var peticiones = 0;
+      OsrmClient.debugClient = MockClient((request) async {
+        peticiones++;
+        // Responde con una "ruta" que une exactamente los puntos pedidos.
+        final coords = request.url.pathSegments.last
+            .split(';')
+            .map((c) => c.split(',').map(double.parse).toList())
+            .map((c) => LatLng(c[1], c[0]))
+            .toList();
+        return http.Response(
+          jsonEncode({
+            'code': 'Ok',
+            'routes': [
+              {
+                'geometry': OsrmClient.encodePolyline(coords),
+                'distance': 100.0 * (coords.length - 1),
+                'duration': 10.0 * (coords.length - 1),
+              },
+            ],
+          }),
+          200,
+        );
+      });
+
+      final puntos = [
+        for (var i = 0; i < 30; i++) LatLng(-33.0 - i * 0.001, -71.44),
+      ];
+      final ruta = await OsrmClient.route(puntos);
+
+      expect(peticiones, 2);
+      expect(ruta, isNotNull);
+      expect(ruta!.points, hasLength(30));
+      expect(ruta.distanceMeters, closeTo(2900, 1e-6));
+    });
+
+    test('si un tramo falla, la ruta entera falla', () async {
+      OsrmClient.debugClient = MockClient(
+        (_) async => http.Response('error', 500),
+      );
+      expect(
+        await OsrmClient.route(const [
+          LatLng(-33.04, -71.44),
+          LatLng(-33.05, -71.45),
+        ]),
+        isNull,
+      );
+    });
+
     test('decodifica una polilínea de ida y vuelta', () {
       // Referencia clásica del algoritmo de Google, con precisión 5.
       final points = OsrmClient.decodePolyline(
@@ -233,6 +364,28 @@ void main() {
         paraderoIds: ['a', 'b'],
       );
       expect(sinNombre.isValid, isFalse);
+    });
+
+    test('una geometría corrupta no se dibuja: se recalcula', () {
+      // Latitud 200 no existe. Antes esos puntos se dibujaban igual, fuera del
+      // mapa; ahora el recorrido queda sin trazado guardado y se recalcula.
+      final corrupta = OsrmClient.encodePolyline(const [
+        LatLng(200, -71.44),
+        LatLng(201, -71.45),
+      ]);
+      expect(
+        Recorrido.fromMap('r', {'nombre': 'A', 'geometria': corrupta}).trazado,
+        isEmpty,
+      );
+
+      final buena = OsrmClient.encodePolyline(const [
+        LatLng(-33.04, -71.44),
+        LatLng(-33.05, -71.45),
+      ]);
+      expect(
+        Recorrido.fromMap('r', {'nombre': 'A', 'geometria': buena}).trazado,
+        hasLength(2),
+      );
     });
 
     test('sobrevive al viaje por Firestore', () {

@@ -6,38 +6,9 @@ import 'package:http/http.dart' as http;
 import 'package:latlong2/latlong.dart';
 
 import 'package:taxi1/config/map_config.dart';
-
 import 'package:taxi1/data/quilpue_pois.dart';
-
-/// Una dirección o punto de interés encontrado por el buscador.
-class PlaceResult {
-  const PlaceResult({
-    required this.id,
-    required this.name,
-    required this.address,
-    required this.location,
-    this.isPoi = false,
-  });
-
-  final String id;
-
-  /// Lo primero de la dirección o nombre del POI: "Supermercado Líder Belloto".
-  final String name;
-
-  /// El resto, para desambiguar: "Quilpué, Valparaíso, Chile".
-  final String address;
-
-  final LatLng location;
-
-  /// Si es un punto de interés clave (supermercado, plaza, hospital, etc.).
-  final bool isPoi;
-
-  @override
-  bool operator ==(Object other) => other is PlaceResult && other.id == id;
-
-  @override
-  int get hashCode => id.hashCode;
-}
+import 'package:taxi1/models/place_result.dart';
+import 'package:taxi1/utils/text_search.dart';
 
 /// Búsqueda de direcciones híbrida: POIs locales (0 ms y sin cuota) +
 /// geocodificación MapTiler / Photon OSM para calles y numeraciones.
@@ -52,91 +23,111 @@ abstract final class GeocodingService {
 
   static const Duration timeout = Duration(seconds: 10);
 
+  /// Cuántos resultados caben en el desplegable sin que haya que buscar.
+  static const int maxResults = 6;
+
+  static http.Client _client = http.Client();
+
+  /// Sustituye el cliente HTTP. Sin esto los tests del buscador salían a la
+  /// red de verdad: gastaban cuota de MapTiler y dependían de tener conexión.
+  @visibleForTesting
+  static set debugClient(http.Client client) => _client = client;
+
+  /// Coincidencias del catálogo de POIs de Quilpué, sin tocar la red.
+  ///
+  /// Insensible a tildes y al orden de las palabras: casi nadie escribe
+  /// "Líder" con tilde en el teléfono (ver `utils/text_search.dart`).
+  static List<PlaceResult> searchLocal(String query) => kQuilpuePois
+      .where((poi) => matchesAllTokens(query, [poi.name, poi.address]))
+      .toList();
+
   /// Busca [query]. Primero coteja el catálogo de POIs de Quilpué; si faltan
   /// resultados, complementa con la API de geocodificación.
   static Future<List<PlaceResult>> search(String query) async {
     final q = query.trim();
     if (q.length < 2) return const [];
 
-    final qLower = q.toLowerCase();
+    // 1. Búsqueda instantánea en POIs locales (0 ms, 0 cuota de red).
+    final results = searchLocal(q);
+    if (results.length >= 5) return results.take(maxResults).toList();
 
-    // 1. Búsqueda instantánea en POIs locales (0 ms, 0 cuota de red)
-    final localMatches = kQuilpuePois.where((poi) {
-      final name = poi.name.toLowerCase();
-      final addr = poi.address.toLowerCase();
-      return name.contains(qLower) || addr.contains(qLower);
-    }).toList(growable: true);
+    // 2. Con menos de 3 caracteres no se gasta red: la consulta es demasiado
+    //    ambigua para que un geocodificador devuelva algo útil.
+    if (q.length < 3) return results;
 
-    // Si encontramos suficientes coincidencias directas en POIs, las devolvemos de inmediato
-    if (localMatches.length >= 5) {
-      return localMatches.take(6).toList();
+    // 3. MapTiler primero; si falla (cuota agotada, error HTTP, sin red), el
+    //    respaldo abierto de Photon.
+    final remote = await _searchMapTiler(q) ?? await _searchPhoton(q);
+
+    // 4. Fusión sin duplicados: un POI local y el mismo lugar devuelto por la
+    //    API se reconocen por el nombre normalizado.
+    final seen = results.map((p) => normalizeForSearch(p.name)).toSet();
+    for (final place in remote) {
+      if (results.length >= maxResults) break;
+      if (seen.add(normalizeForSearch(place.name))) results.add(place);
     }
+    return results;
+  }
 
-    // 2. Si es menos de 3 caracteres y no hubo suficientes POIs, no gastamos red
-    if (q.length < 3) return localMatches;
-
-    // 3. Consulta a MapTiler Geocoding
-    final remoteResults = <PlaceResult>[];
+  /// `null` si MapTiler no respondió bien: es la señal para probar Photon. Una
+  /// lista vacía, en cambio, es una respuesta válida ("no hay nada").
+  static Future<List<PlaceResult>?> _searchMapTiler(String q) async {
     try {
       final url = Uri.parse(
         'https://api.maptiler.com/geocoding/${Uri.encodeComponent(q)}.json'
         '?key=$kMapTilerKey'
         '&country=cl'
         '&language=es'
-        '&limit=6'
+        '&limit=$maxResults'
         '&bbox=$_bbox'
         '&proximity=${_proximity.longitude},${_proximity.latitude}',
       );
 
-      final res = await http.get(url).timeout(timeout);
-      if (res.statusCode == 200) {
-        final data = json.decode(res.body) as Map<String, dynamic>;
-        final features = data['features'] as List<dynamic>?;
-        if (features != null) {
-          for (final raw in features) {
-            if (raw is! Map<String, dynamic>) continue;
-            final place = _parseFeature(raw);
-            if (place != null) remoteResults.add(place);
-          }
-        }
-      } else {
-        debugPrint('MapTiler Geocoding error ${res.statusCode}: intentando Photon OSM');
-        final photonResults = await _searchPhoton(q);
-        remoteResults.addAll(photonResults);
+      final res = await _client.get(url).timeout(timeout);
+      if (res.statusCode != 200) {
+        debugPrint('MapTiler Geocoding ${res.statusCode}: se intenta Photon');
+        return null;
       }
+
+      // `utf8` explícito y no `res.body`: sin `charset` en la cabecera,
+      // package:http decodifica como latin1 y "Quilpué" llega como "QuilpuÃ©".
+      final data =
+          json.decode(utf8.decode(res.bodyBytes)) as Map<String, dynamic>;
+      final features = data['features'] as List<dynamic>? ?? const [];
+      return [
+        for (final raw in features)
+          if (raw is Map<String, dynamic>) ?_parseFeature(raw),
+      ];
     } catch (e) {
-      debugPrint('GeocodingService fallback a Photon: $e');
-      final photonResults = await _searchPhoton(q);
-      remoteResults.addAll(photonResults);
+      debugPrint('GeocodingService: MapTiler falló, se intenta Photon: $e');
+      return null;
     }
-
-    // 4. Fusionar POIs locales con resultados remotos evitando duplicados
-    final existingIds = localMatches.map((p) => p.name.toLowerCase()).toSet();
-    for (final r in remoteResults) {
-      if (!existingIds.contains(r.name.toLowerCase()) && localMatches.length < 6) {
-        localMatches.add(r);
-        existingIds.add(r.name.toLowerCase());
-      }
-    }
-
-    return localMatches;
   }
 
-  /// Fallback gratuito y abierto a Photon (OpenStreetMap) si MapTiler falla o agota cuota.
+  /// Respaldo gratuito y abierto (OpenStreetMap) si MapTiler falla o agota la
+  /// cuota. Va acotado a la misma caja de la Quinta Región.
   static Future<List<PlaceResult>> _searchPhoton(String q) async {
     try {
       final url = Uri.parse(
         'https://photon.komoot.io/api/?q=${Uri.encodeComponent(q)}'
         '&lat=${_proximity.latitude}&lon=${_proximity.longitude}'
+        '&bbox=$_bbox'
         '&limit=5',
       );
-      final res = await http.get(
-        url,
-        headers: {'User-Agent': 'ColeTotal/1.0 (cl.coletotal.app)'},
-      ).timeout(timeout);
+      // En la web no se envía User-Agent propio: el navegador pone el suyo y
+      // uno propio dispara una verificación CORS previa (ver OsrmClient).
+      final res = await _client
+          .get(
+            url,
+            headers: kIsWeb
+                ? null
+                : const {'User-Agent': 'ColeTotal/1.0 (cl.coletotal.app)'},
+          )
+          .timeout(timeout);
 
       if (res.statusCode != 200) return const [];
-      final data = json.decode(utf8.decode(res.bodyBytes)) as Map<String, dynamic>;
+      final data =
+          json.decode(utf8.decode(res.bodyBytes)) as Map<String, dynamic>;
       final features = data['features'] as List<dynamic>?;
       if (features == null) return const [];
 
@@ -151,7 +142,8 @@ abstract final class GeocodingService {
 
         final lon = (coords[0] as num).toDouble();
         final lat = (coords[1] as num).toDouble();
-        final name = (props['name'] as String?) ?? (props['street'] as String?) ?? '';
+        final name =
+            (props['name'] as String?) ?? (props['street'] as String?) ?? '';
         if (name.isEmpty) continue;
 
         final street = props['street'] as String?;
@@ -170,14 +162,16 @@ abstract final class GeocodingService {
             name: name,
             address: addressParts.join(', '),
             location: LatLng(lat, lon),
-            isPoi: props['osm_value'] == 'supermarket' ||
+            isPoi:
+                props['osm_value'] == 'supermarket' ||
                 props['osm_value'] == 'hospital' ||
                 props['osm_value'] == 'school',
           ),
         );
       }
       return results;
-    } catch (_) {
+    } catch (e) {
+      debugPrint('GeocodingService: Photon falló: $e');
       return const [];
     }
   }

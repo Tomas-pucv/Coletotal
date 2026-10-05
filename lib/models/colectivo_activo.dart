@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 /// Capacidad reportada por el chofer.
 ///
 /// Es la "semaforización" que pide el informe §7.3.1-C: el administrador
@@ -37,6 +39,7 @@ class ColectivoActivo {
     this.estado = EstadoCapacidad.disponible,
     this.recorridoId,
     this.recorridoNombre,
+    this.conectado = true,
     this.ts,
   });
 
@@ -57,6 +60,11 @@ class ColectivoActivo {
   /// Nombre amigable de la línea (ej. 'Línea 101: Valencia - Hospital').
   final String? recorridoNombre;
 
+  /// `false` cuando el servidor detectó que el teléfono del chofer perdió la
+  /// conexión: lo escribe el `onDisconnect` registrado al iniciar el turno.
+  /// Ausente en los nodos antiguos, que cuentan como conectados.
+  final bool conectado;
+
   /// Marca de tiempo del servidor, en milisegundos. Nula en los nodos escritos
   /// por versiones anteriores de la app.
   final int? ts;
@@ -69,15 +77,37 @@ class ColectivoActivo {
   /// más visible que puede tener una demo.
   static const Duration maxAntiguedad = Duration(seconds: 180);
 
+  /// Desde cuánto sin noticias una unidad se dibuja atenuada, como "sin
+  /// señal", antes de desaparecer a los [maxAntiguedad]. Con un envío cada
+  /// pocos segundos, 45 s de silencio ya son un túnel o un cerro.
+  static const Duration sinSenal = Duration(seconds: 45);
+
   /// Si la última posición ya es demasiado vieja para mostrarla.
   ///
-  /// [ahora] se inyecta para poder testearlo sin depender del reloj. Un nodo
-  /// sin `ts` (formato antiguo) se considera vigente: es preferible mostrar de
-  /// más que hacer desaparecer unidades reales tras una migración.
+  /// [ahora] debe ser la hora **del servidor** (ver
+  /// `FirebaseTelemetriaService.serverNow`), porque `ts` la pone el servidor:
+  /// comparar contra el reloj del teléfono hacía que un teléfono adelantado
+  /// tres minutos no viera ningún colectivo, y uno atrasado viera fantasmas.
+  /// Un nodo sin `ts` (formato antiguo) se considera vigente: es preferible
+  /// mostrar de más que hacer desaparecer unidades reales tras una migración.
   bool isStale([DateTime? ahora]) {
-    if (ts == null) return false;
+    final age = antiguedad(ahora);
+    return age != null && age > maxAntiguedad;
+  }
+
+  /// Si la unidad sigue en el mapa pero perdió la señal: el servidor la marcó
+  /// desconectada o lleva más de [sinSenal] sin enviar posición.
+  bool seemsOffline([DateTime? ahora]) {
+    if (!conectado) return true;
+    final age = antiguedad(ahora);
+    return age != null && age > sinSenal;
+  }
+
+  /// Tiempo desde la última posición, o `null` si el nodo no trae `ts`.
+  Duration? antiguedad([DateTime? ahora]) {
+    if (ts == null) return null;
     final now = (ahora ?? DateTime.now()).millisecondsSinceEpoch;
-    return now - ts! > maxAntiguedad.inMilliseconds;
+    return Duration(milliseconds: math.max(0, now - ts!));
   }
 
   factory ColectivoActivo.fromJson(Map<String, dynamic> json) {
@@ -95,12 +125,18 @@ class ColectivoActivo {
       estado: EstadoCapacidad.fromWire(json['estado'] as String?),
       recorridoId: json['recorridoId'] as String?,
       recorridoNombre: json['recorridoNombre'] as String?,
+      conectado: (json['conectado'] as bool?) ?? true,
       ts: (json['ts'] as num?)?.toInt(),
     );
   }
 
   /// Payload sin `ts`: la marca de tiempo la pone el servidor y se añade en el
   /// servicio, porque `ServerValue.timestamp` es un centinela, no un número.
+  ///
+  /// Cada clave tiene que estar permitida en `database.rules.json`, que
+  /// rechaza cualquier hijo desconocido. Antes `recorridoId`,
+  /// `recorridoNombre` y `conectado` no lo estaban; lo vigila el test de
+  /// contrato de reglas.
   Map<String, dynamic> toJson() => {
     'uid': uid,
     'idVehiculo': idVehiculo,
@@ -108,16 +144,21 @@ class ColectivoActivo {
     'latitud': latitud,
     'longitud': longitud,
     'estado': estado.wireName,
-    if (recorridoId != null) 'recorridoId': recorridoId,
-    if (recorridoNombre != null) 'recorridoNombre': recorridoNombre,
+    'recorridoId': ?recorridoId,
+    'recorridoNombre': ?recorridoNombre,
+    'conectado': conectado,
   };
 
+  /// [clearRecorrido] quita la línea asignada: con `??` no había forma de
+  /// volver a `null` cuando el chofer elige "Sin recorrido".
   ColectivoActivo copyWith({
     double? latitud,
     double? longitud,
     EstadoCapacidad? estado,
     String? recorridoId,
     String? recorridoNombre,
+    bool clearRecorrido = false,
+    bool? conectado,
     int? ts,
   }) => ColectivoActivo(
     uid: uid,
@@ -126,8 +167,11 @@ class ColectivoActivo {
     latitud: latitud ?? this.latitud,
     longitud: longitud ?? this.longitud,
     estado: estado ?? this.estado,
-    recorridoId: recorridoId ?? this.recorridoId,
-    recorridoNombre: recorridoNombre ?? this.recorridoNombre,
+    recorridoId: clearRecorrido ? null : (recorridoId ?? this.recorridoId),
+    recorridoNombre: clearRecorrido
+        ? null
+        : (recorridoNombre ?? this.recorridoNombre),
+    conectado: conectado ?? this.conectado,
     ts: ts ?? this.ts,
   );
 }

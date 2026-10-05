@@ -1,66 +1,73 @@
-# 🚖 ColeTotal — Lista de Usuarios y Credenciales de Prueba
+# 🚖 ColeTotal — Cuentas de Prueba
 > **Piloto Operacional:** Línea 1 Transportes Serrano S.A. (Quilpué)  
-> **Versión del Sistema:** v0.4.3.1 (Build 4)  
+> **Versión del Sistema:** `0.4.3+4`  
 > **Fecha de Emisión:** Octubre 2026  
 
-Este documento reúne todas las cuentas configuradas en Firebase Authentication y Cloud Firestore para pruebas de campo, demostraciones y auditoría del sistema ColeTotal.
+Este documento describe las cuentas configuradas para pruebas de campo, demostraciones y auditoría del sistema ColeTotal.
+
+> [!IMPORTANT]
+> **Los códigos de garita y las contraseñas no se escriben en el repositorio.** Un código de administrador permite registrarse como administrador de la garita y gestionarla entera (paraderos, recorridos, choferes, auditoría), y el repositorio se comparte.
+>
+> Los códigos y la contraseña de los choferes de prueba que estuvieron en versiones anteriores de este archivo y de `scripts/seed_dummy_data.js` siguen en el historial de git: **hay que rotarlos** (crear códigos nuevos en `codigos_acceso`, desactivar los viejos con `activo: false` y cambiar las contraseñas de las cuentas de prueba).
+>
+> Las credenciales vigentes se entregan por un canal privado.
 
 ---
 
 ## 🔑 Códigos de Acceso (Enrolamiento de Nuevos Usuarios)
 
-Para crear cuentas nuevas directamente desde la aplicación sin intervención manual:
-
-| Tipo de Cuenta | Código Secreto | Destino / Permisos | Uso |
+| Tipo de Cuenta | Código | Destino / Permisos | Uso |
 | :--- | :--- | :--- | :--- |
-| **Chofer de Colectivo** | `CHOFERSERRANOS` | Vincula a `garita_quilpue_01` con rol `colectivero` | Pantalla de Registro -> Rol Chofer |
-| **Administrador / Garitero** | `MEGADMIN5TA` | Vincula a `garita_quilpue_01` con rol `administrador` | Pantalla de Registro -> Rol Garita |
+| **Chofer de Colectivo** | *(entregado por la garita)* | `garita_quilpue_01`, rol `colectivero` | Registro → "Colectivero" |
+| **Administrador de Garita** | *(entregado por el equipo)* | `garita_quilpue_01`, rol `administrador` | Registro → "Administrador" |
+
+Para crearlos en un proyecto de pruebas se usa el script, con los valores en variables de entorno:
+
+```bash
+CHOFER_CODE=... ADMIN_CODE=... TEST_DRIVER_PASSWORD=... node scripts/seed_dummy_data.js
+```
 
 ---
 
-## 👨‍💼 1. Cuentas de Administrador (Inspectores de Garita / Gerencia)
+## 👨‍💼 1. Cuentas de Administrador
 
-Permiten acceder a la consola de gestión de flota, creación de recorridos, supervisión de paraderos y auditoría de choferes.
-
-| Nombre | Correo Electrónico | Contraseña | Rol | Garita Asignada |
-| :--- | :--- | :--- | :--- | :--- |
-| **Marco Fernandoy** | `marco.fernandoy.rojas@gmail.com` | *(Tu clave personal Google / Firebase)* | Administrador | Garita Cumming (`garita_quilpue_01`) |
-| **Tomás Moraga** | `tomas76moraga@gmail.com` | *(Su clave personal Google / Firebase)* | Administrador | Garita Cumming (`garita_quilpue_01`) |
+Cada integrante del equipo tiene su propia cuenta de administrador de la Garita Cumming (`garita_quilpue_01`), con su correo y contraseña personales.
 
 ---
 
 ## 🚕 2. Cuentas de Choferes de Prueba (Flota Serrano)
 
-> **Contraseña universal para todos los choferes de prueba:** `Chofer1234!`  
-> **Nota de inicio de sesión:** En la pantalla de login, el chofer puede ingresar escribiendo directamente su **Patente** (ej. `IB12BI` o `IB-12-BI`) o su correo electrónico sintético.
+Las crea `scripts/seed_dummy_data.js`, todas con la contraseña de `TEST_DRIVER_PASSWORD`. Se inicia sesión con la **patente** (con o sin guiones).
 
-| Patente | Nombre del Conductor | Correo en Firebase | Contraseña | Estado Inicial | Recorrido Típico |
-| :---: | :--- | :--- | :---: | :---: | :--- |
-| **IB12BI** | Matías Fuentes | `ib12bi@chofer.coletotal.app` | `Chofer1234!` | 🟢 **En Servicio** (Lleno) | Línea 101: Valencia - Los Carrera |
-| **JHTB45** | Carlos Soto Muñoz | `jhtb45@chofer.coletotal.app` | `Chofer1234!` | 🟢 **En Servicio** (Disponible) | Línea 102: Belloto Sur - Centro |
-| **KPVD82** | Manuel Riquelme Peña | `kpvd82@chofer.coletotal.app` | `Chofer1234!` | 🟢 **En Servicio** (Medio Lleno) | Línea 103: Belloto 2000 - Freire |
-| **LRFX19** | Roberto González Araya | `lrfx19@chofer.coletotal.app` | `Chofer1234!` | ⚪ Fuera de servicio | Línea 104: Los Pinos - El Sol |
-| **BDGT57** | Juan Plaza Castro | `bdgt57@chofer.coletotal.app` | `Chofer1234!` | ⚪ Fuera de servicio | Línea 105: Villa Olímpica - Plaza Vieja |
-| **FPZK33** | Patricio Valenzuela Vera | `fpzk33@chofer.coletotal.app` | `Chofer1234!` | ⚪ Fuera de servicio | Línea 106: Pompeya - Troncal Urbano |
-| **ABCD12** | Pedro Morales Vera | `abcd12@chofer.coletotal.app` | `Chofer1234!` | 🔴 **Deshabilitado** | *Cuenta de prueba de bloqueo de garita* |
+| Patente | Nombre del Conductor | Estado Inicial | Recorrido Típico |
+| :---: | :--- | :---: | :--- |
+| **IB12BI** | Matías Fuentes | 🟢 **En Servicio** (Lleno) | Línea 101: Valencia - Los Carrera |
+| **JHTB45** | Carlos Soto Muñoz | 🟢 **En Servicio** (Disponible) | Línea 102: Belloto Sur - Centro |
+| **KPVD82** | Manuel Riquelme Peña | 🟢 **En Servicio** (Medio Lleno) | Línea 103: Belloto 2000 - Freire |
+| **LRFX19** | Roberto González Araya | ⚪ Fuera de servicio | Línea 104: Los Pinos - El Sol |
+| **BDGT57** | Juan Plaza Castro | ⚪ Fuera de servicio | Línea 105: Villa Olímpica - Plaza Vieja |
+| **FPZK33** | Patricio Valenzuela Vera | ⚪ Fuera de servicio | Línea 106: Pompeya - Troncal Urbano |
+| **ABCD12** | Pedro Morales Vera | 🔴 **Deshabilitado** | *Cuenta de prueba de bloqueo de garita* |
+
+Las tres unidades "En Servicio" son posiciones sembradas en Realtime Database: aparecen en el mapa durante 3 minutos después de correr el script y luego desaparecen, porque nadie las actualiza.
 
 ### ¿Para qué sirve la cuenta de Pedro Morales (`ABCD12`)?
-Se dejó intencionalmente con `activo: false` en Firestore para demostrar en la defensa del proyecto cómo un inspector de garita puede suspender a un chofer infractor o con cuota impaga: al intentar iniciar turno, la aplicación le muestra: *"Tu cuenta está deshabilitada. Habla con tu garita."*.
+Está con `activo: false` para demostrar cómo la garita suspende a un chofer: al intentar iniciar sesión, la app muestra *"Tu cuenta está deshabilitada. Habla con tu garita."*. Y si se deshabilita a un chofer que está en turno, su app cierra la sesión en segundos y deja de transmitir.
 
 ---
 
-## 🧭 3. Terminales de Garita Configuradas en el Sistema
+## 🧭 3. Terminales de Garita
 
-Transportes Serrano opera con 3 garitas en Quilpué, representadas en los filtros multi-garita de la consola de administración:
+Transportes Serrano opera con 3 garitas en Quilpué. La consola de flota arma su filtro con los documentos de la colección `garitas`:
 
-1. **Garita Cumming (`garita_quilpue_01`):** Terminal principal donde se ejecuta el piloto.
-2. **Garita Las Rosas (`garita_serranos_rosas`):** Terminal sector norte.
-3. **Garita Belloto 2000 (`garita_serranos_belloto2000`):** Terminal Belloto.
+1. **Garita Cumming (`garita_quilpue_01`):** terminal principal donde se ejecuta el piloto.
+2. **Garita Las Rosas (`garita_serranos_rosas`):** terminal sector norte.
+3. **Garita Belloto 2000 (`garita_serranos_belloto2000`):** terminal Belloto.
 
 ---
 
 ## 📱 4. Pasos para Probar la App en Terreno
 
-1. **Como Pasajero:** Abre la app sin iniciar sesión (Modo Invitado). Verás los colectivos transmitiendo en tiempo real sobre el mapa de Quilpué y podrás buscar destinos (ej. *"Líder Belloto"* o *"Hospital"*).
-2. **Como Chofer:** Inicia sesión con la patente `JHTB45` y clave `Chofer1234!`. Ve a la pestaña **Turno**, selecciona un recorrido, presiona **Iniciar Turno** y cambia el estado de capacidad (Disponible / Medio / Lleno).
-3. **Como Administrador:** Inicia sesión con la cuenta de Marco o Tomás. Ve a la pestaña **Flota** para ver la totalidad de vehículos en servicio, filtrando por garita o seleccionando cualquier colectivo para inspeccionar su trazado.
+1. **Como Pasajero:** abre la app sin iniciar sesión (modo invitado). Verás los colectivos transmitiendo en tiempo real y podrás buscar destinos (ej. *"lider belloto"* o *"hospital"*). Toca un colectivo para ver su línea.
+2. **Como Chofer:** inicia sesión con una patente de prueba. En la pestaña **Turno**, elige el recorrido, presiona **Iniciar turno** (aparece la notificación "ColeTotal — en servicio") y cambia la capacidad (Disponible / Medio / Lleno).
+3. **Como Administrador:** inicia sesión con tu cuenta. En **Flota** verás las unidades en servicio; filtra por garita o toca una unidad para ver su recorrido. En **Garita → Choferes**, deshabilita a un chofer en turno y observa cómo su unidad deja de transmitir.

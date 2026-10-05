@@ -1,13 +1,18 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 
+import 'package:taxi1/config/app_version.dart';
 import 'package:taxi1/firebase_options.dart';
 import 'package:taxi1/l10n/app_localizations.dart';
 import 'package:taxi1/screens/main_screen.dart';
 import 'package:taxi1/services/auth_service.dart';
+import 'package:taxi1/services/firebase_telemetria_service.dart';
 import 'package:taxi1/services/garita_service.dart';
+import 'package:taxi1/services/location_service.dart';
 import 'package:taxi1/services/preferences_service.dart';
 import 'package:taxi1/services/recorridos_service.dart';
 import 'package:taxi1/services/route_service.dart';
@@ -29,6 +34,10 @@ void main() async {
     cacheSizeBytes: Settings.CACHE_SIZE_UNLIMITED,
   );
 
+  // La versión instalada, que compara el actualizador y registra la auditoría
+  // de turnos. Se lee del APK en vez de repetirse a mano en el código.
+  await AppVersion.load();
+
   // Antes que las preferencias: el rol decide qué pantallas existen, así que
   // la primera construcción del árbol ya tiene que conocerlo.
   await AuthService.instance.init();
@@ -36,7 +45,7 @@ void main() async {
   // Engancha el turno a la sesión: cerrar sesión tiene que detener la
   // telemetría ANTES de perder el token, o el nodo del vehículo queda colgado
   // en el mapa de todos los pasajeros.
-  TurnoService.instance.bind();
+  await TurnoService.instance.bind();
 
   // Los datos de la garita sólo se escuchan cuando hay un administrador en
   // sesión: un listener abierto contra datos que el usuario ya no puede leer
@@ -54,6 +63,10 @@ void main() async {
   // respuesta a "qué colectivos pasan por este paradero".
   RecorridosService.instance.startListening();
 
+  // La flota en vivo: una sola suscripción para toda la app. Antes cada
+  // pantalla (mapa, flota, portada de garita, choferes) abría la suya.
+  FirebaseTelemetriaService.instance.startListening();
+
   // Si el administrador mueve o da de baja el paradero que el pasajero tiene
   // como destino, la ruta dibujada apuntaría a un fantasma.
   StopsService.instance.addListener(
@@ -64,6 +77,13 @@ void main() async {
   await StopHistoryService.instance.load();
 
   runApp(const ColeTotalApp());
+
+  // El GPS se abre una sola vez y para toda la app (ver `LocationService`), y
+  // después del primer frame: el diálogo de permiso necesita la actividad ya
+  // en pantalla.
+  WidgetsBinding.instance.addPostFrameCallback((_) {
+    unawaited(LocationService.instance.start());
+  });
 }
 
 class ColeTotalApp extends StatefulWidget {

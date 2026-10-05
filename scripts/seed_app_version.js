@@ -1,77 +1,57 @@
 // scripts/seed_app_version.js
-// Configura o actualiza el documento config/app_version en Cloud Firestore
+// Publica en Firestore (config/app_version) la versión que la app ofrece
+// actualizar.
+//
+// La versión se lee de `pubspec.yaml`: la app instalada compara su número de
+// compilación (lo que va después del "+") contra `versionCode`, así que ambos
+// tienen que salir del mismo lugar. Antes había que editar este archivo a
+// mano en cada entrega.
+//
+// Uso:
+//   APK_URL=https://.../ColeTotal.apk \
+//   CHANGELOG="• Corrección del GPS en segundo plano" \
+//   node scripts/seed_app_version.js
+//
+// Opcionales: MIN_REQUIRED (número de compilación mínimo que puede seguir
+// operando; las anteriores ven la actualización como obligatoria),
+// MANDATORY=1, VERSION_NAME y VERSION_CODE (para no usar los del pubspec).
 
-const auth = require('C:/Users/marco/AppData/Roaming/npm/node_modules/firebase-tools/lib/auth');
+const fs = require('fs');
+const path = require('path');
+const { getAccessToken, patchDocument, requireEnv } = require('./lib/firebase_rest');
 
-const PROJECT_ID = 'coletotal-32735';
-
-function toFirestoreFields(obj) {
-  const fields = {};
-  for (const [k, v] of Object.entries(obj)) {
-    if (v === null || v === undefined) continue;
-    if (typeof v === 'string') {
-      fields[k] = { stringValue: v };
-    } else if (typeof v === 'boolean') {
-      fields[k] = { booleanValue: v };
-    } else if (typeof v === 'number') {
-      if (Number.isInteger(v)) {
-        fields[k] = { integerValue: v.toString() };
-      } else {
-        fields[k] = { doubleValue: v };
-      }
-    }
-  }
-  return fields;
-}
-
-async function getAccessToken() {
-  const account = auth.getGlobalDefaultAccount();
-  const tokenObj = await auth.getAccessToken(
-    account.tokens.refresh_token,
-    account.tokens.scopes
-  );
-  return tokenObj.access_token;
-}
-
-async function setFirestoreDoc(token, collection, docId, data) {
-  const url = `https://firestore.googleapis.com/v1/projects/${PROJECT_ID}/databases/(default)/documents/${collection}/${docId}`;
-  const res = await fetch(url, {
-    method: 'PATCH',
-    headers: {
-      Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ fields: toFirestoreFields(data) }),
-  });
-  if (!res.ok) {
-    const errText = await res.text();
-    throw new Error(`Error setFirestoreDoc [${collection}/${docId}]: ${res.status} ${errText}`);
-  }
-  return res.json();
+function versionFromPubspec() {
+  const pubspec = fs.readFileSync(path.join(__dirname, '..', 'pubspec.yaml'), 'utf8');
+  const match = pubspec.match(/^version:\s*([0-9A-Za-z.\-]+)\+(\d+)\s*$/m);
+  if (!match) throw new Error('No se encontró `version: x.y.z+n` en pubspec.yaml');
+  return { name: match[1], code: parseInt(match[2], 10) };
 }
 
 async function main() {
-  console.log('🔄 Actualizando documento config/app_version en Firestore...');
-  const token = await getAccessToken();
+  const pubspec = versionFromPubspec();
+  const apkUrl = requireEnv('APK_URL', 'Debe ser la URL https directa del APK.');
+  if (!apkUrl.startsWith('https://')) {
+    console.error('❌ APK_URL debe empezar con https:// (la app rechaza otros enlaces).');
+    process.exit(1);
+  }
 
-  // Versión actual base: 0.4.3+3 (código 3).
-  // Se deja configurado en 3 para que no moleste a los usuarios actuales,
-  // y se documenta cómo subir a 4 para activar el pop-up de actualización a todos los choferes.
   const versionData = {
-    versionCode: 4,
-    versionName: '0.4.3.1',
-    minRequiredVersionCode: 3,
-    apkUrl: 'https://files.catbox.moe/99fybl.apk',
-    changelog: '• Nueva apariencia visual: Amarillo cálido anaranjado (estética de colectivo chileno).\n• Sistema de auditoría y diagnóstico de turnos por lotes.\n• Mapeo y navegación multi-garita para Transportes Serrano.\n• Búsqueda rápida de hitos urbanos (Líder, Hospital, Plazas).',
-    esObligatoria: false,
+    versionCode: process.env.VERSION_CODE ? parseInt(process.env.VERSION_CODE, 10) : pubspec.code,
+    versionName: process.env.VERSION_NAME || pubspec.name,
+    minRequiredVersionCode: process.env.MIN_REQUIRED ? parseInt(process.env.MIN_REQUIRED, 10) : 1,
+    apkUrl,
+    changelog: process.env.CHANGELOG || '',
+    esObligatoria: process.env.MANDATORY === '1',
   };
 
-  await setFirestoreDoc(token, 'config', 'app_version', versionData);
-  console.log('✅ Documento config/app_version establecido correctamente:');
+  console.log('🔄 Actualizando config/app_version en Firestore...');
+  const token = await getAccessToken();
+  await patchDocument(token, 'config/app_version', versionData);
+  console.log('✅ config/app_version establecido:');
   console.log(JSON.stringify(versionData, null, 2));
 }
 
 main().catch((err) => {
-  console.error('❌ Error:', err);
+  console.error('❌ Error:', err.message || err);
   process.exit(1);
 });

@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show listEquals;
 import 'package:flutter/material.dart';
 
 import 'package:taxi1/l10n/app_localizations.dart';
@@ -5,6 +6,7 @@ import 'package:taxi1/models/bus_stop.dart';
 import 'package:taxi1/models/recorrido.dart';
 import 'package:taxi1/navigation/app_destination.dart';
 import 'package:taxi1/services/auth_service.dart';
+import 'package:taxi1/services/firestore_writes.dart';
 import 'package:taxi1/services/garita_service.dart';
 import 'package:taxi1/services/recorridos_service.dart';
 import 'package:taxi1/services/stops_service.dart';
@@ -51,7 +53,7 @@ class _RecorridosAdminScreenState extends State<RecorridosAdminScreen> {
 
   Future<void> _edit(Recorrido? recorrido) async {
     final l10n = AppLocalizations.of(context)!;
-    final saved = await Navigator.of(context).push<bool>(
+    final outcome = await Navigator.of(context).push<WriteOutcome>(
       MaterialPageRoute(
         builder: (_) => RecorridoEditorScreen(
           recorrido: recorrido,
@@ -59,7 +61,12 @@ class _RecorridosAdminScreenState extends State<RecorridosAdminScreen> {
         ),
       ),
     );
-    if (saved ?? false) _toast(l10n.routeSaved);
+    if (outcome == null) return;
+    _toast(
+      outcome == WriteOutcome.queuedOffline
+          ? l10n.savedOffline
+          : l10n.routeSaved,
+    );
   }
 
   Future<void> _confirmDelete(Recorrido recorrido) async {
@@ -83,8 +90,16 @@ class _RecorridosAdminScreenState extends State<RecorridosAdminScreen> {
       ),
     );
     if (!(confirmed ?? false)) return;
-    await _garita.deleteRecorrido(recorrido);
-    _toast(l10n.routeDeleted);
+    try {
+      final outcome = await _garita.deleteRecorrido(recorrido);
+      _toast(
+        outcome == WriteOutcome.queuedOffline
+            ? l10n.savedOffline
+            : l10n.routeDeleted,
+      );
+    } catch (_) {
+      _toast(l10n.errAuthUnknown);
+    }
   }
 
   @override
@@ -262,18 +277,26 @@ class _RecorridoEditorScreenState extends State<RecorridoEditorScreen> {
     }
 
     setState(() => _saving = true);
+    final original = widget.recorrido;
+    // Si los paraderos no cambiaron, el trazado guardado sigue siendo válido
+    // y se conserva tal cual. Antes se guardaba siempre sin geometría: cambiar
+    // el nombre o el color de una línea reemplazaba su trazado afinado por uno
+    // recalculado, o lo borraba si OSRM no respondía.
+    final mismaGeometria =
+        original != null && listEquals(original.paraderoIds, _paraderoIds);
     try {
-      await GaritaService.instance.upsertRecorrido(
+      final (_, outcome) = await GaritaService.instance.upsertRecorrido(
         Recorrido(
-          id: widget.recorrido?.id ?? '',
+          id: original?.id ?? '',
           garitaId: widget.garitaId,
           nombre: _nombre.text.trim(),
           colorValue: _color,
           paraderoIds: _paraderoIds,
+          geometria: mismaGeometria ? original.geometria : null,
           activo: _activo,
         ),
       );
-      if (mounted) Navigator.of(context).pop(true);
+      if (mounted) Navigator.of(context).pop(outcome);
     } catch (_) {
       if (!mounted) return;
       setState(() => _saving = false);
@@ -330,6 +353,7 @@ class _RecorridoEditorScreenState extends State<RecorridoEditorScreen> {
                       TextFormField(
                         controller: _nombre,
                         textCapitalization: TextCapitalization.words,
+                        maxLength: 80,
                         decoration: InputDecoration(
                           labelText: l10n.routeName,
                           prefixIcon: const Icon(Icons.timeline_outlined),

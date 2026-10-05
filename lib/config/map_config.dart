@@ -40,20 +40,36 @@ String _styleId(MapStyle style, bool isDark) => switch (style) {
 String _extension(MapStyle style) =>
     style == MapStyle.satellite ? 'jpg' : 'png';
 
+/// Identifica a la app ante los servidores de teselas (cabecera User-Agent).
+///
+/// Los tres mapas usaban valores distintos, uno de ellos `com.example.taxi1`.
+const String kTileUserAgentPackage = 'cl.coletotal.app';
+
 /// Plantilla de URL para el `TileLayer` de flutter_map.
+///
+/// Teselas de **256 px con el marcador `{r}`**, y no la ruta por defecto de
+/// MapTiler. Esa ruta entrega teselas de 512 px; flutter_map las encajaba en
+/// casillas de 256 y, sin `{r}` en la plantilla, `retinaMode` caía en el modo
+/// *simulado*: pedía cuatro teselas del zoom siguiente por cada casilla. Eran
+/// cuatro veces más peticiones contra la cuota gratuita de MapTiler y nombres
+/// de calles diminutos. Con `{r}` el servidor entrega la versión `@2x` en
+/// pantallas densas: una petición por casilla y texto del tamaño correcto.
 String mapTileUrlTemplate(MapStyle style, {required bool isDark}) =>
     'https://api.maptiler.com/maps/${_styleId(style, isDark)}'
-    '/{z}/{x}/{y}.${_extension(style)}?key=$kMapTilerKey';
+    '/256/{z}/{x}/{y}{r}.${_extension(style)}?key=$kMapTilerKey';
 
-/// Plantilla de respaldo gratuita (OpenStreetMap / CARTO Positron / Esri) si
-/// MapTiler agota su cuota de peticiones o devuelve errores HTTP.
-/// Garantiza que el piloto en terreno nunca se quede sin cartografía.
+/// Plantilla de respaldo gratuita (CARTO / Esri) para cuando MapTiler no
+/// responde: error de red, error HTTP o cuota agotada (429/403).
+///
+/// flutter_map conmuta tesela por tesela, sólo ante un fallo de la principal.
 String fallbackTileUrlTemplate(MapStyle style, {required bool isDark}) {
   if (style == MapStyle.satellite) {
+    // Esri no ofrece versión @2x: en pantallas densas se ve algo más suave,
+    // pero es sólo el respaldo.
     return 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
   }
   final variant = isDark ? 'dark_all' : 'light_all';
-  return 'https://basemaps.cartocdn.com/rastertiles/$variant/{z}/{x}/{y}.png';
+  return 'https://basemaps.cartocdn.com/rastertiles/$variant/{z}/{x}/{y}{r}.png';
 }
 
 /// URL de una tesela concreta, para usarla como miniatura de vista previa.
