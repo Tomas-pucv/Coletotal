@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -85,6 +87,106 @@ void main() {
       expect(compact.listTileTheme.minTileHeight, greaterThanOrEqualTo(48));
     });
 
+    test('paleta negro y amarillo de colectivo, sobre grises sin tinte', () {
+      final claro = buildAppTheme(brightness: Brightness.light).colorScheme;
+      final oscuro = buildAppTheme(brightness: Brightness.dark).colorScheme;
+      // De día lo principal es negro y lo seleccionado, amarillo.
+      expect(claro.primary, kColeTotalInk);
+      expect(claro.secondaryContainer, kColeTotalYellow);
+      // De noche el amarillo pasa a ser el color principal.
+      expect(oscuro.primary, const Color(0xFFFFD54A));
+      // Los fondos son grises: antes la semilla naranja los teñía de durazno.
+      for (final s in [claro, oscuro]) {
+        for (final fondo in [s.surface, s.surfaceContainer, s.mapControl]) {
+          expect(fondo.r, fondo.g, reason: '$fondo tiene tinte');
+          expect(fondo.g, fondo.b, reason: '$fondo tiene tinte');
+        }
+      }
+    });
+
+    test(
+      'los controles del mapa son blancos de día y gris elevado de noche',
+      () {
+        final claro = buildAppTheme(brightness: Brightness.light);
+        final oscuro = buildAppTheme(brightness: Brightness.dark);
+        expect(claro.colorScheme.mapControl, Colors.white);
+        expect(
+          oscuro.colorScheme.mapControl,
+          oscuro.colorScheme.surfaceContainerHigh,
+        );
+        for (final theme in [claro, oscuro]) {
+          expect(
+            theme.floatingActionButtonTheme.backgroundColor,
+            theme.colorScheme.mapControl,
+          );
+        }
+      },
+    );
+
+    test('todo texto sobre su fondo cumple contraste AA (4,5:1)', () {
+      double contraste(Color a, Color b) {
+        final (x, y) = (a.computeLuminance(), b.computeLuminance());
+        return (math.max(x, y) + 0.05) / (math.min(x, y) + 0.05);
+      }
+
+      for (final brightness in Brightness.values) {
+        final s = buildAppTheme(brightness: brightness).colorScheme;
+        final pares = {
+          'botón principal': (s.onPrimary, s.primary),
+          'recentrar siguiendo': (s.onPrimaryContainer, s.primaryContainer),
+          'pestaña seleccionada': (
+            s.onSecondaryContainer,
+            s.secondaryContainer,
+          ),
+          'aviso': (s.onTertiaryContainer, s.tertiaryContainer),
+          'texto': (s.onSurface, s.surface),
+          'texto sobre el mapa': (s.onSurface, s.mapControl),
+          'título de sección': (s.primary, s.surface),
+          'chip de tiempo': (s.tertiary, s.mapControl),
+        };
+        pares.forEach((nombre, par) {
+          expect(
+            contraste(par.$1, par.$2),
+            greaterThanOrEqualTo(4.5),
+            reason: '$nombre en tema $brightness',
+          );
+        });
+      }
+    });
+
+    test('"medio lleno" no se confunde con el amarillo del tema oscuro', () {
+      final amarillo = buildAppTheme(brightness: Brightness.dark).colorScheme;
+      final tono = HSVColor.fromColor(AppStatusColors.dark.medioLleno).hue;
+      expect(
+        (HSVColor.fromColor(amarillo.primary).hue - tono).abs(),
+        greaterThan(15),
+      );
+    });
+
+    test('la barra de navegación del sistema sigue a la de pestañas', () {
+      for (final brightness in Brightness.values) {
+        final theme = buildAppTheme(brightness: brightness);
+        final barra = theme.appBarTheme.systemOverlayStyle!;
+        // Hasta Android 14 se pinta de este color; tiene que ser el de la
+        // barra de pestañas que queda justo encima.
+        expect(
+          barra.systemNavigationBarColor,
+          theme.navigationBarTheme.backgroundColor,
+        );
+        expect(
+          barra.systemNavigationBarDividerColor,
+          barra.systemNavigationBarColor,
+        );
+        // Desde Android 15, sin esto la barra de tres botones lleva un velo
+        // translúcido encima y queda de otro tono que las pestañas.
+        expect(barra.systemNavigationBarContrastEnforced, isFalse);
+        expect(
+          barra.systemNavigationBarIconBrightness,
+          brightness == Brightness.dark ? Brightness.light : Brightness.dark,
+        );
+      }
+    });
+
     test('define un textTheme (antes no existía)', () {
       final theme = buildAppTheme(brightness: Brightness.light);
       expect(theme.textTheme.bodyMedium?.fontSize, isNotNull);
@@ -138,40 +240,33 @@ void main() {
       expect(tile.y, inInclusiveRange(0, n - 1));
     });
 
-    test('el basemap oscuro es un estilo distinto del claro', () {
-      final light = mapTileUrlTemplate(MapStyle.normal, isDark: false);
-      final dark = mapTileUrlTemplate(MapStyle.normal, isDark: true);
-      expect(light, isNot(dark));
-      expect(dark, contains('basic-v2-dark'));
+    test('la foto aérea de Esri va en orden {z}/{y}/{x} y sin clave', () {
+      // Esri invierte el orden habitual: con {x}/{y} pedía otra tesela.
+      expect(kSatelliteTileUrlTemplate, contains('/tile/{z}/{y}/{x}'));
+      expect(kSatelliteTileUrlTemplate, isNot(contains('key=')));
     });
 
-    test('el satelital no cambia con el tema (la foto aérea es la misma)', () {
-      expect(
-        mapTileUrlTemplate(MapStyle.satellite, isDark: false),
-        mapTileUrlTemplate(MapStyle.satellite, isDark: true),
-      );
-    });
-
-    test('pide teselas de 256 px con retina del servidor ({r})', () {
-      // Sin `{r}` flutter_map simulaba el modo retina pidiendo cuatro teselas
-      // por casilla: cuatro veces más cuota de MapTiler y texto diminuto.
-      for (final style in MapStyle.values) {
-        final url = mapTileUrlTemplate(style, isDark: false);
-        expect(url, contains('/256/{z}/{x}/{y}{r}.'));
-      }
-      expect(
-        fallbackTileUrlTemplate(MapStyle.normal, isDark: true),
-        contains('{r}'),
-      );
-    });
-
-    test('la miniatura usa el mismo estilo que el mapa real', () {
+    test('la miniatura satelital es la tesela de Quilpué del mapa real', () {
       // Si divergieran, la vista previa mentiría sobre lo que se va a ver.
+      final tile = tileIndexFor(kQuilpueCenter, 14);
       expect(
-        mapTileThumbnailUrl(MapStyle.satellite, isDark: false),
-        contains('hybrid'),
+        satelliteThumbnailUrl(),
+        kSatelliteTileUrlTemplate
+            .replaceFirst('{z}', '14')
+            .replaceFirst('{y}', '${tile.y}')
+            .replaceFirst('{x}', '${tile.x}'),
       );
     });
+
+    test(
+      'el detalle de la región cae dentro de Chile y contiene a Quilpué',
+      () {
+        expect(kChileBounds.containsBounds(kDetailBounds), isTrue);
+        expect(kDetailBounds.contains(kQuilpueCenter), isTrue);
+        expect(kMinZoom, lessThan(kInitialZoom));
+        expect(kMaxZoom, greaterThan(kInitialZoom));
+      },
+    );
   });
 
   group('historial de paraderos', () {
@@ -313,25 +408,15 @@ void main() {
       expect(prefs.themeMode, ThemeMode.system);
     });
 
-    testWidgets('el estilo de mapa se elige con tarjetas de vista previa', (
-      tester,
-    ) async {
+    testWidgets('el estilo de mapa no está en Preferencias', (tester) async {
+      // Se elige en la hoja de capas, sobre el propio mapa
+      // (test/map_controls_test.dart). Acá estaba repetido.
       _useTallScreen(tester);
-      final prefs = PreferencesService.instance;
-      await prefs.setMapType('normal');
-
       await tester.pumpWidget(_wrap(const PreferencesScreen()));
       await tester.pumpAndSettle();
 
-      expect(find.byType(OptionCardPicker<MapStyle>), findsOneWidget);
-
-      await tester.ensureVisible(find.text('Satélite'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Satélite'));
-      await tester.pumpAndSettle();
-      expect(prefs.mapType, 'satellite');
-
-      await prefs.setMapType('normal');
+      expect(find.byType(OptionCardPicker<MapStyle>), findsNothing);
+      expect(find.text('Satélite'), findsNothing);
     });
 
     // El antiguo test "el rol se elige con tarjetas" desapareció con el

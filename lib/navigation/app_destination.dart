@@ -113,9 +113,9 @@ abstract final class Destinations {
 
   /// Los extras propios del rol, agrupados bajo su encabezado en el menú.
   /// Preferencias queda fuera: va en el pie, junto al cierre de sesión.
-  static List<AppDestination> roleSectionFor(UserRole role) => extrasFor(role)
-      .where((d) => d != AppDestination.preferencias)
-      .toList(growable: false);
+  static List<AppDestination> roleSectionFor(UserRole role) => extrasFor(
+    role,
+  ).where((d) => d != AppDestination.preferencias).toList(growable: false);
 
   /// Si [destination] es una de las pestañas de [role].
   static bool isTab(AppDestination destination, UserRole role) =>

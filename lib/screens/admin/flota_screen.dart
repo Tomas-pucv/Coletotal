@@ -1,6 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_map/flutter_map.dart';
-import 'package:flutter_map_animations/flutter_map_animations.dart';
 import 'package:latlong2/latlong.dart';
 
 import 'package:taxi1/config/map_config.dart';
@@ -17,7 +15,7 @@ import 'package:taxi1/theme/app_colors.dart';
 import 'package:taxi1/theme/app_spacing.dart';
 import 'package:taxi1/utils/estado_format.dart';
 import 'package:taxi1/utils/patente.dart';
-import 'package:taxi1/widgets/app_tile_layer.dart';
+import 'package:taxi1/widgets/app_map.dart';
 import 'package:taxi1/widgets/map_overlay_card.dart';
 import 'package:taxi1/widgets/state_views.dart';
 
@@ -33,9 +31,8 @@ class FlotaScreen extends StatefulWidget {
   State<FlotaScreen> createState() => _FlotaScreenState();
 }
 
-class _FlotaScreenState extends State<FlotaScreen>
-    with TickerProviderStateMixin {
-  late final AnimatedMapController _mapController;
+class _FlotaScreenState extends State<FlotaScreen> {
+  final _mapController = AppMapController();
   final _auth = AuthService.instance;
   final _nav = MainNavigationController.instance;
   final _telemetria = FirebaseTelemetriaService.instance;
@@ -65,11 +62,6 @@ class _FlotaScreenState extends State<FlotaScreen>
   @override
   void initState() {
     super.initState();
-    _mapController = AnimatedMapController(
-      vsync: this,
-      duration: const Duration(milliseconds: 500),
-      curve: Curves.easeInOut,
-    );
     _filtroGarita = _auth.garitaId;
     _estado = _telemetria.state.value;
 
@@ -89,7 +81,6 @@ class _FlotaScreenState extends State<FlotaScreen>
     _recorridos.removeListener(_onChanged);
     _nav.removeListener(_onNavChanged);
     _telemetria.state.removeListener(_onTelemetria);
-    _mapController.dispose();
     super.dispose();
   }
 
@@ -113,9 +104,9 @@ class _FlotaScreenState extends State<FlotaScreen>
 
   void _focus(ColectivoActivo unidad) {
     setState(() => _selected = unidad.uid);
-    _mapController.centerOnPoint(
+    _mapController.animateTo(
       LatLng(unidad.latitud, unidad.longitud),
-      zoom: 16,
+      zoom: kStreetZoom,
     );
   }
 
@@ -193,49 +184,29 @@ class _FlotaScreenState extends State<FlotaScreen>
             flex: 3,
             child: Stack(
               children: [
-                FlutterMap(
-                  mapController: _mapController.mapController,
-                  options: const MapOptions(
-                    initialCenter: kQuilpueCenter,
-                    initialZoom: kInitialZoom,
-                  ),
-                  children: [
-                    const AppTileLayer(),
-                    // Al elegir una unidad se ilumina la línea que informa
-                    // estar cubriendo.
+                AppMap(
+                  controller: _mapController,
+                  initialCenter: kQuilpueCenter,
+                  // Al elegir una unidad se ilumina la línea que informa estar
+                  // cubriendo.
+                  lines: [
                     if (linea != null && trazado.length > 1)
-                      PolylineLayer(
-                        polylines: [
-                          Polyline(
-                            points: trazado,
-                            strokeWidth: 5,
-                            color: Color(
-                              linea.colorValue,
-                            ).withValues(alpha: 0.85),
-                            borderColor: status.routeLineCasing,
-                            borderStrokeWidth: 1.5,
-                          ),
-                        ],
+                      MapLine(
+                        points: trazado,
+                        width: 5,
+                        color: Color(linea.colorValue).withValues(alpha: 0.85),
+                        borderColor: status.routeLineCasing,
+                        borderWidth: 1.5,
                       ),
-                    MarkerLayer(
-                      markers: [
-                        for (final unidad in unidades)
-                          Marker(
-                            point: LatLng(unidad.latitud, unidad.longitud),
-                            width: 44,
-                            height: 44,
-                            child: GestureDetector(
-                              onTap: () => _focus(unidad),
-                              child: _UnidadMarker(
-                                color: status.forEstado(unidad.estado),
-                                borderColor: status.markerBorder,
-                                selected: _selected == unidad.uid,
-                                offline: unidad.seemsOffline(ahora),
-                              ),
-                            ),
-                          ),
-                      ],
-                    ),
+                  ],
+                  markers: [
+                    for (final unidad in unidades)
+                      _marcador(
+                        unidad,
+                        status: status,
+                        selected: _selected == unidad.uid,
+                        offline: unidad.seemsOffline(ahora),
+                      ),
                   ],
                 ),
                 if (_estado.failed)
@@ -376,6 +347,38 @@ class _FlotaScreenState extends State<FlotaScreen>
     );
   }
 
+  /// Una unidad en el mapa. Sin señal reciente se atenúa, igual que en el mapa
+  /// del pasajero.
+  MapMarker _marcador(
+    ColectivoActivo unidad, {
+    required AppStatusColors status,
+    required bool selected,
+    required bool offline,
+  }) {
+    final color = status.forEstado(unidad.estado);
+    return MapMarker(
+      id: unidad.uid,
+      point: LatLng(unidad.latitud, unidad.longitud),
+      icon: MarkerIcon.circle(
+        diameter: selected ? 40 : 32,
+        color: color,
+        borderColor: status.markerBorder,
+        borderWidth: selected ? 4 : 2,
+        glyph: Icons.directions_car,
+        glyphColor: AppStatusColors.onColorFor(color),
+        glyphSize: selected ? 22 : 18,
+        shadow: const BoxShadow(
+          color: Color(0x59000000),
+          blurRadius: 6,
+          offset: Offset(0, 2),
+        ),
+        tapTarget: 44,
+      ),
+      opacity: offline ? 0.45 : 1,
+      onTap: () => _focus(unidad),
+    );
+  }
+
   /// "Ahora mismo" o "Hace N min", medido contra la hora del servidor: el
   /// reloj del teléfono del administrador puede estar desfasado.
   static String _seenLabel(
@@ -386,52 +389,5 @@ class _FlotaScreenState extends State<FlotaScreen>
     final age = unidad.antiguedad(ahora);
     if (age == null || age.inMinutes < 1) return l10n.fleetSeenNow;
     return l10n.fleetSeenAgo('${age.inMinutes}');
-  }
-}
-
-class _UnidadMarker extends StatelessWidget {
-  const _UnidadMarker({
-    required this.color,
-    required this.borderColor,
-    required this.selected,
-    required this.offline,
-  });
-
-  final Color color;
-  final Color borderColor;
-  final bool selected;
-
-  /// Sin señal reciente: se atenúa, igual que en el mapa del pasajero.
-  final bool offline;
-
-  @override
-  Widget build(BuildContext context) {
-    final size = selected ? 40.0 : 32.0;
-    return Center(
-      child: Opacity(
-        opacity: offline ? 0.45 : 1,
-        child: Container(
-          width: size,
-          height: size,
-          decoration: BoxDecoration(
-            color: color,
-            shape: BoxShape.circle,
-            border: Border.all(color: borderColor, width: selected ? 4 : 2),
-            boxShadow: const [
-              BoxShadow(
-                color: Color(0x59000000),
-                blurRadius: 6,
-                offset: Offset(0, 2),
-              ),
-            ],
-          ),
-          child: Icon(
-            Icons.directions_car,
-            color: AppStatusColors.onColorFor(color),
-            size: selected ? 22 : 18,
-          ),
-        ),
-      ),
-    );
   }
 }

@@ -16,5 +16,6 @@ String estadoLabel(
     detallado ? l10n.capacityAvailableLong : l10n.capacityAvailable,
   EstadoCapacidad.medioLleno =>
     detallado ? l10n.capacityHalfLong : l10n.capacityHalf,
-  EstadoCapacidad.lleno => detallado ? l10n.capacityFullLong : l10n.capacityFull,
+  EstadoCapacidad.lleno =>
+    detallado ? l10n.capacityFullLong : l10n.capacityFull,
 };

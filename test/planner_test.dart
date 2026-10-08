@@ -9,6 +9,7 @@ import 'package:taxi1/models/bus_stop.dart';
 import 'package:taxi1/models/recorrido.dart';
 import 'package:taxi1/services/osrm_client.dart';
 import 'package:taxi1/services/stop_planner.dart';
+import 'package:taxi1/utils/polyline.dart';
 
 /// Tests del recomendador de paraderos y de las utilidades de ruteo.
 ///
@@ -126,19 +127,22 @@ void main() {
       expect(result.map((s) => s.stop.id), isNot(contains('huerfano')));
     });
 
-    test('sin recorridos cargados degrada a cercanía en vez de no dar nada', () {
-      final result = StopPlanner.suggest(
-        user: usuario,
-        destino: destino,
-        stops: [cerca, aMedias, juntoAlDestino],
-        recorridos: const [],
-      );
+    test(
+      'sin recorridos cargados degrada a cercanía en vez de no dar nada',
+      () {
+        final result = StopPlanner.suggest(
+          user: usuario,
+          destino: destino,
+          stops: [cerca, aMedias, juntoAlDestino],
+          recorridos: const [],
+        );
 
-      expect(result, isNotEmpty);
-      // Se marca como aproximación: sin línea no se puede prometer un viaje.
-      expect(result.every((s) => s.recorrido == null), isTrue);
-      expect(result.first.stop, juntoAlDestino);
-    });
+        expect(result, isNotEmpty);
+        // Se marca como aproximación: sin línea no se puede prometer un viaje.
+        expect(result.every((s) => s.recorrido == null), isTrue);
+        expect(result.first.stop, juntoAlDestino);
+      },
+    );
 
     test('un recorrido desactivado no se propone', () {
       final recorridos = [
@@ -214,7 +218,7 @@ void main() {
     });
   });
 
-  group('OsrmClient', () {
+  group('Polilíneas y OSRM', () {
     tearDown(() => OsrmClient.debugClient = http.Client());
 
     test('decodifica las coordenadas negativas de Quilpué', () {
@@ -222,7 +226,7 @@ void main() {
       // las coordenadas de Quilpué son negativas: es el caso que fallaba en la
       // web, donde `~` devuelve enteros de 32 bits sin signo.
       const encoded = r'~h``~@fcoggCosEwyE';
-      final puntos = OsrmClient.decodePolyline(encoded);
+      final puntos = decodePolyline(encoded);
 
       expect(puntos, hasLength(2));
       expect(puntos[0].latitude, closeTo(-33.0472, 1e-9));
@@ -230,7 +234,7 @@ void main() {
       expect(puntos[1].latitude, closeTo(-33.0438, 1e-9));
       expect(puntos[1].longitude, closeTo(-71.4390, 1e-9));
       expect(
-        OsrmClient.encodePolyline(puntos),
+        encodePolyline(puntos),
         encoded,
         reason: 'codificar tiene que dar la misma cadena que OSRM',
       );
@@ -242,9 +246,7 @@ void main() {
         LatLng(-33.043801, -71.439004),
         LatLng(-33.051002, -71.448013),
       ];
-      final decoded = OsrmClient.decodePolyline(
-        OsrmClient.encodePolyline(puntos),
-      );
+      final decoded = decodePolyline(encodePolyline(puntos));
       expect(decoded, hasLength(3));
       for (var i = 0; i < puntos.length; i++) {
         expect(decoded[i].latitude, closeTo(puntos[i].latitude, 1e-6));
@@ -257,7 +259,7 @@ void main() {
       final puntos = [
         for (var i = 0; i < 60; i++) LatLng(-33.0 - i * 0.001, -71.44),
       ];
-      final tramos = OsrmClient.chunk(puntos, OsrmClient.maxWaypoints);
+      final tramos = chunkWaypoints(puntos, OsrmClient.maxWaypoints);
 
       expect(tramos.every((t) => t.length <= OsrmClient.maxWaypoints), isTrue);
       expect(tramos.first.first, puntos.first);
@@ -282,7 +284,7 @@ void main() {
             'code': 'Ok',
             'routes': [
               {
-                'geometry': OsrmClient.encodePolyline(coords),
+                'geometry': encodePolyline(coords),
                 'distance': 100.0 * (coords.length - 1),
                 'duration': 10.0 * (coords.length - 1),
               },
@@ -318,7 +320,7 @@ void main() {
 
     test('decodifica una polilínea de ida y vuelta', () {
       // Referencia clásica del algoritmo de Google, con precisión 5.
-      final points = OsrmClient.decodePolyline(
+      final points = decodePolyline(
         '_p~iF~ps|U_ulLnnqC_mqNvxq`@',
         precision: 5,
       );
@@ -329,13 +331,10 @@ void main() {
       expect(points[2].longitude, closeTo(-126.453, 0.001));
     });
 
-    test('descarta coordenadas que romperían flutter_map', () {
-      expect(OsrmClient.isValidLatLng(const LatLng(-33.05, -71.44)), isTrue);
-      expect(OsrmClient.isValidLatLng(LatLng(double.nan, -71.44)), isFalse);
-      expect(
-        OsrmClient.isValidLatLng(LatLng(double.infinity, 0)),
-        isFalse,
-      );
+    test('descarta coordenadas que romperían el mapa', () {
+      expect(isValidLatLng(const LatLng(-33.05, -71.44)), isTrue);
+      expect(isValidLatLng(LatLng(double.nan, -71.44)), isFalse);
+      expect(isValidLatLng(LatLng(double.infinity, 0)), isFalse);
     });
   });
 
@@ -349,10 +348,7 @@ void main() {
         paraderoIds: ['a'],
       );
       expect(uno.isValid, isFalse);
-      expect(
-        uno.copyWith(paraderoIds: ['a', 'b']).isValid,
-        isTrue,
-      );
+      expect(uno.copyWith(paraderoIds: ['a', 'b']).isValid, isTrue);
     });
 
     test('sin nombre no es válido aunque tenga paraderos', () {
@@ -369,7 +365,7 @@ void main() {
     test('una geometría corrupta no se dibuja: se recalcula', () {
       // Latitud 200 no existe. Antes esos puntos se dibujaban igual, fuera del
       // mapa; ahora el recorrido queda sin trazado guardado y se recalcula.
-      final corrupta = OsrmClient.encodePolyline(const [
+      final corrupta = encodePolyline(const [
         LatLng(200, -71.44),
         LatLng(201, -71.45),
       ]);
@@ -378,7 +374,7 @@ void main() {
         isEmpty,
       );
 
-      final buena = OsrmClient.encodePolyline(const [
+      final buena = encodePolyline(const [
         LatLng(-33.04, -71.44),
         LatLng(-33.05, -71.45),
       ]);

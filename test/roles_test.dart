@@ -169,8 +169,10 @@ void main() {
     });
 
     test('un rol desconocido se degrada a invitado en vez de reventar', () {
-      expect(AppUser.fromMap('u4', {'rol': 'presidente'}).rol,
-          UserRole.invitado);
+      expect(
+        AppUser.fromMap('u4', {'rol': 'presidente'}).rol,
+        UserRole.invitado,
+      );
     });
 
     test('el rol viaja con un nombre estable, no con el índice del enum', () {

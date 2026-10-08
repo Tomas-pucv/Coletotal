@@ -22,7 +22,11 @@ class SessionLogEvent {
   final int timestamp;
   final Map<String, dynamic> datos;
 
-  Map<String, dynamic> toMap() => {'tipo': tipo, 'ts': timestamp, 'datos': datos};
+  Map<String, dynamic> toMap() => {
+    'tipo': tipo,
+    'ts': timestamp,
+    'datos': datos,
+  };
 
   factory SessionLogEvent.fromMap(Map<String, dynamic> map) => SessionLogEvent(
     tipo: (map['tipo'] as String?) ?? 'UNKNOWN',
@@ -120,7 +124,8 @@ class SessionLogService {
     if (_repetibles.contains(tipo) && _eventos.isNotEmpty) {
       final last = _eventos.last;
       final ultimaVez = (last.datos['ultimoTs'] as int?) ?? last.timestamp;
-      if (last.tipo == tipo && now - ultimaVez <= _ventanaAgrupado.inMilliseconds) {
+      if (last.tipo == tipo &&
+          now - ultimaVez <= _ventanaAgrupado.inMilliseconds) {
         _eventos[_eventos.length - 1] = SessionLogEvent(
           tipo: tipo,
           timestamp: last.timestamp,
@@ -176,10 +181,10 @@ class SessionLogService {
     if (garitaId != null && garitaId.isNotEmpty) {
       try {
         final outcome = await confirmOrQueue(
-          _docRef(garitaId, sessionId).set({
-            ...payload,
-            'sincronizadoEn': FieldValue.serverTimestamp(),
-          }),
+          _docRef(
+            garitaId,
+            sessionId,
+          ).set({...payload, 'sincronizadoEn': FieldValue.serverTimestamp()}),
           label: 'auditoría $sessionId',
         );
         confirmado = outcome == WriteOutcome.confirmed;
@@ -233,7 +238,9 @@ class SessionLogService {
           'finTs': ultimoTs,
           'interrumpida': true,
         });
-        debugPrint('[SessionLog] Turno interrumpido ${data['sessionId']} recuperado.');
+        debugPrint(
+          '[SessionLog] Turno interrumpido ${data['sessionId']} recuperado.',
+        );
       } catch (e) {
         debugPrint('[SessionLog] Turno interrumpido ilegible, se descarta: $e');
       }

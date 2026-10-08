@@ -2,10 +2,15 @@ import 'package:flutter/material.dart';
 
 import 'package:taxi1/models/colectivo_activo.dart';
 
-/// Semilla de marca de ColeTotal.
+/// Negro de marca: la carrocería del colectivo chileno.
+const Color kColeTotalInk = Color(0xFF1C1B1A);
+
+/// Amarillo de marca: el letrero del techo del colectivo.
+const Color kColeTotalYellow = Color(0xFFFFCC00);
+
+/// Paleta de ColeTotal: negro y amarillo de colectivo sobre grises neutros.
 ///
-/// La elección no es arbitraria. El mapa ya tiene dos escalas de color
-/// reservadas que no se pueden pisar:
+/// El mapa ya tiene dos escalas de color reservadas que no se pueden pisar:
 ///
 ///  * **Azul** = "mi ubicación" (convención de Google/Apple Maps, y el punto
 ///    del pasajero en [MapScreen] la usa).
@@ -13,9 +18,68 @@ import 'package:taxi1/models/colectivo_activo.dart';
 ///    exigida por el informe (§7.3.1-C "marcadores de semáforos que cambian de
 ///    color según la capacidad reportada por los choferes").
 ///
-/// Semilla de marca de ColeTotal: Amarillo ligeramente anaranjado cálido
-/// inspirado en la estética tradicional del letrero y cúpula de techo del colectivo chileno.
-const Color kColeTotalSeed = Color(0xFFE58A00);
+/// Por eso la interfaz es gris neutro y lo único con color sobre el mapa son
+/// los marcadores y las líneas, que son los que significan algo. Lo principal
+/// (botones, interruptores, títulos de sección) va en negro en el tema claro y
+/// en amarillo en el oscuro; el amarillo marca además lo seleccionado: la
+/// pestaña actual, el recentrado mientras sigue al usuario, los botones
+/// tonales.
+///
+/// Antes toda la paleta salía de una semilla naranja (`0xFFE58A00`) con
+/// [ColorScheme.fromSeed]: teñía de durazno todos los fondos, los botones
+/// salían café (`0xFF855317`) y el naranja se confundía con el ámbar de
+/// "medio lleno".
+ColorScheme buildColorScheme(Brightness brightness) {
+  // Fondos, textos y bordes: la rampa de grises de Material 3, sin tinte.
+  final neutral = ColorScheme.fromSeed(
+    seedColor: kColeTotalYellow,
+    brightness: brightness,
+    dynamicSchemeVariant: DynamicSchemeVariant.monochrome,
+  );
+  return switch (brightness) {
+    Brightness.light => neutral.copyWith(
+      primary: kColeTotalInk,
+      onPrimary: Colors.white,
+      primaryContainer: kColeTotalYellow,
+      onPrimaryContainer: kColeTotalInk,
+      secondaryContainer: kColeTotalYellow,
+      onSecondaryContainer: kColeTotalInk,
+      // Avisos (InlineNotice, estados de advertencia): amarillo pálido de
+      // precaución, distinto del amarillo pleno de lo seleccionado.
+      tertiary: const Color(0xFF6B5800),
+      onTertiary: Colors.white,
+      tertiaryContainer: const Color(0xFFFFF1B8),
+      onTertiaryContainer: const Color(0xFF3D3300),
+      inversePrimary: const Color(0xFFFFD54A),
+    ),
+    // De noche el amarillo pasa a ser el color principal, como el letrero
+    // encendido. Los contenedores son oliva oscuro para no encandilar.
+    Brightness.dark => neutral.copyWith(
+      primary: const Color(0xFFFFD54A),
+      onPrimary: kColeTotalInk,
+      primaryContainer: const Color(0xFF3D3300),
+      onPrimaryContainer: const Color(0xFFFFE58A),
+      secondaryContainer: const Color(0xFF3D3300),
+      onSecondaryContainer: const Color(0xFFFFE58A),
+      tertiary: const Color(0xFFE8C66A),
+      onTertiary: kColeTotalInk,
+      tertiaryContainer: const Color(0xFF4F4416),
+      onTertiaryContainer: const Color(0xFFFFE9A8),
+      inversePrimary: const Color(0xFF6B5800),
+    ),
+  };
+}
+
+/// Fondo de lo que flota sobre el mapa: el buscador, las tarjetas y los
+/// botones redondos.
+extension MapControlColors on ColorScheme {
+  /// Blanco en el tema claro, como en cualquier app de mapas: el mapa ya es
+  /// gris claro y un control gris se perdía contra él. En el oscuro, el gris
+  /// elevado, que se separa del mapa sin encandilar.
+  Color get mapControl => brightness == Brightness.light
+      ? surfaceContainerLowest
+      : surfaceContainerHigh;
+}
 
 /// Colores semánticos que el [ColorScheme] de Material 3 no cubre.
 ///
@@ -101,13 +165,17 @@ class AppStatusColors extends ThemeExtension<AppStatusColors> {
 
   /// Paleta de estado para tema oscuro: los mismos matices, aclarados para
   /// mantener contraste AA sobre superficies oscuras.
+  ///
+  /// El ámbar va corrido hacia el naranja: el ámbar aclarado (`0xFFF5B95C`)
+  /// quedaba casi igual al amarillo de los botones del tema oscuro, y un
+  /// colectivo "medio lleno" no puede leerse como un botón.
   static const AppStatusColors dark = AppStatusColors(
     disponible: Color(0xFF6DD98C),
-    medioLleno: Color(0xFFF5B95C),
+    medioLleno: Color(0xFFFFA352),
     lleno: Color(0xFFF2B8B5),
     distanceVeryClose: Color(0xFF6DD98C),
     distanceClose: Color(0xFF4DD0C1),
-    distanceMedium: Color(0xFFF5B95C),
+    distanceMedium: Color(0xFFFFA352),
     distanceFar: Color(0xFFF2B8B5),
     distanceUnknown: Color(0xFF97979F),
     userLocation: Color(0xFF8AB4F8),

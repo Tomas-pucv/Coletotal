@@ -153,7 +153,10 @@ class StopsService extends ChangeNotifier {
   /// Crea o actualiza un paradero. Devuelve el id resultante y si quedó
   /// confirmado o encolado.
   Future<(String, WriteOutcome)> upsert(BusStop stop) async {
-    final data = {...stop.toMap(), 'actualizadoEn': FieldValue.serverTimestamp()};
+    final data = {
+      ...stop.toMap(),
+      'actualizadoEn': FieldValue.serverTimestamp(),
+    };
 
     // Un paradero semilla no existe en Firestore: editarlo crea el documento
     // real en vez de fallar con "no such document". El id se genera en el

@@ -281,9 +281,7 @@ class _TurnoScreenState extends State<TurnoScreen> {
                   backgroundColor: Color(r.colorValue),
                 ),
                 title: Text(r.nombre),
-                subtitle: Text(
-                  l10n.routeStopCount('${r.paraderoIds.length}'),
-                ),
+                subtitle: Text(l10n.routeStopCount('${r.paraderoIds.length}')),
                 selected: actual?.id == r.id,
                 onTap: () => Navigator.pop(context, _RecorridoChoice(r)),
               ),
@@ -321,12 +319,20 @@ class _TurnoScreenState extends State<TurnoScreen> {
                 segments: [
                   ButtonSegment(
                     value: EstadoCapacidad.disponible,
-                    icon: Icon(Icons.circle, size: 14, color: status.disponible),
+                    icon: Icon(
+                      Icons.circle,
+                      size: 14,
+                      color: status.disponible,
+                    ),
                     label: Text(l10n.capacityAvailable),
                   ),
                   ButtonSegment(
                     value: EstadoCapacidad.medioLleno,
-                    icon: Icon(Icons.circle, size: 14, color: status.medioLleno),
+                    icon: Icon(
+                      Icons.circle,
+                      size: 14,
+                      color: status.medioLleno,
+                    ),
                     label: Text(l10n.capacityHalf),
                   ),
                   ButtonSegment(

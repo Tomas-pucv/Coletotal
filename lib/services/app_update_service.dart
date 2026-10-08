@@ -51,7 +51,8 @@ class AppUpdateInfo {
   /// obligatoria **sin enlace** no se considera obligatoria: el diálogo no se
   /// podría cerrar ni completar y dejaría la app inutilizable.
   bool isMandatoryFor(int installedCode) =>
-      apkUrl.isNotEmpty && (mandatory || installedCode < minRequiredVersionCode);
+      apkUrl.isNotEmpty &&
+      (mandatory || installedCode < minRequiredVersionCode);
 }
 
 /// Servicio que comprueba la versión remota contra Firestore y avisa
@@ -72,8 +73,7 @@ class AppUpdateService extends ChangeNotifier {
   AppUpdateInfo? get availableUpdate => _availableUpdate;
   bool get checking => _checking;
 
-  bool get hasUpdate =>
-      _availableUpdate?.isNewerThan(AppVersion.code) ?? false;
+  bool get hasUpdate => _availableUpdate?.isNewerThan(AppVersion.code) ?? false;
 
   bool get isMandatory =>
       hasUpdate && _availableUpdate!.isMandatoryFor(AppVersion.code);

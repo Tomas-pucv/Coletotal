@@ -11,6 +11,7 @@ import 'package:taxi1/screens/auth/register_screen.dart';
 import 'package:taxi1/screens/main_screen.dart';
 import 'package:taxi1/screens/preferences_screen.dart';
 import 'package:taxi1/services/auth_service.dart';
+import 'package:taxi1/theme/app_colors.dart';
 import 'package:taxi1/theme/app_spacing.dart';
 import 'package:taxi1/utils/patente.dart';
 import 'package:taxi1/utils/role_format.dart';
@@ -114,6 +115,11 @@ class _AppDrawerState extends State<AppDrawer> {
     final role = _auth.role;
     final tabs = Destinations.barFor(role);
     final roleSection = Destinations.roleSectionFor(role);
+    final isGuest = role == UserRole.invitado;
+    final showPreferences = !Destinations.isTab(
+      AppDestination.preferencias,
+      role,
+    );
 
     return NavigationDrawer(
       selectedIndex: Destinations.tabIndex(_nav.destination, role),
@@ -156,28 +162,23 @@ class _AppDrawerState extends State<AppDrawer> {
             ),
         ],
 
-        const _DrawerDivider(),
-
-        // Para el invitado, Preferencias ya es una pestaña y aparece arriba.
-        if (!Destinations.isTab(AppDestination.preferencias, role))
-          _DrawerAction(
-            icon: AppDestination.preferencias.icon,
-            label: l10n.navPreferences,
-            onTap: () => _push(const PreferencesScreen(showBackButton: true)),
-          ),
-
-        if (role == UserRole.invitado)
-          _DrawerAction(
-            icon: Icons.login,
-            label: l10n.signIn,
-            onTap: () => _push(const LoginScreen()),
-          )
-        else
-          _DrawerAction(
-            icon: Icons.logout,
-            label: l10n.signOut,
-            onTap: () => _closeThen(() => _confirmSignOut(l10n)),
-          ),
+        // Para el invitado, Preferencias ya es una pestaña y aparece arriba, e
+        // "Iniciar sesión" está en la cabecera: no queda nada que poner acá.
+        if (showPreferences || !isGuest) ...[
+          const _DrawerDivider(),
+          if (showPreferences)
+            _DrawerAction(
+              icon: AppDestination.preferencias.icon,
+              label: l10n.navPreferences,
+              onTap: () => _push(const PreferencesScreen(showBackButton: true)),
+            ),
+          if (!isGuest)
+            _DrawerAction(
+              icon: Icons.logout,
+              label: l10n.signOut,
+              onTap: () => _closeThen(() => _confirmSignOut(l10n)),
+            ),
+        ],
 
         const SizedBox(height: AppSpacing.lg),
       ],
@@ -186,6 +187,12 @@ class _AppDrawerState extends State<AppDrawer> {
 }
 
 /// Cabecera de identidad: quién eres y con qué permisos.
+///
+/// Va sobre una tarjeta gris y el amarillo queda sólo en el avatar, el
+/// letrero del colectivo. Antes la tarjeta entera era del color de
+/// `primaryContainer`, que con la paleta negro y amarillo es amarillo pleno:
+/// quedaba pegada a la fila seleccionada, también amarilla, y la insignia
+/// "Colectivero" (amarilla) desaparecía contra ella.
 class _AccountHeader extends StatelessWidget {
   const _AccountHeader({
     required this.profile,
@@ -206,6 +213,11 @@ class _AccountHeader extends StatelessWidget {
     final l10n = AppLocalizations.of(context)!;
     final badge = roleBadgeColors(role, scheme);
     final isGuest = role == UserRole.invitado;
+    // El amarillo del letrero en ambos temas: de noche `primaryContainer` es
+    // oliva oscuro y el amarillo es `primary`.
+    final (avatarFondo, avatarTinta) = scheme.brightness == Brightness.light
+        ? (scheme.primaryContainer, scheme.onPrimaryContainer)
+        : (scheme.primary, scheme.onPrimary);
 
     return Container(
       margin: const EdgeInsets.fromLTRB(
@@ -216,25 +228,24 @@ class _AccountHeader extends StatelessWidget {
       ),
       padding: const EdgeInsets.all(AppSpacing.lg),
       decoration: BoxDecoration(
-        color: scheme.primaryContainer,
+        color: scheme.surfaceContainerHigh,
         borderRadius: BorderRadius.circular(AppSpacing.radiusLg),
       ),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               CircleAvatar(
                 radius: 24,
-                backgroundColor: scheme.onPrimaryContainer,
-                foregroundColor: scheme.primaryContainer,
+                backgroundColor: avatarFondo,
+                foregroundColor: avatarTinta,
                 child: isGuest
                     ? Icon(roleIcon(role), size: 26)
                     : Text(
                         profile!.initials,
                         style: theme.textTheme.titleMedium?.copyWith(
-                          color: scheme.primaryContainer,
+                          color: avatarTinta,
                           fontWeight: FontWeight.w700,
                         ),
                       ),
@@ -247,77 +258,64 @@ class _AccountHeader extends StatelessWidget {
                     Text(
                       profile?.displayName ?? l10n.roleGuest,
                       style: theme.textTheme.titleMedium?.copyWith(
-                        color: scheme.onPrimaryContainer,
+                        color: scheme.onSurface,
                       ),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
-                    const SizedBox(height: AppSpacing.xs),
-                    // Wrap y no Row: con la fuente al 140% la insignia y la
-                    // patente pasan a dos líneas en vez de desbordar.
-                    Wrap(
-                      spacing: AppSpacing.sm,
-                      runSpacing: AppSpacing.xs,
-                      crossAxisAlignment: WrapCrossAlignment.center,
-                      children: [
-                        // La insignia dice "te llamas X y tu rol es Y". Para el
-                        // invitado el nombre ya es el rol, así que repetirlo
-                        // justo debajo sólo añade ruido.
-                        if (!isGuest)
+                    // La insignia dice "te llamas X y tu rol es Y". Para el
+                    // invitado el nombre ya es el rol, así que repetirlo
+                    // justo debajo sólo añade ruido.
+                    if (!isGuest) ...[
+                      const SizedBox(height: AppSpacing.xs),
+                      // Wrap y no Row: con la fuente al 140% la insignia y la
+                      // patente pasan a dos líneas en vez de desbordar.
+                      Wrap(
+                        spacing: AppSpacing.sm,
+                        runSpacing: AppSpacing.xs,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        children: [
                           _RoleBadge(
                             label: roleLabel(role, l10n),
                             icon: roleIcon(role),
                             background: badge.background,
                             foreground: badge.foreground,
                           ),
-                        if (profile?.patente case final patente?)
-                          Text(
-                            formatPatente(patente),
-                            style: theme.textTheme.labelLarge?.copyWith(
-                              color: scheme.onPrimaryContainer,
-                              fontFeatures: const [
-                                FontFeature.tabularFigures(),
-                              ],
-                              letterSpacing: 1.2,
-                            ),
-                          ),
-                      ],
-                    ),
+                          if (profile?.patente case final patente?)
+                            _Patente(formatPatente(patente)),
+                        ],
+                      ),
+                    ],
                   ],
                 ),
               ),
             ],
           ),
+          // A todo el ancho y no al lado del avatar: ahí no cabía y la última
+          // palabra quedaba sola en una segunda línea.
           const SizedBox(height: AppSpacing.md),
           Text(
             roleSubtitle(role, l10n),
             style: theme.textTheme.bodySmall?.copyWith(
-              color: scheme.onPrimaryContainer.withValues(alpha: 0.85),
+              color: scheme.onSurfaceVariant,
             ),
           ),
 
           // El invitado no tiene nada que gestionar en el menú, así que la
           // cabecera es justamente el lugar donde ofrecerle entrar: es lo
-          // primero que ve al abrirlo.
+          // primero que ve al abrirlo. Uno debajo del otro y a lo ancho: lado
+          // a lado no cabían y cada texto se partía en dos líneas.
           if (isGuest) ...[
-            const SizedBox(height: AppSpacing.md),
-            Row(
-              children: [
-                Expanded(
-                  child: FilledButton.icon(
-                    onPressed: onSignIn,
-                    icon: const Icon(Icons.login, size: 18),
-                    label: Text(l10n.signIn),
-                  ),
-                ),
-                const SizedBox(width: AppSpacing.sm),
-                Expanded(
-                  child: OutlinedButton(
-                    onPressed: onRegister,
-                    child: Text(l10n.createAccount),
-                  ),
-                ),
-              ],
+            const SizedBox(height: AppSpacing.lg),
+            FilledButton.icon(
+              onPressed: onSignIn,
+              icon: const Icon(Icons.login, size: 18),
+              label: Text(l10n.signIn),
+            ),
+            const SizedBox(height: AppSpacing.sm),
+            OutlinedButton(
+              onPressed: onRegister,
+              child: Text(l10n.createAccount),
             ),
           ],
         ],
@@ -349,6 +347,8 @@ class _RoleBadge extends StatelessWidget {
       decoration: BoxDecoration(
         color: background,
         borderRadius: BorderRadius.circular(AppSpacing.radiusSm),
+        // El borde la separa del fondo aunque los dos sean del mismo tono.
+        border: Border.all(color: foreground.withValues(alpha: 0.4)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -363,6 +363,39 @@ class _RoleBadge extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// La patente del colectivo dibujada como la placa chilena: blanca, con letras
+/// negras y borde oscuro. Es blanca también en el tema oscuro, porque así es la
+/// placa de verdad y así la reconoce el chofer de un vistazo.
+class _Patente extends StatelessWidget {
+  const _Patente(this.texto);
+
+  final String texto;
+
+  static const _placa = Colors.white;
+  static const _letras = kColeTotalInk;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+      decoration: BoxDecoration(
+        color: _placa,
+        borderRadius: BorderRadius.circular(4),
+        border: Border.all(color: _letras, width: 1.5),
+      ),
+      child: Text(
+        texto,
+        style: Theme.of(context).textTheme.labelLarge?.copyWith(
+          color: _letras,
+          fontWeight: FontWeight.w700,
+          fontFeatures: const [FontFeature.tabularFigures()],
+          letterSpacing: 1.2,
+        ),
       ),
     );
   }

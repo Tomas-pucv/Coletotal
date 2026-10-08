@@ -21,12 +21,6 @@ class AppLocalizationsEs extends AppLocalizations {
   String get calculatingRoute => 'Calculando ruta…';
 
   @override
-  String get hideStops => 'Ocultar paraderos';
-
-  @override
-  String get showStops => 'Mostrar paraderos';
-
-  @override
   String get searchingLocation => 'Buscando ubicación…';
 
   @override
@@ -34,11 +28,6 @@ class AppLocalizationsEs extends AppLocalizations {
 
   @override
   String get tapToGoStop => 'Tocar para ir al paradero';
-
-  @override
-  String viaProvider(String provider) {
-    return 'vía $provider';
-  }
 
   @override
   String coordsLabel(String lat, String lng) {
@@ -147,9 +136,6 @@ class AppLocalizationsEs extends AppLocalizations {
   String get preferencesTitle => 'Preferencias';
 
   @override
-  String get sectionMapStyle => 'Estilo de mapa';
-
-  @override
   String get mapNormal => 'Calles';
 
   @override
@@ -159,7 +145,7 @@ class AppLocalizationsEs extends AppLocalizations {
   String get satellite => 'Satélite';
 
   @override
-  String get satelliteDesc => 'Foto aérea';
+  String get satelliteDesc => 'Foto aérea · requiere conexión';
 
   @override
   String get sectionAppearance => 'Apariencia';

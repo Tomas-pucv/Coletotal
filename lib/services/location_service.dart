@@ -2,7 +2,8 @@ import 'dart:async';
 import 'dart:ui' show Locale;
 
 import 'package:flutter/foundation.dart';
-import 'package:flutter/widgets.dart' show AppLifecycleState, WidgetsBinding, WidgetsBindingObserver;
+import 'package:flutter/widgets.dart'
+    show AppLifecycleState, WidgetsBinding, WidgetsBindingObserver;
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 
@@ -248,7 +249,8 @@ class LocationService extends ChangeNotifier with WidgetsBindingObserver {
     final lat = p.latitude;
     final lng = p.longitude;
     // En emuladores o antes del primer arreglo real, Geolocator puede devolver
-    // 0,0 o NaN, lo que rompe flutter_map ("LatLng is not finite").
+    // 0,0 o NaN, y un NaN rompe el mapa: sus puntos viajan a MapLibre como
+    // JSON, que no admite NaN.
     if (!lat.isFinite || !lng.isFinite || (lat == 0.0 && lng == 0.0)) return;
 
     _position = LatLng(lat, lng);

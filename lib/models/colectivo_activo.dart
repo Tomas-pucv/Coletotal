@@ -115,7 +115,8 @@ class ColectivoActivo {
     // generado en el teléfono y guardado en `idVehiculo`. Se cae a ese valor
     // para que los nodos viejos sigan parseando en vez de tirar el stream
     // entero al suelo.
-    final id = (json['uid'] as String?) ?? (json['idVehiculo'] as String? ?? '');
+    final id =
+        (json['uid'] as String?) ?? (json['idVehiculo'] as String? ?? '');
     return ColectivoActivo(
       uid: id,
       idVehiculo: (json['idVehiculo'] as String?) ?? id,

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'package:taxi1/theme/app_colors.dart';
 import 'package:taxi1/theme/app_spacing.dart';
 
 /// Superficie flotante sobre el mapa.
@@ -25,7 +26,7 @@ class MapOverlayCard extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
 
     return Material(
-      color: scheme.surfaceContainerHigh,
+      color: scheme.mapControl,
       elevation: 4,
       shadowColor: Colors.black.withValues(alpha: 0.3),
       surfaceTintColor: Colors.transparent,

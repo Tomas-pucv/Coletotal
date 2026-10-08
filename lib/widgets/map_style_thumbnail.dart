@@ -2,25 +2,55 @@ import 'package:flutter/material.dart';
 
 import 'package:taxi1/config/map_config.dart';
 
-/// Miniatura real del estilo de mapa: una tesela de MapTiler centrada en
-/// Quilpué, la misma cartografía que verá el usuario.
+/// Miniatura real del estilo de mapa, centrada en Quilpué: la misma
+/// cartografía que verá el usuario.
 ///
-/// Trae una sola imagen en vez de instanciar un `FlutterMap` de verdad. Además
-/// degrada con dignidad: el informe insiste en que la app debe seguir siendo
-/// usable con conectividad intermitente (RNF-03-01), así que si la tesela no
-/// llega, el selector muestra un marcador de posición en vez de un hueco roto.
+/// Degrada con dignidad: el informe insiste en que la app debe seguir siendo
+/// usable con conectividad intermitente (RNF-03-01), así que si la foto aérea
+/// no llega, el selector muestra un marcador de posición en vez de un hueco
+/// roto.
 class MapStyleThumbnail extends StatelessWidget {
   const MapStyleThumbnail({super.key, required this.style});
 
   final MapStyle style;
 
   @override
+  Widget build(BuildContext context) => switch (style) {
+    MapStyle.normal => const _StreetsPreview(),
+    MapStyle.satellite => const _SatellitePreview(),
+  };
+}
+
+/// Una captura del mapa de calles en Quilpué, en el tema que corresponda.
+///
+/// Es una imagen y no un mapa: MapLibre es una vista nativa, y abrir una sólo
+/// para un recuadro de 2 cm costaría memoria y un parpadeo al aparecer. Las
+/// capturas se toman de la app misma (ver "Mapa base offline" en el README),
+/// así que muestran el mismo estilo que los mapas.
+class _StreetsPreview extends StatelessWidget {
+  const _StreetsPreview();
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Image.asset(
+      isDark ? 'assets/map/preview_dark.png' : 'assets/map/preview_light.png',
+      fit: BoxFit.cover,
+    );
+  }
+}
+
+/// La foto aérea es lo único que sigue viniendo de la red: basta pedir una
+/// sola tesela.
+class _SatellitePreview extends StatelessWidget {
+  const _SatellitePreview();
+
+  @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return Image.network(
-      mapTileThumbnailUrl(style, isDark: isDark),
+      satelliteThumbnailUrl(),
       fit: BoxFit.cover,
       // Sin esto la imagen aparece de golpe y el selector "parpadea".
       frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
@@ -44,30 +74,27 @@ class MapStyleThumbnail extends StatelessWidget {
           ),
         );
       },
-      errorBuilder: (context, error, stack) => _Placeholder(style: style),
+      errorBuilder: (context, error, stack) => const _SatellitePlaceholder(),
     );
   }
 }
 
-/// Sustituto cuando no hay red: sugiere el estilo con icono y color en vez de
-/// dejar el recuadro vacío.
-class _Placeholder extends StatelessWidget {
-  const _Placeholder({required this.style});
-
-  final MapStyle style;
+/// Sustituto cuando no hay red: sugiere la foto aérea con icono y color en
+/// vez de dejar el recuadro vacío.
+class _SatellitePlaceholder extends StatelessWidget {
+  const _SatellitePlaceholder();
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final satellite = style == MapStyle.satellite;
 
     return ColoredBox(
-      color: satellite ? scheme.inverseSurface : scheme.surfaceContainerHighest,
+      color: scheme.inverseSurface,
       child: Center(
         child: Icon(
-          satellite ? Icons.satellite_alt : Icons.map_outlined,
+          Icons.satellite_alt,
           size: 32,
-          color: satellite ? scheme.onInverseSurface : scheme.onSurfaceVariant,
+          color: scheme.onInverseSurface,
         ),
       ),
     );

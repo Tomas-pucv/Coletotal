@@ -118,18 +118,6 @@ abstract class AppLocalizations {
   /// **'Calculando ruta…'**
   String get calculatingRoute;
 
-  /// No description provided for @hideStops.
-  ///
-  /// In es, this message translates to:
-  /// **'Ocultar paraderos'**
-  String get hideStops;
-
-  /// No description provided for @showStops.
-  ///
-  /// In es, this message translates to:
-  /// **'Mostrar paraderos'**
-  String get showStops;
-
   /// No description provided for @searchingLocation.
   ///
   /// In es, this message translates to:
@@ -147,12 +135,6 @@ abstract class AppLocalizations {
   /// In es, this message translates to:
   /// **'Tocar para ir al paradero'**
   String get tapToGoStop;
-
-  /// No description provided for @viaProvider.
-  ///
-  /// In es, this message translates to:
-  /// **'vía {provider}'**
-  String viaProvider(String provider);
 
   /// No description provided for @coordsLabel.
   ///
@@ -340,12 +322,6 @@ abstract class AppLocalizations {
   /// **'Preferencias'**
   String get preferencesTitle;
 
-  /// No description provided for @sectionMapStyle.
-  ///
-  /// In es, this message translates to:
-  /// **'Estilo de mapa'**
-  String get sectionMapStyle;
-
   /// No description provided for @mapNormal.
   ///
   /// In es, this message translates to:
@@ -367,7 +343,7 @@ abstract class AppLocalizations {
   /// No description provided for @satelliteDesc.
   ///
   /// In es, this message translates to:
-  /// **'Foto aérea'**
+  /// **'Foto aérea · requiere conexión'**
   String get satelliteDesc;
 
   /// No description provided for @sectionAppearance.

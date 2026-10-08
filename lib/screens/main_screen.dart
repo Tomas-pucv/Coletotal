@@ -86,6 +86,23 @@ class MainNavigationController extends ChangeNotifier {
 class MainScreen extends StatefulWidget {
   const MainScreen({super.key});
 
+  /// Ancho de la franja del borde izquierdo desde la que deslizar abre el menú.
+  ///
+  /// Con la navegación por gestos de Android, el borde mismo es del sistema
+  /// (deslizar desde ahí es "atrás") y el valor por omisión del Scaffold, 20 dp,
+  /// queda entero dentro de esa zona: nunca abriría. La franja se extiende
+  /// [drawerSwipeStrip] más allá de lo que reserve el sistema o el notch. Es
+  /// angosta a propósito: el mapa no se puede arrastrar desde ella.
+  static double drawerSwipeWidth(BuildContext context) {
+    // Sólo esos dos datos: con `MediaQuery.of` el menú se reconstruiría con
+    // cada cuadro de la animación del teclado.
+    final gestos = MediaQuery.systemGestureInsetsOf(context).left;
+    final notch = MediaQuery.paddingOf(context).left;
+    return (gestos > notch ? gestos : notch) + drawerSwipeStrip;
+  }
+
+  static const double drawerSwipeStrip = 24;
+
   @override
   State<MainScreen> createState() => _MainScreenState();
 }
@@ -98,6 +115,17 @@ class _MainScreenState extends State<MainScreen> {
   /// su estado (el mapa, sobre todo: recrearlo perdería la posición, el zoom y
   /// la suscripción al GPS).
   final _screens = <AppDestination, Widget>{};
+
+  /// Al girar el teléfono las pestañas cambian de lugar en el árbol: en
+  /// vertical son el `body` del Scaffold y en horizontal van dentro de un
+  /// `Row`, al lado del riel de navegación. Sin esta llave Flutter las
+  /// destruía y las volvía a crear, y el mapa con ellas: perdía la cámara y,
+  /// peor, la app se cerraba. El motor de Flutter (3.44) libera la superficie
+  /// del mapa al destruirlo, pero deja en cola el aviso del cambio de tamaño
+  /// del giro, que después la lee (`NullPointerException` en
+  /// `SurfaceProducerPlatformViewRenderTarget.getWidth`). Con la llave Flutter
+  /// las traslada en vez de recrearlas.
+  final _tabsKey = GlobalKey(debugLabel: 'pestañas');
 
   @override
   void initState() {
@@ -145,18 +173,20 @@ class _MainScreenState extends State<MainScreen> {
     if (mounted) setState(() {});
   }
 
-  Widget _screenFor(AppDestination destination) =>
-      _screens.putIfAbsent(destination, () => switch (destination) {
-        AppDestination.mapa => const MapScreen(),
-        AppDestination.rutas => const RoutesScreen(),
-        AppDestination.preferencias => const PreferencesScreen(),
-        AppDestination.turno => const TurnoScreen(),
-        AppDestination.flota => const FlotaScreen(),
-        AppDestination.garita => const GaritaHubScreen(),
-        AppDestination.paraderos => const ParaderosAdminScreen(),
-        AppDestination.recorridos => const RecorridosAdminScreen(),
-        AppDestination.choferes => const ChoferesAdminScreen(),
-      });
+  Widget _screenFor(AppDestination destination) => _screens.putIfAbsent(
+    destination,
+    () => switch (destination) {
+      AppDestination.mapa => const MapScreen(),
+      AppDestination.rutas => const RoutesScreen(),
+      AppDestination.preferencias => const PreferencesScreen(),
+      AppDestination.turno => const TurnoScreen(),
+      AppDestination.flota => const FlotaScreen(),
+      AppDestination.garita => const GaritaHubScreen(),
+      AppDestination.paraderos => const ParaderosAdminScreen(),
+      AppDestination.recorridos => const RecorridosAdminScreen(),
+      AppDestination.choferes => const ChoferesAdminScreen(),
+    },
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -177,6 +207,7 @@ class _MainScreenState extends State<MainScreen> {
             : SystemUiOverlayStyle.dark);
 
     final body = IndexedStack(
+      key: _tabsKey,
       index: selectedIndex,
       children: [for (final d in destinations) _screenFor(d)],
     );
@@ -192,10 +223,10 @@ class _MainScreenState extends State<MainScreen> {
       child: Scaffold(
         key: _nav.scaffoldKey,
         drawer: const AppDrawer(),
-        // Sin esto, arrastrar el mapa desde el borde izquierdo abre el menú en
-        // vez de desplazar la cartografía: el gesto de borde del Scaffold y el
-        // paneo de flutter_map compiten por el mismo píxel.
-        drawerEdgeDragWidth: 0,
+        // Deslizar desde el borde izquierdo abre el menú, también sobre el
+        // mapa: la franja gana el arrastre horizontal y el resto de la
+        // pantalla sigue moviendo la cartografía.
+        drawerEdgeDragWidth: MainScreen.drawerSwipeWidth(context),
         body: wide
             ? Row(
                 children: [

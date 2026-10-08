@@ -2,18 +2,78 @@ import 'package:latlong2/latlong.dart';
 
 import 'package:taxi1/utils/tile_coords.dart';
 
-/// Clave de MapTiler. Sobreescribible con
-/// `flutter run --dart-define=MAPTILER_KEY=...` para no tener que tocar el
-/// código fuente.
-const String kMapTilerKey = String.fromEnvironment(
-  'MAPTILER_KEY',
-  defaultValue: 'twZDa0L757dpVwBfAbBr',
-);
-
 /// Centro de Quilpué: punto de partida del mapa y de las miniaturas.
 const LatLng kQuilpueCenter = LatLng(-33.0472, -71.4425);
 
-const double kInitialZoom = 14;
+// Zooms en la escala de MapLibre, que usa teselas de 512 px: su zoom z muestra
+// lo mismo que flutter_map mostraba en z + 1. Por eso todos bajaron en uno al
+// cambiar de motor; lo que se ve en pantalla es igual que antes.
+
+const double kInitialZoom = 13;
+
+/// Para mirar una cuadra: al centrar en un paradero o en un colectivo.
+const double kStreetZoom = 15;
+
+/// Para ubicar un destino buscado con su entorno.
+const double kPlaceZoom = 14;
+
+/// Con 3 cabe Chile entero en la pantalla de un teléfono.
+const double kMinZoom = 3;
+
+/// Las teselas de detalle llegan a z15; de ahí en adelante sólo se agrandan,
+/// y más allá de 18 ya no se distingue nada nuevo.
+const double kMaxZoom = 18;
+
+/// Un rectángulo de coordenadas.
+class GeoBounds {
+  const GeoBounds({
+    required this.north,
+    required this.south,
+    required this.east,
+    required this.west,
+  });
+
+  final double north;
+  final double south;
+  final double east;
+  final double west;
+
+  LatLng get southWest => LatLng(south, west);
+  LatLng get northEast => LatLng(north, east);
+
+  bool contains(LatLng point) =>
+      point.latitude <= north &&
+      point.latitude >= south &&
+      point.longitude <= east &&
+      point.longitude >= west;
+
+  bool containsBounds(GeoBounds other) =>
+      other.north <= north &&
+      other.south >= south &&
+      other.east <= east &&
+      other.west >= west;
+}
+
+/// Chile continental, el territorio de `assets/map/chile.pmtiles` (la vista
+/// general). La cámara no sale de aquí: afuera no hay mapa que dibujar. El
+/// archivo cubre además el mar hacia el oeste, para que al alejar el mapa el
+/// Pacífico no quede en blanco (ver `scripts/mapa_base/build.js`).
+const GeoBounds kChileBounds = GeoBounds(
+  north: -17.506588,
+  south: -55.918504,
+  east: -66.4208064,
+  west: -75.711415,
+);
+
+/// Región de Valparaíso continental: donde `assets/map/valparaiso.pmtiles`
+/// tiene todas las calles. También acota al buscador, para que cada resultado
+/// caiga sobre mapa dibujado.
+const GeoBounds kDetailBounds = GeoBounds(
+  north: -32.020791,
+  south: -33.955888,
+  east: -69.989346,
+  west: -71.843144,
+);
 
 /// Estilo cartográfico elegible por el usuario.
 enum MapStyle {
@@ -27,62 +87,23 @@ enum MapStyle {
       value == 'satellite' ? MapStyle.satellite : MapStyle.normal;
 }
 
-/// Identificador del estilo en MapTiler.
+/// Fotografía aérea de Esri (World Imagery). Es la única capa que sigue
+/// viniendo de la red: ningún proveedor gratuito permite llevar sus imágenes
+/// dentro de una app, y la única libre (Sentinel-2, 10 m por píxel) no deja
+/// ver las calles. No pide clave ni cuenta; sí la mención de "Esri" en el mapa.
 ///
-/// El basemap claro y el oscuro son estilos distintos: usar siempre el claro
-/// dejaba el mapa blanco brillante debajo de una interfaz oscura. El satelital
-/// no tiene variante, la fotografía aérea se ve igual en ambos temas.
-String _styleId(MapStyle style, bool isDark) => switch (style) {
-  MapStyle.satellite => 'hybrid',
-  MapStyle.normal => isDark ? 'basic-v2-dark' : 'basic-v2',
-};
+/// El estilo satelital (`assets/map/style_satellite.json`) trae esta misma
+/// dirección; `test/basemap_test.dart` comprueba que coincidan. Esri no ofrece
+/// versión `@2x` y sus índices van en orden `{z}/{y}/{x}`.
+const String kSatelliteTileUrlTemplate =
+    'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
 
-String _extension(MapStyle style) =>
-    style == MapStyle.satellite ? 'jpg' : 'png';
-
-/// Identifica a la app ante los servidores de teselas (cabecera User-Agent).
-///
-/// Los tres mapas usaban valores distintos, uno de ellos `com.example.taxi1`.
-const String kTileUserAgentPackage = 'cl.coletotal.app';
-
-/// Plantilla de URL para el `TileLayer` de flutter_map.
-///
-/// Teselas de **256 px con el marcador `{r}`**, y no la ruta por defecto de
-/// MapTiler. Esa ruta entrega teselas de 512 px; flutter_map las encajaba en
-/// casillas de 256 y, sin `{r}` en la plantilla, `retinaMode` caía en el modo
-/// *simulado*: pedía cuatro teselas del zoom siguiente por cada casilla. Eran
-/// cuatro veces más peticiones contra la cuota gratuita de MapTiler y nombres
-/// de calles diminutos. Con `{r}` el servidor entrega la versión `@2x` en
-/// pantallas densas: una petición por casilla y texto del tamaño correcto.
-String mapTileUrlTemplate(MapStyle style, {required bool isDark}) =>
-    'https://api.maptiler.com/maps/${_styleId(style, isDark)}'
-    '/256/{z}/{x}/{y}{r}.${_extension(style)}?key=$kMapTilerKey';
-
-/// Plantilla de respaldo gratuita (CARTO / Esri) para cuando MapTiler no
-/// responde: error de red, error HTTP o cuota agotada (429/403).
-///
-/// flutter_map conmuta tesela por tesela, sólo ante un fallo de la principal.
-String fallbackTileUrlTemplate(MapStyle style, {required bool isDark}) {
-  if (style == MapStyle.satellite) {
-    // Esri no ofrece versión @2x: en pantallas densas se ve algo más suave,
-    // pero es sólo el respaldo.
-    return 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
-  }
-  final variant = isDark ? 'dark_all' : 'light_all';
-  return 'https://basemaps.cartocdn.com/rastertiles/$variant/{z}/{x}/{y}{r}.png';
-}
-
-/// URL de una tesela concreta, para usarla como miniatura de vista previa.
-///
-/// Pedir una sola imagen es mucho más barato que instanciar un `FlutterMap`
-/// completo solo para mostrar un recuadro de previsualización.
-String mapTileThumbnailUrl(
-  MapStyle style, {
-  required bool isDark,
-  LatLng center = kQuilpueCenter,
-  int zoom = 14,
-}) {
+/// URL de una tesela satelital concreta, para la miniatura del selector de
+/// estilo: basta una imagen para un recuadro de 2 cm.
+String satelliteThumbnailUrl({LatLng center = kQuilpueCenter, int zoom = 14}) {
   final tile = tileIndexFor(center, zoom);
-  return 'https://api.maptiler.com/maps/${_styleId(style, isDark)}'
-      '/${tile.z}/${tile.x}/${tile.y}.${_extension(style)}?key=$kMapTilerKey';
+  return kSatelliteTileUrlTemplate
+      .replaceFirst('{z}', '${tile.z}')
+      .replaceFirst('{y}', '${tile.y}')
+      .replaceFirst('{x}', '${tile.x}');
 }

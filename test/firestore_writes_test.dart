@@ -9,7 +9,10 @@ void main() {
 
   group('confirmOrQueue', () {
     test('una escritura confirmada a tiempo es confirmed', () async {
-      final outcome = await confirmOrQueue(Future<void>.value(), timeout: plazo);
+      final outcome = await confirmOrQueue(
+        Future<void>.value(),
+        timeout: plazo,
+      );
       expect(outcome, WriteOutcome.confirmed);
     });
 

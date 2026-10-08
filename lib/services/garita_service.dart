@@ -9,7 +9,7 @@ import 'package:taxi1/models/garita.dart';
 import 'package:taxi1/models/recorrido.dart';
 import 'package:taxi1/services/auth_service.dart';
 import 'package:taxi1/services/firestore_writes.dart';
-import 'package:taxi1/services/osrm_client.dart';
+import 'package:taxi1/services/routing.dart';
 import 'package:taxi1/services/recorridos_service.dart';
 import 'package:taxi1/services/stops_service.dart';
 
@@ -138,14 +138,14 @@ class GaritaService extends ChangeNotifier {
   /// Si el recorrido trae `geometria` se respeta tal cual: el editor la
   /// conserva cuando los paraderos no cambiaron, para que renombrar una línea
   /// o cambiarle el color no reemplace un trazado afinado a mano por uno
-  /// recalculado (o lo borre, si OSRM no respondía). Si no la trae, se calcula
-  /// siguiendo las calles, en tramos si la línea es larga.
+  /// recalculado (o lo borre, si el enrutador no respondía). Si no la trae, se
+  /// calcula siguiendo las calles, en tramos si la línea es larga.
   Future<(String, WriteOutcome)> upsertRecorrido(Recorrido recorrido) async {
     var geometria = recorrido.geometria;
     if (geometria == null || geometria.isEmpty) {
       final points = _puntos(recorrido.paraderoIds);
       if (points.length >= 2) {
-        geometria = await OsrmClient.getEncodedRoute(points);
+        geometria = await Routing.encodedLinePath(points);
       }
     }
 
@@ -173,8 +173,8 @@ class GaritaService extends ChangeNotifier {
   /// [paraderoId], después de que el administrador lo movió a [nuevaUbicacion].
   ///
   /// El trazado se guarda calculado y los clientes lo usan tal cual, así que
-  /// mover un paradero no cambiaba el dibujo de ninguna línea. Si OSRM no
-  /// responde, se borra la geometría: los clientes vuelven a calcularla en
+  /// mover un paradero no cambiaba el dibujo de ninguna línea. Si el enrutador
+  /// no responde, se borra la geometría: los clientes vuelven a calcularla en
   /// vivo desde los paraderos, que ya es mejor que dibujar el lugar viejo.
   /// Devuelve cuántas líneas se tocaron.
   Future<int> recomputeGeometriasFor(
@@ -194,7 +194,7 @@ class GaritaService extends ChangeNotifier {
         override: {paraderoId: nuevaUbicacion},
       );
       final geometria = points.length >= 2
-          ? await OsrmClient.getEncodedRoute(points)
+          ? await Routing.encodedLinePath(points)
           : null;
       try {
         await confirmOrQueue(

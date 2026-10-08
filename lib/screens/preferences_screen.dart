@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 
 import 'package:taxi1/config/app_version.dart';
-import 'package:taxi1/config/map_config.dart';
 import 'package:taxi1/l10n/app_localizations.dart';
 import 'package:taxi1/models/app_user.dart';
 import 'package:taxi1/screens/auth/login_screen.dart';
@@ -14,8 +13,6 @@ import 'package:taxi1/theme/app_spacing.dart';
 import 'package:taxi1/theme/breakpoints.dart';
 import 'package:taxi1/utils/role_format.dart';
 import 'package:taxi1/widgets/app_update_dialog.dart';
-import 'package:taxi1/widgets/map_style_thumbnail.dart';
-import 'package:taxi1/widgets/option_card_picker.dart';
 import 'package:taxi1/widgets/setting_tile.dart';
 import 'package:taxi1/widgets/settings_section.dart';
 import 'package:taxi1/widgets/state_views.dart';
@@ -154,8 +151,6 @@ class _PreferencesScreenState extends State<PreferencesScreen>
                   children: [
                     _accountSection(l10n),
                     const SizedBox(height: AppSpacing.xl),
-                    _mapStyleSection(l10n),
-                    const SizedBox(height: AppSpacing.xl),
                     _appearanceSection(l10n),
                     const SizedBox(height: AppSpacing.xl),
                     _privacySection(l10n),
@@ -293,40 +288,6 @@ class _PreferencesScreenState extends State<PreferencesScreen>
       ),
     );
     if (confirmed ?? false) await auth.signOut();
-  }
-
-  Widget _mapStyleSection(AppLocalizations l10n) {
-    final current = MapStyle.fromPref(prefs.mapType);
-
-    return SettingsSection(
-      icon: Icons.layers_outlined,
-      title: l10n.sectionMapStyle,
-      children: [
-        Padding(
-          padding: AppSpacing.pageHorizontal,
-          child: OptionCardPicker<MapStyle>(
-            value: current,
-            onChanged: (style) => prefs.setMapType(style.prefValue),
-            options: [
-              OptionCard(
-                value: MapStyle.normal,
-                label: l10n.mapNormal,
-                description: l10n.mapNormalDesc,
-                // Miniatura real de MapTiler, no un icono genérico: se elige
-                // viendo la cartografía que se va a usar.
-                preview: const MapStyleThumbnail(style: MapStyle.normal),
-              ),
-              OptionCard(
-                value: MapStyle.satellite,
-                label: l10n.satellite,
-                description: l10n.satelliteDesc,
-                preview: const MapStyleThumbnail(style: MapStyle.satellite),
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
   }
 
   Widget _appearanceSection(AppLocalizations l10n) {

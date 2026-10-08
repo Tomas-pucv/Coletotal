@@ -11,9 +11,9 @@ import 'package:taxi1/widgets/option_card_picker.dart';
 /// Hoja de capas del mapa.
 ///
 /// Cambiar entre calles y satélite es, de lejos, el ajuste que más se toca
-/// mientras se usa el mapa. Obligar a salir a la tercera pestaña para eso era
-/// absurdo, así que el mismo selector visual de Preferencias se ofrece acá,
-/// sobre el propio mapa, con un atajo al resto de los ajustes.
+/// mientras se usa el mapa, así que se elige acá, sobre el propio mapa, y no
+/// en Preferencias, donde estaba repetido. La hoja tiene un atajo al resto
+/// de los ajustes.
 Future<void> showMapStyleSheet(BuildContext context) {
   return showModalBottomSheet<void>(
     context: context,

@@ -66,9 +66,8 @@ class AppUser {
 
   /// Lo que se muestra en el menú cuando no hay nombre: la patente identifica
   /// al chofer mejor que un uid.
-  String get displayName => nombre.trim().isNotEmpty
-      ? nombre.trim()
-      : (patente ?? email ?? uid);
+  String get displayName =>
+      nombre.trim().isNotEmpty ? nombre.trim() : (patente ?? email ?? uid);
 
   /// Iniciales para el avatar. Dos letras como mucho, en mayúscula.
   String get initials {

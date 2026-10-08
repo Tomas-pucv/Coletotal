@@ -1,5 +1,5 @@
 import 'package:latlong2/latlong.dart';
-import 'package:taxi1/services/osrm_client.dart';
+import 'package:taxi1/utils/polyline.dart';
 
 /// Un recorrido de la línea: el trayecto fijo que hacen los colectivos.
 ///
@@ -53,10 +53,10 @@ class Recorrido {
         // Sólo puntos válidos: una geometría corrupta ya no se dibuja fuera del
         // mapa. Si no quedan al menos dos, se trata como si no hubiera, y el
         // trazado se recalcula siguiendo las calles.
-        final puntos = OsrmClient.decodePolyline(
+        final puntos = decodePolyline(
           rawGeo,
           precision: 6,
-        ).where(OsrmClient.isValidLatLng).toList(growable: false);
+        ).where(isValidLatLng).toList(growable: false);
         trazado = puntos.length >= 2 ? puntos : const [];
       } catch (_) {
         trazado = const [];

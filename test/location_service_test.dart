@@ -76,27 +76,33 @@ void main() {
 
   tearDown(() => service.debugReset());
 
-  test('dos pantallas que piden permiso a la vez comparten una solicitud', () async {
-    // El mapa y la pestaña Paraderos lo pedían juntos en el primer arranque.
-    // El plugin guarda un solo callback, así que el segundo pedido dejaba al
-    // primero esperando para siempre.
-    final a = service.ensurePermission();
-    final b = service.ensurePermission();
+  test(
+    'dos pantallas que piden permiso a la vez comparten una solicitud',
+    () async {
+      // El mapa y la pestaña Paraderos lo pedían juntos en el primer arranque.
+      // El plugin guarda un solo callback, así que el segundo pedido dejaba al
+      // primero esperando para siempre.
+      final a = service.ensurePermission();
+      final b = service.ensurePermission();
 
-    fake.pendingRequest.complete(LocationPermission.whileInUse);
+      fake.pendingRequest.complete(LocationPermission.whileInUse);
 
-    expect(await a, LocationIssue.none);
-    expect(await b, LocationIssue.none);
-    expect(fake.requestCount, 1);
-  });
+      expect(await a, LocationIssue.none);
+      expect(await b, LocationIssue.none);
+      expect(fake.requestCount, 1);
+    },
+  );
 
-  test('un permiso denegado se informa como problema, sin abrir el GPS', () async {
-    fake.pendingRequest.complete(LocationPermission.deniedForever);
-    await service.start();
+  test(
+    'un permiso denegado se informa como problema, sin abrir el GPS',
+    () async {
+      fake.pendingRequest.complete(LocationPermission.deniedForever);
+      await service.start();
 
-    expect(service.issue, LocationIssue.denied);
-    expect(fake.streamSettings, isEmpty);
-  });
+      expect(service.issue, LocationIssue.denied);
+      expect(fake.streamSettings, isEmpty);
+    },
+  );
 
   test('el turno reabre el GPS con servicio en primer plano', () async {
     // Antes la configuración del turno nunca llegaba al plugin: el mapa ya
@@ -138,18 +144,21 @@ void main() {
     await sub.cancel();
   });
 
-  test('apagar la ubicación en Preferencias cierra el GPS y la olvida', () async {
-    fake.permission = LocationPermission.whileInUse;
-    await service.start();
-    fake.controller!.add(_pos(-33.0472, -71.4425));
-    await Future<void>.delayed(Duration.zero);
-    expect(service.position, isNotNull);
+  test(
+    'apagar la ubicación en Preferencias cierra el GPS y la olvida',
+    () async {
+      fake.permission = LocationPermission.whileInUse;
+      await service.start();
+      fake.controller!.add(_pos(-33.0472, -71.4425));
+      await Future<void>.delayed(Duration.zero);
+      expect(service.position, isNotNull);
 
-    await PreferencesService.instance.setLocationTracking(false);
-    await Future<void>.delayed(Duration.zero);
-    await service.retry();
+      await PreferencesService.instance.setLocationTracking(false);
+      await Future<void>.delayed(Duration.zero);
+      await service.retry();
 
-    expect(service.issue, LocationIssue.disabledByPreference);
-    expect(service.position, isNull);
-  });
+      expect(service.issue, LocationIssue.disabledByPreference);
+      expect(service.position, isNull);
+    },
+  );
 }

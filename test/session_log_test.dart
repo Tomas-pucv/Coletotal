@@ -15,11 +15,8 @@ void main() {
     logger.debugReset();
   });
 
-  Future<void> iniciar() => logger.iniciarSesionTurno(
-    uid: 'u1',
-    patente: 'BBCC12',
-    garitaId: 'g1',
-  );
+  Future<void> iniciar() =>
+      logger.iniciarSesionTurno(uid: 'u1', patente: 'BBCC12', garitaId: 'g1');
 
   group('SessionLogEvent', () {
     test('serializa y deserializa preservando datos operacionales', () {
@@ -103,33 +100,36 @@ void main() {
       expect(tipos.last, 'SHIFT_END');
     });
 
-    test('recupera el turno de una app que se cerró a mitad de camino', () async {
-      // El turno en curso se guardaba en el teléfono, pero nadie lo volvía a
-      // leer: si Android mataba la app, la jornada se perdía.
-      SharedPreferences.setMockInitialValues({
-        _kActiva: jsonEncode({
-          'sessionId': 'shift_BBCC12_1',
-          'uid': 'u1',
-          'garitaId': 'g1',
-          'inicioTs': 1000,
-          'eventos': [
-            {'tipo': 'SHIFT_START', 'ts': 1000, 'datos': <String, dynamic>{}},
-            {'tipo': 'GPS_LOST', 'ts': 5000, 'datos': <String, dynamic>{}},
-          ],
-        }),
-      });
+    test(
+      'recupera el turno de una app que se cerró a mitad de camino',
+      () async {
+        // El turno en curso se guardaba en el teléfono, pero nadie lo volvía a
+        // leer: si Android mataba la app, la jornada se perdía.
+        SharedPreferences.setMockInitialValues({
+          _kActiva: jsonEncode({
+            'sessionId': 'shift_BBCC12_1',
+            'uid': 'u1',
+            'garitaId': 'g1',
+            'inicioTs': 1000,
+            'eventos': [
+              {'tipo': 'SHIFT_START', 'ts': 1000, 'datos': <String, dynamic>{}},
+              {'tipo': 'GPS_LOST', 'ts': 5000, 'datos': <String, dynamic>{}},
+            ],
+          }),
+        });
 
-      await logger.recuperarSesionHuerfana();
+        await logger.recuperarSesionHuerfana();
 
-      final prefs = await SharedPreferences.getInstance();
-      expect(prefs.getString(_kActiva), isNull);
-      final pendiente =
-          jsonDecode(prefs.getStringList(_kPendientes)!.single)
-              as Map<String, dynamic>;
-      expect(pendiente['sessionId'], 'shift_BBCC12_1');
-      expect(pendiente['interrumpida'], isTrue);
-      expect(pendiente['finTs'], 5000);
-    });
+        final prefs = await SharedPreferences.getInstance();
+        expect(prefs.getString(_kActiva), isNull);
+        final pendiente =
+            jsonDecode(prefs.getStringList(_kPendientes)!.single)
+                as Map<String, dynamic>;
+        expect(pendiente['sessionId'], 'shift_BBCC12_1');
+        expect(pendiente['interrumpida'], isTrue);
+        expect(pendiente['finTs'], 5000);
+      },
+    );
 
     test('sin sesión de Firebase no intenta subir pendientes', () async {
       SharedPreferences.setMockInitialValues({

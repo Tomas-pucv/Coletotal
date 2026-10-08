@@ -224,10 +224,7 @@ class _ChoferTile extends StatelessWidget {
                 ],
               ),
             ),
-            Switch(
-              value: chofer.activo,
-              onChanged: onChanged,
-            ),
+            Switch(value: chofer.activo, onChanged: onChanged),
           ],
         ),
       ),

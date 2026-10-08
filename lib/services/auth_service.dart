@@ -174,31 +174,27 @@ class AuthService extends ChangeNotifier {
     if (_watchedUid == uid && _profileSub != null) return;
     _profileSub?.cancel();
     _watchedUid = uid;
-    _profileSub = _db
-        .collection(_colUsuarios)
-        .doc(uid)
-        .snapshots()
-        .listen(
-          (snap) {
-            final data = snap.data();
-            if (!snap.exists || data == null) return;
-            // Un evento de un usuario anterior que llega tarde no aplica.
-            if (_auth.currentUser?.uid != uid) return;
+    _profileSub = _db.collection(_colUsuarios).doc(uid).snapshots().listen(
+      (snap) {
+        final data = snap.data();
+        if (!snap.exists || data == null) return;
+        // Un evento de un usuario anterior que llega tarde no aplica.
+        if (_auth.currentUser?.uid != uid) return;
 
-            final fresh = AppUser.fromMap(snap.id, data);
-            if (!fresh.activo) {
-              unawaited(signOut());
-              return;
-            }
-            if (fresh == _profile) return;
-            _profile = fresh;
-            _status = AuthStatus.conSesion;
-            unawaited(_cacheProfile(fresh));
-            notifyListeners();
-          },
-          onError: (Object e) =>
-              debugPrint('AuthService: no se pudo escuchar el perfil: $e'),
-        );
+        final fresh = AppUser.fromMap(snap.id, data);
+        if (!fresh.activo) {
+          unawaited(signOut());
+          return;
+        }
+        if (fresh == _profile) return;
+        _profile = fresh;
+        _status = AuthStatus.conSesion;
+        unawaited(_cacheProfile(fresh));
+        notifyListeners();
+      },
+      onError: (Object e) =>
+          debugPrint('AuthService: no se pudo escuchar el perfil: $e'),
+    );
   }
 
   void _stopWatchingProfile() {

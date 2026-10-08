@@ -6,7 +6,7 @@ import 'package:latlong2/latlong.dart';
 
 import 'package:taxi1/models/bus_stop.dart';
 import 'package:taxi1/models/recorrido.dart';
-import 'package:taxi1/services/osrm_client.dart';
+import 'package:taxi1/services/routing.dart';
 import 'package:taxi1/services/stops_service.dart';
 
 /// Los recorridos de la línea, para **todo el mundo**.
@@ -29,7 +29,7 @@ class RecorridosService extends ChangeNotifier {
 
   /// Trazados ya calculados, por id de recorrido.
   ///
-  /// El trazado se deriva de los paraderos llamando a OSRM, que es una petición
+  /// El trazado se deriva de los paraderos con un enrutador, que es una petición
   /// de red por línea: sin caché, volver a abrir la misma línea la pediría otra
   /// vez. Se invalida entera cuando cambian los paraderos, porque mover uno
   /// cambia el trazado de todas las líneas que lo incluyen.
@@ -68,9 +68,8 @@ class RecorridosService extends ChangeNotifier {
   ///
   /// Es lo que ve su administrador: para él un recorrido desactivado sigue
   /// existiendo y tiene que poder volver a encenderlo.
-  List<Recorrido> porGarita(String garitaId) => _recorridos
-      .where((r) => r.garitaId == garitaId)
-      .toList(growable: false);
+  List<Recorrido> porGarita(String garitaId) =>
+      _recorridos.where((r) => r.garitaId == garitaId).toList(growable: false);
 
   Recorrido? byId(String id) {
     for (final r in _recorridos) {
@@ -82,29 +81,32 @@ class RecorridosService extends ChangeNotifier {
   /// Abre el listener. Se llama una vez desde `main()`.
   void startListening() {
     if (_sub != null) return;
-    _sub = _db.collection(_collection).snapshots().listen(
-      (snapshot) {
-        _recorridos = snapshot.docs
-            .map((doc) => Recorrido.fromMap(doc.id, doc.data()))
-            .toList(growable: false);
-        _loaded = true;
+    _sub = _db
+        .collection(_collection)
+        .snapshots()
+        .listen(
+          (snapshot) {
+            _recorridos = snapshot.docs
+                .map((doc) => Recorrido.fromMap(doc.id, doc.data()))
+                .toList(growable: false);
+            _loaded = true;
 
-        // Un recorrido editado puede tener otros paraderos: su trazado viejo ya
-        // no lo describe.
-        _trazados.clear();
-        if (_selected != null) {
-          final fresh = byId(_selected!.id);
-          // Si el administrador lo eliminó, se deja de dibujar en vez de
-          // mostrar una línea que ya no existe.
-          _selected = fresh;
-          if (fresh != null) unawaited(_ensureTrazado(fresh));
-        }
-        notifyListeners();
-      },
-      onError: (Object e) {
-        debugPrint('RecorridosService: no se pudo leer recorridos: $e');
-      },
-    );
+            // Un recorrido editado puede tener otros paraderos: su trazado viejo ya
+            // no lo describe.
+            _trazados.clear();
+            if (_selected != null) {
+              final fresh = byId(_selected!.id);
+              // Si el administrador lo eliminó, se deja de dibujar en vez de
+              // mostrar una línea que ya no existe.
+              _selected = fresh;
+              if (fresh != null) unawaited(_ensureTrazado(fresh));
+            }
+            notifyListeners();
+          },
+          onError: (Object e) {
+            debugPrint('RecorridosService: no se pudo leer recorridos: $e');
+          },
+        );
 
     // Mover un paradero cambia el trazado de todas las líneas que lo tocan.
     StopsService.instance.addListener(_onStopsChanged);
@@ -165,7 +167,7 @@ class RecorridosService extends ChangeNotifier {
 
     // Si el recorrido ya tiene una geometría precomputada válida que respeta
     // las calles y sentidos de tránsito, la usamos de inmediato:
-    // 0 latencia, offline total y trazado exacto sin depender de OSRM en caliente.
+    // 0 latencia, offline total y trazado exacto sin depender de la red.
     if (recorrido.trazado.length >= 2) {
       _trazados[recorrido.id] = recorrido.trazado;
       notifyListeners();
@@ -182,11 +184,11 @@ class RecorridosService extends ChangeNotifier {
     _loadingTrazado = true;
     notifyListeners();
 
-    final trazado = await OsrmClient.routeThrough(puntos);
+    final trazado = (await Routing.linePath(puntos))?.points;
 
-    // Si OSRM no responde se unen los paraderos con rectas. Es menos bonito,
-    // pero deja ver por dónde va la línea, que es lo que se estaba preguntando;
-    // no dibujar nada sería el peor de los resultados.
+    // Si ningún enrutador responde se unen los paraderos con rectas. Es menos
+    // bonito, pero deja ver por dónde va la línea, que es lo que se estaba
+    // preguntando; no dibujar nada sería el peor de los resultados.
     _trazados[recorrido.id] = trazado ?? puntos;
     // Si mientras tanto el usuario eligió otra línea, el indicador de carga es
     // de esa otra petición y no se apaga acá.

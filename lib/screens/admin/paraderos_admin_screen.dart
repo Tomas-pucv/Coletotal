@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 
 import 'package:taxi1/config/map_config.dart';
@@ -16,7 +15,7 @@ import 'package:taxi1/theme/app_colors.dart';
 import 'package:taxi1/theme/app_spacing.dart';
 import 'package:taxi1/theme/breakpoints.dart';
 import 'package:taxi1/utils/text_search.dart';
-import 'package:taxi1/widgets/app_tile_layer.dart';
+import 'package:taxi1/widgets/app_map.dart';
 import 'package:taxi1/widgets/metric_chip.dart';
 import 'package:taxi1/widgets/setting_tile.dart';
 import 'package:taxi1/widgets/state_views.dart';
@@ -82,15 +81,15 @@ class _ParaderosAdminScreenState extends State<ParaderosAdminScreen> {
     final l10n = AppLocalizations.of(context)!;
     final outcome = await Navigator.of(context).push<WriteOutcome>(
       MaterialPageRoute(
-        builder: (_) => ParaderoEditorScreen(
-          stop: stop,
-          garitaId: _auth.garitaId ?? '',
-        ),
+        builder: (_) =>
+            ParaderoEditorScreen(stop: stop, garitaId: _auth.garitaId ?? ''),
       ),
     );
     if (outcome == null) return;
     _toast(
-      outcome == WriteOutcome.queuedOffline ? l10n.savedOffline : l10n.stopSaved,
+      outcome == WriteOutcome.queuedOffline
+          ? l10n.savedOffline
+          : l10n.stopSaved,
     );
   }
 
@@ -305,7 +304,6 @@ class _ParaderoEditorScreenState extends State<ParaderoEditorScreen> {
   final _formKey = GlobalKey<FormState>();
   late final TextEditingController _nombre;
   late final TextEditingController _direccion;
-  late final MapController _mapController;
 
   late LatLng _location;
   late bool _activo;
@@ -319,14 +317,12 @@ class _ParaderoEditorScreenState extends State<ParaderoEditorScreen> {
     _direccion = TextEditingController(text: stop?.address ?? '');
     _location = stop?.location ?? kQuilpueCenter;
     _activo = stop?.activo ?? true;
-    _mapController = MapController();
   }
 
   @override
   void dispose() {
     _nombre.dispose();
     _direccion.dispose();
-    _mapController.dispose();
     super.dispose();
   }
 
@@ -408,29 +404,22 @@ class _ParaderoEditorScreenState extends State<ParaderoEditorScreen> {
             height: 260,
             child: Stack(
               children: [
-                FlutterMap(
-                  mapController: _mapController,
-                  options: MapOptions(
-                    initialCenter: _location,
-                    initialZoom: 16,
-                    onLongPress: (_, point) =>
-                        setState(() => _location = point),
-                  ),
-                  children: [
-                    const AppTileLayer(),
-                    MarkerLayer(
-                      markers: [
-                        Marker(
-                          point: _location,
-                          width: 44,
-                          height: 44,
-                          child: Icon(
-                            Icons.pin_drop,
-                            size: 40,
-                            color: status.distanceVeryClose,
-                          ),
-                        ),
-                      ],
+                AppMap(
+                  initialCenter: _location,
+                  initialZoom: kStreetZoom,
+                  // Arriba: abajo está el aviso de "mantén presionado".
+                  attributionAlignment: Alignment.topRight,
+                  onLongPress: (point) => setState(() => _location = point),
+                  markers: [
+                    MapMarker(
+                      id: 'paradero',
+                      point: _location,
+                      icon: MarkerIcon.glyph(
+                        glyph: Icons.pin_drop,
+                        glyphSize: 40,
+                        color: status.distanceVeryClose,
+                        tapTarget: 44,
+                      ),
                     ),
                   ],
                 ),

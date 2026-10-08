@@ -62,7 +62,10 @@ void main() {
       expect(conEdad(const Duration(seconds: 10)).seemsOffline(ahora), isFalse);
       expect(conEdad(const Duration(seconds: 60)).seemsOffline(ahora), isTrue);
       expect(
-        conEdad(const Duration(seconds: 5), conectado: false).seemsOffline(ahora),
+        conEdad(
+          const Duration(seconds: 5),
+          conectado: false,
+        ).seemsOffline(ahora),
         isTrue,
         reason: 'el servidor ya detectó la desconexión',
       );

@@ -122,8 +122,7 @@ class _SuggestionsSheet extends StatelessWidget {
                     suggestion: suggestions[index],
                     // El primero es la recomendación; los demás, alternativas.
                     destacado: index == 0,
-                    onTap: () =>
-                        Navigator.of(context).pop(suggestions[index]),
+                    onTap: () => Navigator.of(context).pop(suggestions[index]),
                   ),
                 ),
               ),

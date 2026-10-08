@@ -57,6 +57,14 @@ android {
         }
     }
 
+    packaging {
+        jniLibs {
+            // valhalla-mobile trae también x86 de 32 bits, una arquitectura
+            // para la que Flutter no compila: serían 2,6 MB de más en el APK.
+            excludes += "lib/x86/**"
+        }
+    }
+
     buildTypes {
         release {
             signingConfig =
@@ -77,4 +85,15 @@ kotlin {
 
 flutter {
     source = "../.."
+}
+
+dependencies {
+    // Valhalla dentro del teléfono: rutas a pie y trazados de las líneas sin
+    // conexión (ver MainActivity.kt). La 0.6.4 trae Valhalla 3.9.1, la misma
+    // versión con que scripts/mapa_base/ruteo.py arma los datos de ruteo: un
+    // motor más viejo podría no leerlos.
+    implementation("io.github.rallista:valhalla-mobile:0.6.4")
+    // Trae `ValhallaConfig`, que MainActivity arma; valhalla-mobile lo usa
+    // pero no lo expone para compilar. La versión es la que pide la 0.6.4.
+    implementation("io.github.rallista:valhalla-models-config:0.6.0")
 }

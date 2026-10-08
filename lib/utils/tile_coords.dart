@@ -7,10 +7,10 @@ typedef TileIndex = ({int x, int y, int z});
 
 /// Convierte una coordenada geográfica al índice de tesela que la contiene.
 ///
-/// Se usa para pedirle a MapTiler *una sola* tesela como miniatura de
-/// previsualización en el selector de estilo de mapa, en vez de instanciar un
-/// `FlutterMap` completo (que arrastraría controlador, gestos y varias
-/// peticiones de red) solo para mostrar un cuadrado de 2 cm.
+/// Se usa para pedirle a Esri *una sola* tesela de foto aérea como miniatura
+/// del selector de estilo de mapa, en vez de abrir un mapa completo (que
+/// arrastraría una vista nativa y varias peticiones de red) sólo para mostrar
+/// un cuadrado de 2 cm.
 TileIndex tileIndexFor(LatLng point, int zoom) {
   final n = 1 << zoom;
 

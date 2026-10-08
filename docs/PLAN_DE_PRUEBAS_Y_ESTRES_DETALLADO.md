@@ -31,7 +31,7 @@ flowchart LR
 | **`v0.1.0`** | Fase 1: Análisis del Dominio | Levantamiento de requisitos D.S. 212, entrevistas garitas Serrano. | Completado |
 | **`v0.2.0`** | Fase 2: Diseño de Arquitectura | Modelado NoSQL, esquemas de Firebase y definición de stack. | Completado |
 | **`v0.3.0`** | Fase 3: Prototipado UX/UI | Prototipos de alta fidelidad Figma, flujos de navegación. | Completado |
-| **`v0.4.0`** | Fase 4 / Incremento 1: Núcleo Base | Mapa interactivo `flutter_map`, geolocalización `geolocator`, marcadores reactivos. | Completado |
+| **`v0.4.0`** | Fase 4 / Incremento 1: Núcleo Base | Mapa interactivo `flutter_map` (hoy MapLibre), geolocalización `geolocator`, marcadores reactivos. | Completado |
 | **`v0.4.1`** | Incremento 1.1: Rutas de Quilpué | Geometrías viales reales OSRM en Firestore, 20 paraderos, sentidos de calle. | Completado |
 | **`v0.4.2`** | Incremento 1.2: Respaldo y Seguridad | Reglas de Firestore/RTDB, scripts de backup JSON/GeoJSON locales. | Completado |
 | **`v0.4.3`** | Incremento 2.1: Estabilidad Piloto *(Actual)* | OTA Updater, optimización de cuota de mapas, búsqueda POI, Foreground Service. | **En curso** |
@@ -105,48 +105,54 @@ Para no saturar los datos móviles de los colectiveros ni generar cobros inneces
 
 ---
 
-## 4. Auditoría y Mitigación del Consumo de MapTiler
+## 4. Mapa Base Offline (reemplazó a MapTiler)
 
-### 4.1. Causa Raíz del Consumo Excesivo
-El plan gratuito de MapTiler incluye 100.000 solicitudes de teselas mensuales. Actualmente se consume a un ritmo alarmante por dos factores de diseño:
-1. **Ausencia de Caché en Disco:** Cada vez que el usuario hace paneo o zoom en `FlutterMap`, se descargan teselas raster (`.png`) desde MapTiler. Si vuelve a pasar por el centro de Quilpué 30 segundos después, el mapa vuelve a pedir las mismas imágenes por red. Un solo usuario explorando el mapa durante 5 minutos puede consumir más de 200 teselas.
-2. **Geocodificación sin almacenamiento local:** Cada búsqueda en el buscador de destinos invoca la API de Geocoding de MapTiler, que posee una cuota mucho más restrictiva que la de teselas.
+### 4.1. Antecedente: el consumo de cuota de MapTiler
+El plan gratuito de MapTiler incluía 100.000 teselas mensuales, que se consumían a un ritmo insostenible: cada paneo o zoom descargaba teselas por red, la plantilla de URL sin `{r}` hacía que flutter_map pidiera **cuatro teselas por casilla**, y cada búsqueda gastaba cuota de geocodificación. La auditoría del 5 de octubre corrigió la plantilla y agregó respaldo a CARTO/Esri, pero el problema de fondo seguía: el mapa dependía de una clave (escrita en el código), de una cuota y de tener señal. En octubre de 2026 MapTiler se reemplazó por un mapa base que viaja dentro del APK.
 
-### 4.2. Estrategia de Solución Definitiva (Costo \$0 y Resiliencia Total)
+### 4.2. Solución: teselas de OpenStreetMap dentro del APK (costo $0, sin clave, sin red)
 
 ```mermaid
 flowchart TD
-    Req["Petición de Tesela (Z, X, Y)"] --> CacheCheck{"¿Está en Caché Local\n(Memoria o Disco)?"}
-    CacheCheck -- "Sí" --> RenderLocal["Renderizar desde Teléfono\n(0 ms, 0 consumo de API)"]
-    CacheCheck -- "No" --> NetCheck{"¿Cuota MapTiler\nDisponible?"}
-    NetCheck -- "Sí" --> DownloadMaptiler["Descargar desde MapTiler y Guardar en Disco"]
-    NetCheck -- "No (Fallo o Límite)" --> FallbackOSM["Conmutar a OpenStreetMap / CARTO\n(Costo $0, Sin API Key)"]
-    DownloadMaptiler --> RenderLocal
-    FallbackOSM --> RenderLocal
+    Req["Tesela (Z, X, Y)\nMapLibre, con la GPU"] --> Estilo{"¿Vista satelital?"}
+    Estilo -- "No" --> General["Vista general de chile.pmtiles (z0–10)\nabajo, agrandada al acercarse"]
+    General --> Detalle{"¿Está en valparaiso.pmtiles?\n(Región de Valparaíso, z11–15)"}
+    Detalle -- "Sí" --> Calles["Encima, todas las calles y sus nombres\n(desde el teléfono, 0 ms de red)"]
+    Detalle -- "No" --> Queda["Se ve la general,\ncon sus nombres"]
+    Estilo -- "Sí" --> Esri["Foto aérea de Esri (requiere red)\n+ etiquetas offline encima"]
 ```
 
-1. **Caché en Disco:** se usa la caché integrada de flutter_map 8 (no `flutter_map_cache`), que guarda las teselas en el teléfono y respeta la vigencia que indica MapTiler. La reducción del 92% era una estimación; no está medida.
-2. **Causa principal corregida (auditoría de octubre):** la plantilla de MapTiler no tenía el marcador `{r}`, y con `retinaMode` flutter_map simulaba el modo retina pidiendo **cuatro teselas por casilla**. Ahora se piden teselas de 256 px con `{r}` (versión `@2x` del servidor): una petición por casilla.
-3. **Fallback Transparente a Fuentes Abiertas:**
-   - Si una tesela de MapTiler falla (error de red o HTTP, incluidos `429` y `403`), flutter_map pide esa tesela a:
-     - CARTO (`light_all` / `dark_all`) para el mapa de calles, o
-     - Esri World Imagery para el satelital.
-   - El piloto con Serrano no se detiene por agotamiento de cuota.
+1. **Datos:** `assets/map/chile.pmtiles` (24 MB) y `assets/map/valparaiso.pmtiles` (35 MB), extraídos del build diario de OpenStreetMap de Protomaps con `scripts/mapa_base/build.js`. Al primer arranque se copian una vez a la carpeta de datos de la app y se leen por tramos.
+2. **Dibujo:** MapLibre (`maplibre_gl`) lee los PMTiles directamente y dibuja con la GPU. Cada estilo tiene las dos fuentes: la general abajo y la de detalle sin fondo encima; dentro de la región, desde z11, los nombres los pone sólo el detalle. Sin íconos de comercios ni numeración de casas, para que se vean los nombres de las calles. El primer intento, `vector_map_tiles`, dibujaba cada tesela en Dart en el hilo principal y las teselas aparecían de a una en un Redmi Note 14.
+3. **Búsqueda:** POIs locales, índice offline de unas 25 mil calles de la región y, sólo con red, Photon (ver §5).
+4. **Sin señal** se pierde únicamente la foto aérea de la vista satelital (se ven las etiquetas) y la numeración de las direcciones.
+
+### 4.3. Pruebas
+* **Automatizadas:** `test/basemap_test.dart` lee las cabeceras reales de los PMTiles (zooms y límites contra `map_config.dart`) y revisa que cada estilo apunte a íconos, tipografías y fuentes que vienen en el APK; `test/basemap_service_test.dart` cubre la copia única al teléfono, las rutas `file://` de los estilos y el borrado de las cachés viejas; `test/app_map_test.dart`, los íconos de los marcadores y el halo del GPS en metros. Además `build.js` valida cada estilo contra la especificación de MapLibre y dibuja las miniaturas con MapLibre Native, el mismo motor de Android.
+* **Manuales en un teléfono:**
+  1. Modo avión, cerrar la app y volver a abrirla: los tres mapas (pasajero, flota, editor de paraderos) se dibujan y el buscador encuentra "Los Carrera" y "Líder".
+  2. Alejarse hasta ver Chile entero y acercarse a Santiago y a Punta Arenas: hay mapa en todo el país, con menos detalle fuera de la región.
+  3. Cambiar entre tema claro y oscuro con el mapa a la vista: se redibuja con el otro estilo.
+  4. Vista satelital con y sin red: foto aérea con nombres de calles en blanco; sin red, sólo los nombres.
+  5. Primer arranque tras instalar en el teléfono más lento disponible: medir cuánto tarda en aparecer el mapa (la copia de unos 60 MB) y comprobar que el segundo arranque es inmediato.
+  6. Paneo y zoom continuos en Quilpué durante 5 minutos en ese mismo teléfono: sin tirones ni cierre por memoria.
+  7. Tocar un colectivo, un paradero y la bandera del destino: abren su ficha (o el nombre del destino). Con TalkBack, cada marcador se anuncia con su descripción.
+  8. Seguir al usuario (botón de centrar) mientras se camina: la cámara lo acompaña y deja de hacerlo al arrastrar el mapa.
 
 ---
 
 ## 5. Buscador de Destinos Inteligente con Puntos de Interés (POIs)
 
-Actualmente `GeocodingService` consulta a MapTiler, cuyo índice en Chile sólo contiene calles formales y no resuelve búsquedas cotidianas como *"Líder Belloto"*, *"Hospital"*, *"Plaza Vieja"* o *"Colegio Aconcagua"*.
+El geocodificador de MapTiler, que se usaba antes, sólo contenía calles formales en Chile y no resolvía búsquedas cotidianas como *"Líder Belloto"*, *"Hospital"*, *"Plaza Vieja"* o *"Colegio Aconcagua"*; además gastaba cuota y no funcionaba sin señal.
 
-### 5.1. Solución: Motor Híbrido de Geocodificación
+### 5.1. Solución: de lo local a la red
 
 ```mermaid
 flowchart LR
     Input["Usuario escribe consulta\n(ej. 'lider')"] --> LocalCat{"¿Coincide con\nCatálogo POIs Quilpué?"}
-    LocalCat -- "Sí (Prioridad 1)" --> ResPOI["Retorna POI Inmediato\n(0 ms, 0 llamadas a API)"]
-    LocalCat -- "No" --> ExtGeo["Consulta Photon / OSM Geocoding\n(Foco en Bounding Box V Región)"]
-    ExtGeo --> ResExt["Retorna Dirección Geocodificada"]
+    LocalCat -- "Sí (Prioridad 1)" --> ResPOI["POI inmediato\n(0 ms, sin red)"]
+    LocalCat -- "Faltan resultados" --> Calles["Índice offline de calles\nde la Región de Valparaíso\n(sin red, la más cercana primero)"]
+    Calles -- "Faltan resultados" --> ExtGeo["Photon / OSM, sólo con red\n(numeración, caja de la región)"]
 ```
 
 1. **Catálogo Local de POIs de Quilpué (`lib/data/quilpue_pois.dart`):**
@@ -156,7 +162,8 @@ flowchart LR
      - Educación: Colegio Aconcagua, Liceo Guillermo Gronemeyer, Duoc UC.
      - Hitos urbanos: Plaza de Armas, Plaza Vieja, Estaciones EFE (Quilpué, El Sol, Belloto).
    - Respuesta instantánea con un ícono destacado (`Icons.stars_rounded`). Íconos por tipo de lugar: **(propuesto, pendiente)**.
-2. **Geocodificación remota:** si faltan resultados locales se consulta MapTiler, y **Photon (OpenStreetMap)** como respaldo cuando MapTiler falla, ambos acotados a la Quinta Región.
+2. **Índice offline de calles (`lib/services/street_index.dart`):** unas 25 mil calles de la Región de Valparaíso con su comuna, generadas desde OpenStreetMap junto con el mapa base. Ordena por cercanía al usuario: "los carrera" encuentra primero la de Quilpué.
+3. **Geocodificación remota:** sólo si aún faltan resultados, **Photon (OpenStreetMap)**, sin clave y acotado a la caja de la región. Aporta la numeración ("Freire 1234"), que el índice no tiene.
 
 ---
 
@@ -234,8 +241,8 @@ Los choferes de la locomoción colectiva suelen utilizar smartphones de gama de 
 | Paso | Acción Técnica | Componentes Afectados |
 | :---: | :--- | :--- |
 | **1** | Versión en `pubspec.yaml` (`0.4.3+4`), leída por la app desde el APK. ✅ | `pubspec.yaml`, `app_version.dart` |
-| **2** | Caché de teselas (integrada en flutter_map 8), retina con `{r}` y respaldo CARTO/Esri. ✅ | `map_config.dart`, `app_tile_layer.dart` |
-| **3** | Catálogo de POIs de Quilpué y búsqueda híbrida en `GeocodingService`. ✅ | `geocoding_service.dart`, `quilpue_pois.dart` |
+| **2** | Mapa base offline dentro del APK (OpenStreetMap vía Protomaps), sin MapTiler ni claves; satélite de Esri. ✅ | `basemap_service.dart`, `app_map.dart`, `map_config.dart`, `scripts/mapa_base/` |
+| **3** | Buscador: POIs de Quilpué, índice offline de calles y Photon. ✅ | `geocoding_service.dart`, `street_index.dart`, `quilpue_pois.dart` |
 | **4** | Telemetría con presencia (`conectado`), `recorridoId` elegido por el chofer y GPS en primer plano. ✅ | `firebase_telemetria_service.dart`, `location_service.dart`, `turno_screen.dart` |
 | **5** | Auditoría de turnos con almacenamiento local, tope de eventos y recuperación tras cierre. ✅ | `session_log_service.dart` |
 | **6** | Diálogo de actualización (In-App OTA Update) contra Firestore. ✅ | `app_update_service.dart`, `app_update_dialog.dart` |

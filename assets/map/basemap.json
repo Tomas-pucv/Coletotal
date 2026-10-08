@@ -1,0 +1,37 @@
+{
+  "build": "20261006",
+  "basemap": "4.15.2",
+  "archivos": {
+    "chile.pmtiles": 24942448,
+    "valparaiso.pmtiles": 36856046,
+    "ruteo_valparaiso.tar": 68597760
+  },
+  "recursos": {
+    "huella": "114a854e5ba9",
+    "archivos": [
+      "fonts/noto-sans-italic/0-255.pbf",
+      "fonts/noto-sans-italic/256-511.pbf",
+      "fonts/noto-sans-italic/512-767.pbf",
+      "fonts/noto-sans-italic/8192-8447.pbf",
+      "fonts/noto-sans-italic/8448-8703.pbf",
+      "fonts/noto-sans-medium/0-255.pbf",
+      "fonts/noto-sans-medium/256-511.pbf",
+      "fonts/noto-sans-medium/512-767.pbf",
+      "fonts/noto-sans-medium/8192-8447.pbf",
+      "fonts/noto-sans-medium/8448-8703.pbf",
+      "fonts/noto-sans-regular/0-255.pbf",
+      "fonts/noto-sans-regular/256-511.pbf",
+      "fonts/noto-sans-regular/512-767.pbf",
+      "fonts/noto-sans-regular/8192-8447.pbf",
+      "fonts/noto-sans-regular/8448-8703.pbf",
+      "sprites/dark.json",
+      "sprites/dark.png",
+      "sprites/dark@2x.json",
+      "sprites/dark@2x.png",
+      "sprites/light.json",
+      "sprites/light.png",
+      "sprites/light@2x.json",
+      "sprites/light@2x.png"
+    ]
+  }
+}

@@ -20,6 +20,7 @@ class MapSearchBar extends StatefulWidget {
     required this.onSelected,
     this.destinationLabel,
     this.onCleared,
+    this.leading,
   });
 
   /// Se llama con la dirección elegida.
@@ -30,6 +31,10 @@ class MapSearchBar extends StatefulWidget {
   final String? destinationLabel;
 
   final VoidCallback? onCleared;
+
+  /// Va dentro de la barra, a la izquierda, en lugar de la lupa: el botón del
+  /// menú, como en Google Maps. La bandera de un destino fijado se mantiene.
+  final Widget? leading;
 
   @override
   State<MapSearchBar> createState() => _MapSearchBarState();
@@ -73,8 +78,9 @@ class _MapSearchBarState extends State<MapSearchBar> {
       _searching = true;
       _open = true;
     });
-    // Medio segundo: geocodificar en cada pulsación gasta cuota de MapTiler y
-    // hace parpadear la lista mientras se escribe.
+    // Medio segundo: buscar en cada pulsación satura al servidor público de
+    // Photon (que pide un uso moderado) y hace parpadear la lista mientras se
+    // escribe.
     _debounce = Timer(const Duration(milliseconds: 500), () => _run(q));
   }
 
@@ -125,13 +131,23 @@ class _MapSearchBarState extends State<MapSearchBar> {
           padding: EdgeInsets.zero,
           child: Row(
             children: [
-              Padding(
-                padding: const EdgeInsets.only(left: AppSpacing.md),
-                child: Icon(
-                  destino == null ? Icons.search : Icons.flag,
-                  color: destino == null ? scheme.onSurfaceVariant : scheme.primary,
+              if (widget.leading case final leading?)
+                Padding(
+                  padding: const EdgeInsets.only(left: AppSpacing.xs),
+                  child: leading,
                 ),
-              ),
+              if (widget.leading == null || destino != null)
+                Padding(
+                  padding: EdgeInsets.only(
+                    left: widget.leading == null ? AppSpacing.md : 0,
+                  ),
+                  child: Icon(
+                    destino == null ? Icons.search : Icons.flag,
+                    color: destino == null
+                        ? scheme.onSurfaceVariant
+                        : scheme.primary,
+                  ),
+                ),
               Expanded(
                 child: destino == null
                     ? TextField(

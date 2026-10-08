@@ -35,7 +35,6 @@ class PreferencesService extends ChangeNotifier {
   // un identificador inventado, que además impedía escribir cualquier regla de
   // seguridad. El rol es identidad, no preferencia: vive en `AuthService`.
 
-
   bool _initialized = false;
 
   // Getters - Mapa
@@ -59,7 +58,6 @@ class PreferencesService extends ChangeNotifier {
   // Getters - Notificaciones y privacidad
   bool get locationTracking => _locationTracking;
   bool get historyEnabled => _historyEnabled;
-
 
   bool get isInitialized => _initialized;
 

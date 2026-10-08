@@ -17,22 +17,30 @@ ThemeData buildAppTheme({
   required Brightness brightness,
   bool compact = false,
 }) {
-  final scheme = ColorScheme.fromSeed(
-    seedColor: kColeTotalSeed,
-    brightness: brightness,
-  );
+  final scheme = buildColorScheme(brightness);
   final isDark = brightness == Brightness.dark;
   final text = _buildTextTheme(scheme);
   final status = isDark ? AppStatusColors.dark : AppStatusColors.light;
 
+  // La barra de navegación del sistema tiene que verse como la continuación
+  // de la barra de pestañas (o del fondo de la pantalla), que es `surface`.
+  //  * Hasta Android 14 se pinta del color que se le pide.
+  //  * Desde Android 15 ese color se ignora: la app se dibuja detrás de la
+  //    barra y, con navegación de tres botones, Android le pone encima un velo
+  //    blanco o negro "para que se lean los botones". Ese velo era la franja
+  //    de otro color bajo las pestañas. Sin el velo se ve lo que la app dibuja
+  //    debajo, que ya es la barra de pestañas, y los botones se leen igual
+  //    porque su brillo se ajusta al tema.
   final overlayStyle =
       (isDark ? SystemUiOverlayStyle.light : SystemUiOverlayStyle.dark)
           .copyWith(
             statusBarColor: Colors.transparent,
             systemNavigationBarColor: scheme.surface,
+            systemNavigationBarDividerColor: scheme.surface,
             systemNavigationBarIconBrightness: isDark
                 ? Brightness.light
                 : Brightness.dark,
+            systemNavigationBarContrastEnforced: false,
           );
 
   final shapeMd = RoundedRectangleBorder(
@@ -107,9 +115,10 @@ ThemeData buildAppTheme({
     ),
 
     // Los FABs del mapa venían con Colors.white / Colors.black87 fijos, lo que
-    // los dejaba como manchas blancas en tema oscuro.
+    // los dejaba como manchas blancas en tema oscuro. Ahora siguen el fondo de
+    // los controles del mapa, que sí cambia con el tema.
     floatingActionButtonTheme: FloatingActionButtonThemeData(
-      backgroundColor: scheme.surfaceContainerHigh,
+      backgroundColor: scheme.mapControl,
       foregroundColor: scheme.onSurface,
       elevation: 3,
       focusElevation: 4,

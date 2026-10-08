@@ -3,8 +3,9 @@ import 'package:taxi1/models/place_result.dart';
 
 /// Catálogo de Puntos de Interés (POIs) estratégicos de la comuna de Quilpué.
 ///
-/// Permite búsqueda instantánea (0 ms, sin consumo de cuota de MapTiler ni datos móviles)
-/// para supermercados, plazas, centros de salud, colegios y estaciones de metro/tren.
+/// Permite búsqueda instantánea (0 ms, sin red ni datos móviles) para
+/// supermercados, plazas, centros de salud, colegios y estaciones de metro/tren.
+/// Las calles van aparte, en el índice offline de `StreetIndex`.
 const List<PlaceResult> kQuilpuePois = [
   // Supermercados y Centros Comerciales
   PlaceResult(

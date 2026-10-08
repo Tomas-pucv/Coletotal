@@ -14,9 +14,8 @@ String authErrorMessage(
   AppLocalizations l10n, {
   required bool isDriver,
 }) => switch (code) {
-  AuthErrorCode.credencialesInvalidas => isDriver
-      ? l10n.errAuthCredentials
-      : l10n.errAuthCredentialsEmail,
+  AuthErrorCode.credencialesInvalidas =>
+    isDriver ? l10n.errAuthCredentials : l10n.errAuthCredentialsEmail,
   AuthErrorCode.cuentaEnUso => l10n.errAuthAccountInUse,
   AuthErrorCode.claveDebil => l10n.errAuthWeakPassword,
   AuthErrorCode.patenteInvalida => l10n.errAuthPatenteInvalid,

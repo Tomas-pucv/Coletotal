@@ -10,6 +10,7 @@ import 'package:taxi1/firebase_options.dart';
 import 'package:taxi1/l10n/app_localizations.dart';
 import 'package:taxi1/screens/main_screen.dart';
 import 'package:taxi1/services/auth_service.dart';
+import 'package:taxi1/services/basemap_service.dart';
 import 'package:taxi1/services/firebase_telemetria_service.dart';
 import 'package:taxi1/services/garita_service.dart';
 import 'package:taxi1/services/location_service.dart';
@@ -19,11 +20,17 @@ import 'package:taxi1/services/route_service.dart';
 import 'package:taxi1/services/turno_service.dart';
 import 'package:taxi1/services/stop_history_service.dart';
 import 'package:taxi1/services/stops_service.dart';
+import 'package:taxi1/services/street_index.dart';
 import 'package:taxi1/theme/app_text_scaler.dart';
 import 'package:taxi1/theme/app_theme.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // El mapa base viene en el APK y no depende de Firebase: se abre en
+  // paralelo y sin esperarlo. La primera vez tras instalar copia unos 60 MB;
+  // mientras tanto los mapas muestran su fondo (ver `BasemapService`).
+  unawaited(BasemapService.instance.load());
 
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
 
@@ -83,6 +90,9 @@ void main() async {
   // en pantalla.
   WidgetsBinding.instance.addPostFrameCallback((_) {
     unawaited(LocationService.instance.start());
+    // El índice offline de calles del buscador: se lee ya para que la
+    // primera búsqueda no tenga que esperarlo.
+    unawaited(StreetIndex.preload());
   });
 }
 

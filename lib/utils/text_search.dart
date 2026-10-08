@@ -49,12 +49,22 @@ String normalizeForSearch(String text) {
 /// Por palabras y no como subcadena entera: así el orden en que se escriben no
 /// importa ("belloto lider" encuentra "Supermercado Líder Belloto"). Una
 /// consulta vacía coincide con todo.
-bool matchesAllTokens(String query, Iterable<String> fields) {
-  final tokens = normalizeForSearch(
-    query,
-  ).split(' ').where((t) => t.isNotEmpty).toList(growable: false);
-  if (tokens.isEmpty) return true;
+bool matchesAllTokens(String query, Iterable<String> fields) =>
+    containsAllTokens(
+      fields.map(normalizeForSearch).join(' '),
+      searchTokens(query),
+    );
 
-  final haystack = fields.map(normalizeForSearch).join(' ');
-  return tokens.every(haystack.contains);
-}
+/// Las palabras de [query], ya normalizadas.
+///
+/// Junto con [containsAllTokens] sirve para buscar en listas largas, como las
+/// 25 mil calles del índice offline: se normaliza cada texto una sola vez al
+/// cargar, en vez de en cada tecla.
+List<String> searchTokens(String query) => normalizeForSearch(
+  query,
+).split(' ').where((t) => t.isNotEmpty).toList(growable: false);
+
+/// Si cada una de [tokens] aparece en [normalizedHaystack], que tiene que
+/// venir ya pasado por [normalizeForSearch].
+bool containsAllTokens(String normalizedHaystack, List<String> tokens) =>
+    tokens.every(normalizedHaystack.contains);

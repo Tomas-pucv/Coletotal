@@ -50,3 +50,10 @@ app.*.map.json
 dist/
 backups/
 *.apk
+
+# Generador del mapa base (scripts/mapa_base/): dependencias, descargas y
+# extracciones a medio terminar. Lo que genera, en assets/map/, sí va al repo.
+node_modules/
+scripts/mapa_base/.cache/
+scripts/mapa_base/.venv/
+*.pmtiles.tmp

@@ -38,16 +38,19 @@ void main() {
       expect(movido.hashCode, original.hashCode);
     });
 
-    test('ids distintos son paraderos distintos aunque coincida todo lo demás', () {
-      const gemelo = BusStop(
-        id: 'p2',
-        name: 'Plaza de Armas',
-        address: 'Av. Valparaíso 700',
-        location: LatLng(-33.0472, -71.4425),
-      );
+    test(
+      'ids distintos son paraderos distintos aunque coincida todo lo demás',
+      () {
+        const gemelo = BusStop(
+          id: 'p2',
+          name: 'Plaza de Armas',
+          address: 'Av. Valparaíso 700',
+          location: LatLng(-33.0472, -71.4425),
+        );
 
-      expect(gemelo, isNot(original));
-    });
+        expect(gemelo, isNot(original));
+      },
+    );
 
     test('funciona dentro de colecciones, que es como se usa', () {
       const listaDeSnapshot = [
@@ -78,11 +81,14 @@ void main() {
       expect(ids, hasLength(quilpueBusStops.length));
     });
 
-    test('los ids llevan prefijo seed- para no chocar con los de Firestore', () {
-      for (final stop in quilpueBusStops) {
-        expect(stop.id, startsWith('seed-'), reason: stop.name);
-      }
-    });
+    test(
+      'los ids llevan prefijo seed- para no chocar con los de Firestore',
+      () {
+        for (final stop in quilpueBusStops) {
+          expect(stop.id, startsWith('seed-'), reason: stop.name);
+        }
+      },
+    );
 
     test('StopsService trae la semilla sin haber tocado la red', () {
       // Sin esta siembra sincrónica el mapa arrancaría vacío y los tests de
@@ -124,15 +130,7 @@ void main() {
 
     test('no duplica ni supera el tope', () {
       final migrated = StopHistoryService.migrateHistory(
-        [
-          'Plaza de Armas',
-          'seed-plaza-de-armas',
-          'a',
-          'b',
-          'c',
-          'd',
-          'e',
-        ],
+        ['Plaza de Armas', 'seed-plaza-de-armas', 'a', 'b', 'c', 'd', 'e'],
         byId: stops.byId,
         byName: stops.byName,
       );

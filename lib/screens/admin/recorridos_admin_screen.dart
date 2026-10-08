@@ -314,9 +314,7 @@ class _RecorridoEditorScreenState extends State<RecorridoEditorScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(
-          widget.recorrido == null ? l10n.routeAdd : l10n.routeEdit,
-        ),
+        title: Text(widget.recorrido == null ? l10n.routeAdd : l10n.routeEdit),
         actions: [
           IconButton(
             icon: _saving
@@ -375,10 +373,7 @@ class _RecorridoEditorScreenState extends State<RecorridoEditorScreen> {
                         onChanged: (v) => setState(() => _activo = v),
                       ),
                       const SizedBox(height: AppSpacing.md),
-                      Text(
-                        l10n.routeStops,
-                        style: theme.textTheme.titleSmall,
-                      ),
+                      Text(l10n.routeStops, style: theme.textTheme.titleSmall),
                       Text(
                         l10n.routeStopsHelp,
                         style: theme.textTheme.bodySmall?.copyWith(

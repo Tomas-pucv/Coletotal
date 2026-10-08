@@ -115,9 +115,7 @@ class _ParaderoSheetState extends State<_ParaderoSheet> {
       messenger
         ..hideCurrentSnackBar()
         ..showSnackBar(
-          SnackBar(
-            content: Text(routeErrorMessage(_routes.lastError, l10n)),
-          ),
+          SnackBar(content: Text(routeErrorMessage(_routes.lastError, l10n))),
         );
     }
   }
@@ -130,9 +128,7 @@ class _ParaderoSheetState extends State<_ParaderoSheet> {
     final lineas = _recorridos.porParadero(widget.stop.id);
 
     final origin = _origin;
-    final metros = origin == null
-        ? null
-        : widget.stop.distanceFrom(origin);
+    final metros = origin == null ? null : widget.stop.distanceFrom(origin);
 
     return SafeArea(
       child: Padding(

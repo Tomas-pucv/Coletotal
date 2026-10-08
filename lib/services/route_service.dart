@@ -6,11 +6,8 @@ import 'package:latlong2/latlong.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:taxi1/models/bus_stop.dart';
-import 'package:taxi1/services/osrm_client.dart';
-
-/// Velocidad a pie con la que se estima el tiempo cuando el único proveedor
-/// que respondió calcula en auto: 1,3 m/s ≈ 4,7 km/h, un paso normal.
-const double kWalkingSpeedMps = 1.3;
+import 'package:taxi1/services/routing.dart';
+import 'package:taxi1/utils/polyline.dart';
 
 /// Resultado de un cálculo de ruta. Agrupa los puntos + métricas para que
 /// la UI pueda mostrar distancia y duración sin parsear de nuevo.
@@ -20,7 +17,7 @@ class RouteResult {
 
   /// Tiempo **caminando**.
   final double durationSeconds;
-  final String provider; // 'ORS' | 'OSRM'
+  final String provider; // 'ORS' | 'Valhalla' | 'OSRM'
 
   const RouteResult({
     required this.points,
@@ -44,9 +41,10 @@ class RouteResult {
 /// Estrategia:
 /// 1. Si hay API key de OpenRouteService (vía `--dart-define=ORS_API_KEY=...`
 ///    o guardada en SharedPreferences), ORS con perfil `foot-walking`.
-/// 2. Si no, OSRM peatonal (servidor de FOSSGIS, sin key).
-/// 3. Si tampoco, OSRM en auto, con el tiempo recalculado a paso de peatón.
-/// 4. Si todo falla, devolver `false` y dejar que la UI muestre el error.
+/// 2. Si no, los enrutadores sin clave de [Routing.walkingPath]: Valhalla
+///    peatonal, OSRM peatonal y, como último recurso, OSRM en auto con el
+///    tiempo recalculado a paso de peatón.
+/// 3. Si todo falla, devolver `false` y dejar que la UI muestre el error.
 class RouteService extends ChangeNotifier {
   RouteService._internal();
   static final RouteService instance = RouteService._internal();
@@ -81,7 +79,7 @@ class RouteService extends ChangeNotifier {
   void setOrigin(LatLng origin) {
     // Filtrar coordenadas inválidas para que no se propaguen a la polilínea
     // ni a los marcadores (causa del error "LatLng is not finite").
-    if (!OsrmClient.isValidLatLng(origin)) return;
+    if (!isValidLatLng(origin)) return;
     _origin = origin;
     notifyListeners();
   }
@@ -151,8 +149,7 @@ class RouteService extends ChangeNotifier {
     final request = ++_request;
 
     // No llamar a las APIs si el origen o el destino son inválidos.
-    if (!OsrmClient.isValidLatLng(origin) ||
-        !OsrmClient.isValidLatLng(dest.location)) {
+    if (!isValidLatLng(origin) || !isValidLatLng(dest.location)) {
       _lastError = 'invalid_coords';
       _loadingRoute = false;
       _routePoints = [];
@@ -173,9 +170,9 @@ class RouteService extends ChangeNotifier {
       final apiKey = await _resolveApiKey();
       if (apiKey.isNotEmpty) {
         result = await _fetchFromORS(origin, dest, apiKey);
-        // Si ORS falló, se cae a OSRM abajo (no se corta acá).
+        // Si ORS falló, se cae a los enrutadores sin clave (no se corta acá).
       }
-      result ??= await _fetchFromOSRM(origin, dest);
+      result ??= await _fetchWithoutKey(origin, dest);
       if (result == null) error = 'provider_error';
     } catch (e, st) {
       debugPrint('fetchRoute error: $e\n$st');
@@ -251,7 +248,7 @@ class RouteService extends ChangeNotifier {
 
       final coords = _parseGeoJsonCoordinates(
         geometry,
-      ).where(OsrmClient.isValidLatLng).toList();
+      ).where(isValidLatLng).toList();
       if (coords.isEmpty) return null;
 
       // Métricas
@@ -311,34 +308,17 @@ class RouteService extends ChangeNotifier {
   }
 
   // ---------------------------------------------------------------------------
-  // OSRM (sin API key)
+  // Sin API key: Valhalla, con OSRM de respaldo
   // ---------------------------------------------------------------------------
 
-  Future<RouteResult?> _fetchFromOSRM(LatLng origin, BusStop dest) async {
-    final points = [origin, dest.location];
-
-    final foot = await OsrmClient.route(points, profile: OsrmProfile.foot);
-    if (foot != null) {
-      return RouteResult(
-        points: foot.points,
-        distanceMeters: foot.distanceMeters,
-        durationSeconds: foot.durationSeconds > 0
-            ? foot.durationSeconds
-            : foot.distanceMeters / kWalkingSpeedMps,
-        provider: 'OSRM',
-      );
-    }
-
-    // Último recurso: el servidor de demostración sólo calcula en auto. La
-    // geometría sirve igual para orientarse, pero su tiempo es de auto, así
-    // que se recalcula a paso de peatón.
-    final car = await OsrmClient.route(points);
-    if (car == null) return null;
+  Future<RouteResult?> _fetchWithoutKey(LatLng origin, BusStop dest) async {
+    final path = await Routing.walkingPath(origin, dest.location);
+    if (path == null) return null;
     return RouteResult(
-      points: car.points,
-      distanceMeters: car.distanceMeters,
-      durationSeconds: car.distanceMeters / kWalkingSpeedMps,
-      provider: 'OSRM',
+      points: path.points,
+      distanceMeters: path.distanceMeters,
+      durationSeconds: path.durationSeconds,
+      provider: path.provider,
     );
   }
 }
