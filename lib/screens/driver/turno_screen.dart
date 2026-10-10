@@ -6,6 +6,7 @@ import 'package:taxi1/l10n/app_localizations.dart';
 import 'package:taxi1/models/app_user.dart';
 import 'package:taxi1/models/colectivo_activo.dart';
 import 'package:taxi1/models/recorrido.dart';
+import 'package:taxi1/models/variante.dart';
 import 'package:taxi1/screens/main_screen.dart';
 import 'package:taxi1/services/auth_service.dart';
 import 'package:taxi1/services/turno_service.dart';
@@ -231,11 +232,54 @@ class _TurnoScreenState extends State<TurnoScreen> {
                     ),
                   ),
                   title: Text(recorrido?.nombre ?? l10n.turnoRouteNone),
+                  subtitle: recorrido?.varianteNombre.isNotEmpty == true
+                      ? Text('Variante: ${recorrido!.varianteNombre}')
+                      : null,
                   trailing: const Icon(Icons.chevron_right),
                   enabled: opciones.isNotEmpty,
                   onTap: opciones.isEmpty ? null : () => _pickRecorrido(l10n),
                 ),
               ),
+              if (recorrido != null) ...[
+                const SizedBox(height: AppSpacing.md),
+                SegmentedButton<bool>(
+                  showSelectedIcon: false,
+                  selected: {_turno.sentidoIda},
+                  onSelectionChanged: (s) => _turno.setSentidoIda(s.first),
+                  segments: const [
+                    ButtonSegment(
+                      value: true,
+                      icon: Icon(Icons.arrow_forward, size: 16),
+                      label: Text('Ida'),
+                    ),
+                    ButtonSegment(
+                      value: false,
+                      icon: Icon(Icons.arrow_back, size: 16),
+                      label: Text('Vuelta'),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: AppSpacing.sm),
+                Builder(
+                  builder: (_) {
+                    final calles = _turno.sentidoIda
+                        ? recorrido.callesIda
+                        : recorrido.callesVuelta;
+                    if (calles.isEmpty) return const SizedBox.shrink();
+                    return Container(
+                      padding: const EdgeInsets.all(AppSpacing.sm),
+                      decoration: BoxDecoration(
+                        color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text(
+                        'Cartola ${_turno.sentidoIda ? "Ida" : "Vuelta"}: ${calles.join(" → ")}',
+                        style: theme.textTheme.bodySmall,
+                      ),
+                    );
+                  },
+                ),
+              ],
               const SizedBox(height: AppSpacing.sm),
               Text(
                 opciones.isEmpty ? l10n.turnoRouteEmpty : l10n.turnoRouteHelp,
@@ -358,6 +402,7 @@ class _TurnoScreenState extends State<TurnoScreen> {
 
   Widget _vehicleSection(AppLocalizations l10n, AppUser profile) {
     final theme = Theme.of(context);
+    final variante = varianteById(profile.varianteId);
 
     return SettingsSection(
       icon: Icons.directions_car_outlined,
@@ -376,7 +421,35 @@ class _TurnoScreenState extends State<TurnoScreen> {
                   letterSpacing: 1.5,
                 ),
               ),
-              subtitle: Text(profile.displayName),
+              subtitle: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(profile.displayName),
+                  const SizedBox(height: 4),
+                  Row(
+                    children: [
+                      Icon(
+                        Icons.alt_route,
+                        size: 14,
+                        color: theme.colorScheme.primary,
+                      ),
+                      const SizedBox(width: 4),
+                      Text(
+                        variante != null
+                            ? 'Variante: ${variante.nombre}'
+                            : (profile.varianteId != null &&
+                                    profile.varianteId!.isNotEmpty
+                                ? 'Variante: ${profile.varianteId}'
+                                : 'Sin variante asignada (todas autorizadas)'),
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.primary,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
             ),
           ),
         ),

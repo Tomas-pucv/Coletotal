@@ -47,12 +47,16 @@ class AppUser {
     this.patente,
     this.email,
     this.activo = true,
+    this.varianteId,
   });
 
   final String uid;
   final UserRole rol;
   final String nombre;
   final String garitaId;
+
+  /// Variante operacional asignada al chofer (ej. 'belloto-2000', 'las-rosas', 'mirador').
+  final String? varianteId;
 
   /// Sólo colectivero. Normalizada (ver `utils/patente.dart`).
   final String? patente;
@@ -94,6 +98,7 @@ class AppUser {
       // Ausente cuenta como habilitado: un documento viejo sin el campo no debe
       // dejar a su dueño fuera de la app.
       activo: (data['activo'] as bool?) ?? true,
+      varianteId: (data['varianteId'] as String?) ?? (data['varianteAsignada'] as String?),
     );
   }
 
@@ -110,9 +115,15 @@ class AppUser {
     if (email != null) 'email': email,
     'activo': activo,
     'codigo': codigo,
+    if (varianteId != null) 'varianteId': varianteId,
   };
 
-  AppUser copyWith({String? nombre, bool? activo}) => AppUser(
+  AppUser copyWith({
+    String? nombre,
+    bool? activo,
+    String? varianteId,
+    bool clearVariante = false,
+  }) => AppUser(
     uid: uid,
     rol: rol,
     nombre: nombre ?? this.nombre,
@@ -120,6 +131,7 @@ class AppUser {
     patente: patente,
     email: email,
     activo: activo ?? this.activo,
+    varianteId: clearVariante ? null : (varianteId ?? this.varianteId),
   );
 
   String toJson() => jsonEncode({
@@ -130,6 +142,7 @@ class AppUser {
     'patente': patente,
     'email': email,
     'activo': activo,
+    if (varianteId != null) 'varianteId': varianteId,
   });
 
   static AppUser? fromJson(String? source) {
@@ -155,9 +168,10 @@ class AppUser {
       other.garitaId == garitaId &&
       other.patente == patente &&
       other.email == email &&
-      other.activo == activo;
+      other.activo == activo &&
+      other.varianteId == varianteId;
 
   @override
   int get hashCode =>
-      Object.hash(uid, rol, nombre, garitaId, patente, email, activo);
+      Object.hash(uid, rol, nombre, garitaId, patente, email, activo, varianteId);
 }

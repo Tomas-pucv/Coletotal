@@ -6,7 +6,6 @@ import 'package:latlong2/latlong.dart';
 import 'package:taxi1/config/map_config.dart';
 import 'package:taxi1/l10n/app_localizations.dart';
 import 'package:taxi1/models/bus_stop.dart';
-import 'package:taxi1/navigation/app_destination.dart';
 import 'package:taxi1/services/auth_service.dart';
 import 'package:taxi1/services/firestore_writes.dart';
 import 'package:taxi1/services/garita_service.dart';
@@ -158,7 +157,7 @@ class _ParaderosAdminScreenState extends State<ParaderosAdminScreen> {
     final l10n = AppLocalizations.of(context)!;
 
     return Scaffold(
-      appBar: AppBar(title: Text(AppDestination.paraderos.label(l10n))),
+      appBar: AppBar(title: Text(l10n.navStops)),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => _edit(null),
         icon: const Icon(Icons.add_location_alt_outlined),
@@ -167,7 +166,7 @@ class _ParaderosAdminScreenState extends State<ParaderosAdminScreen> {
       body: !_auth.isAdmin
           ? StatusMessageView(
               icon: Icons.lock_outline,
-              title: AppDestination.paraderos.label(l10n),
+              title: l10n.navStops,
               message: l10n.adminOnly,
             )
           : !_stops.garitaStopsLoaded

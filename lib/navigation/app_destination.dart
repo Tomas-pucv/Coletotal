@@ -21,30 +21,27 @@ enum AppDestination {
   // Administrador de garita
   flota,
   garita,
-  paraderos,
   recorridos,
   choferes;
 
   IconData get icon => switch (this) {
     AppDestination.mapa => Icons.map_outlined,
-    AppDestination.rutas => Icons.route_outlined,
+    AppDestination.rutas => Icons.alt_route_outlined,
     AppDestination.preferencias => Icons.settings_outlined,
     AppDestination.turno => Icons.local_taxi_outlined,
     AppDestination.flota => Icons.travel_explore_outlined,
     AppDestination.garita => Icons.apartment_outlined,
-    AppDestination.paraderos => Icons.pin_drop_outlined,
     AppDestination.recorridos => Icons.timeline_outlined,
     AppDestination.choferes => Icons.badge_outlined,
   };
 
   IconData get selectedIcon => switch (this) {
     AppDestination.mapa => Icons.map,
-    AppDestination.rutas => Icons.route,
+    AppDestination.rutas => Icons.alt_route,
     AppDestination.preferencias => Icons.settings,
     AppDestination.turno => Icons.local_taxi,
     AppDestination.flota => Icons.travel_explore,
     AppDestination.garita => Icons.apartment,
-    AppDestination.paraderos => Icons.pin_drop,
     AppDestination.recorridos => Icons.timeline,
     AppDestination.choferes => Icons.badge,
   };
@@ -56,7 +53,6 @@ enum AppDestination {
     AppDestination.turno => l10n.navTurno,
     AppDestination.flota => l10n.navFlota,
     AppDestination.garita => l10n.navGarita,
-    AppDestination.paraderos => l10n.navStops,
     AppDestination.recorridos => l10n.navRecorridos,
     AppDestination.choferes => l10n.navDrivers,
   };
@@ -98,13 +94,12 @@ abstract final class Destinations {
   /// (`Navigator.push`), no como pestaña.
   ///
   /// Son pantallas de detalle a las que se entra y de las que se vuelve, no
-  /// lugares donde uno se queda: el administrador edita paraderos y regresa a
+  /// lugares donde uno se queda: el administrador edita recorridos y regresa a
   /// supervisar la flota.
   static List<AppDestination> extrasFor(UserRole role) => switch (role) {
     UserRole.invitado => const [],
     UserRole.colectivero => const [AppDestination.preferencias],
     UserRole.administrador => const [
-      AppDestination.paraderos,
       AppDestination.recorridos,
       AppDestination.choferes,
       AppDestination.preferencias,

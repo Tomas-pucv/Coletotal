@@ -117,4 +117,54 @@ List<LatLng> joinLegs(Iterable<List<LatLng>> legs) {
   return joined;
 }
 
+/// Calcula la distancia mínima en metros desde [point] hasta la polilínea [polyline].
+///
+/// Si la polilínea tiene 2 o más puntos, proyecta ortogonalmente [point] a cada
+/// segmento vial y calcula la distancia geodésica exacta al punto más cercano.
+double distanceToPolyline(LatLng point, List<LatLng> polyline) {
+  if (polyline.isEmpty) return double.infinity;
+  const distance = Distance();
+  if (polyline.length == 1) {
+    return distance.as(LengthUnit.Meter, point, polyline.first);
+  }
+
+  final latRad = point.latitude * math.pi / 180.0;
+  final cosLat = math.cos(latRad);
+
+  double minDistance = double.infinity;
+
+  for (var i = 0; i < polyline.length - 1; i++) {
+    final a = polyline[i];
+    final b = polyline[i + 1];
+
+    final dx = (b.longitude - a.longitude) * cosLat;
+    final dy = b.latitude - a.latitude;
+    final segLenSq = dx * dx + dy * dy;
+
+    if (segLenSq == 0) {
+      final d = distance.as(LengthUnit.Meter, point, a);
+      if (d < minDistance) minDistance = d;
+      continue;
+    }
+
+    final apx = (point.longitude - a.longitude) * cosLat;
+    final apy = point.latitude - a.latitude;
+
+    final t = (apx * dx + apy * dy) / segLenSq;
+    final clampedT = t.clamp(0.0, 1.0);
+
+    final closest = LatLng(
+      a.latitude + clampedT * (b.latitude - a.latitude),
+      a.longitude + clampedT * (b.longitude - a.longitude),
+    );
+
+    final d = distance.as(LengthUnit.Meter, point, closest);
+    if (d < minDistance) {
+      minDistance = d;
+    }
+  }
+
+  return minDistance;
+}
+
 double _pow10(int n) => math.pow(10, n).toDouble();

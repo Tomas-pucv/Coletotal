@@ -1,21 +1,19 @@
-import 'package:flutter/foundation.dart' show listEquals;
 import 'package:flutter/material.dart';
 
 import 'package:taxi1/l10n/app_localizations.dart';
-import 'package:taxi1/models/bus_stop.dart';
 import 'package:taxi1/models/recorrido.dart';
+import 'package:taxi1/models/variante.dart';
 import 'package:taxi1/navigation/app_destination.dart';
 import 'package:taxi1/services/auth_service.dart';
 import 'package:taxi1/services/firestore_writes.dart';
 import 'package:taxi1/services/garita_service.dart';
 import 'package:taxi1/services/recorridos_service.dart';
-import 'package:taxi1/services/stops_service.dart';
 import 'package:taxi1/theme/app_spacing.dart';
 import 'package:taxi1/theme/breakpoints.dart';
 import 'package:taxi1/widgets/setting_tile.dart';
 import 'package:taxi1/widgets/state_views.dart';
 
-/// Lista de recorridos de la garita.
+/// Lista de recorridos y cartolas de la garita.
 class RecorridosAdminScreen extends StatefulWidget {
   const RecorridosAdminScreen({super.key});
 
@@ -143,21 +141,29 @@ class _RecorridosAdminScreenState extends State<RecorridosAdminScreen> {
                             const SizedBox(height: AppSpacing.sm),
                         itemBuilder: (context, index) {
                           final recorrido = recorridos[index];
+                          final variante = varianteById(recorrido.varianteId);
+                          final varText = variante?.nombre ??
+                              (recorrido.varianteNombre.isNotEmpty
+                                  ? recorrido.varianteNombre
+                                  : 'Variante general');
+                          final totalCalles =
+                              recorrido.callesIda.length + recorrido.callesVuelta.length;
+
                           return Card(
                             child: ListTile(
                               leading: CircleAvatar(
                                 backgroundColor: Color(recorrido.colorValue),
                                 child: const Icon(
-                                  Icons.timeline,
+                                  Icons.alt_route,
                                   color: Colors.white,
                                   size: 20,
                                 ),
                               ),
                               title: Text(recorrido.nombre),
                               subtitle: Text(
-                                l10n.routeStopCount(
-                                  '${recorrido.paraderoIds.length}',
-                                ),
+                                totalCalles > 0
+                                    ? '$varText • ${recorrido.callesIda.length} ida / ${recorrido.callesVuelta.length} vuelta'
+                                    : '$varText • Sin cartolas registradas',
                               ),
                               trailing: IconButton(
                                 icon: const Icon(Icons.delete_outline),
@@ -175,13 +181,33 @@ class _RecorridosAdminScreenState extends State<RecorridosAdminScreen> {
   }
 }
 
-/// Editor de un recorrido.
-///
-/// Un recorrido es nombre + color + **lista ordenada de paraderos**. El trazado
-/// no se dibuja punto a punto: se deriva de esa lista conectando los paraderos
-/// por calle con el mismo enrutador que ya usa el pasajero. Así el trazado no
-/// puede quedar desincronizado de los paraderos, y editar el recorrido es
-/// arrastrar filas en vez de dibujar decenas de vértices a dedo.
+/// Calles e hitos comunes en la red vial de Quilpué para sugerencias rápidas.
+const List<String> _kCallesSugeridasQuilpue = [
+  'Garita Serrano',
+  'Av. Los Carrera',
+  'Freire',
+  'Av. Valparaíso',
+  'Baden Powell',
+  'Marga Marga',
+  'Estación Quilpué',
+  'Hospital de Quilpué',
+  'Plaza Vieja',
+  'Belloto 2000',
+  'Las Rosas',
+  'El Mirador',
+  'Cumming',
+  'San Martín',
+  'Covadonga',
+  'Blanco Encalada',
+  'Thompson',
+  'Diego Portales',
+  'Paredes',
+  'Vespucio',
+  'Tierras Rojas',
+];
+
+/// Editor de un recorrido modelado a través de sus **Cartolas Oficiales**
+/// (secuencia de calles de Ida y Vuelta) y su variante asignada.
 class RecorridoEditorScreen extends StatefulWidget {
   const RecorridoEditorScreen({
     super.key,
@@ -196,11 +222,15 @@ class RecorridoEditorScreen extends StatefulWidget {
   State<RecorridoEditorScreen> createState() => _RecorridoEditorScreenState();
 }
 
-class _RecorridoEditorScreenState extends State<RecorridoEditorScreen> {
+class _RecorridoEditorScreenState extends State<RecorridoEditorScreen>
+    with SingleTickerProviderStateMixin {
   final _formKey = GlobalKey<FormState>();
   late final TextEditingController _nombre;
+  late final TabController _tabController;
 
-  late List<String> _paraderoIds;
+  late String _varianteId;
+  late List<String> _callesIda;
+  late List<String> _callesVuelta;
   late int _color;
   late bool _activo;
   bool _saving = false;
@@ -210,80 +240,122 @@ class _RecorridoEditorScreenState extends State<RecorridoEditorScreen> {
     super.initState();
     final r = widget.recorrido;
     _nombre = TextEditingController(text: r?.nombre ?? '');
-    _paraderoIds = List.of(r?.paraderoIds ?? const []);
+    _varianteId = r?.varianteId ?? (kVariantesSerrano.isNotEmpty ? kVariantesSerrano.first.id : '');
+    _callesIda = List.of(r?.callesIda ?? const []);
+    _callesVuelta = List.of(r?.callesVuelta ?? const []);
     _color = r?.colorValue ?? kRecorridoColors.first;
     _activo = r?.activo ?? true;
+    _tabController = TabController(length: 3, vsync: this);
+    _tabController.addListener(() {
+      if (mounted) setState(() {});
+    });
   }
 
   @override
   void dispose() {
     _nombre.dispose();
+    _tabController.dispose();
     super.dispose();
   }
 
-  Future<void> _addStop() async {
-    final l10n = AppLocalizations.of(context)!;
-    final disponibles = StopsService.instance.stops
-        .where((s) => !_paraderoIds.contains(s.id))
-        .toList(growable: false);
-
-    if (disponibles.isEmpty) return;
-
-    final selected = await showModalBottomSheet<BusStop>(
+  Future<void> _agregarCalle(bool esIda) async {
+    final streetCtrl = TextEditingController();
+    final agregada = await showDialog<String>(
       context: context,
-      isScrollControlled: true,
-      builder: (context) => SafeArea(
-        child: ListView(
-          shrinkWrap: true,
-          children: [
-            Padding(
-              padding: const EdgeInsets.all(AppSpacing.lg),
-              child: Text(
-                l10n.routeAddStop,
-                style: Theme.of(context).textTheme.titleMedium,
-              ),
-            ),
-            for (final stop in disponibles)
-              ListTile(
-                leading: const Icon(Icons.pin_drop_outlined),
-                title: Text(stop.name),
-                subtitle: Text(
-                  stop.address,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
+      builder: (context) => AlertDialog(
+        title: Text(esIda ? 'Agregar calle a Cartola de Ida' : 'Agregar calle a Cartola de Vuelta'),
+        content: SizedBox(
+          width: 400,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              TextField(
+                controller: streetCtrl,
+                autofocus: true,
+                textCapitalization: TextCapitalization.words,
+                decoration: const InputDecoration(
+                  labelText: 'Nombre de la calle o hito',
+                  hintText: 'Ej. Freire, Baden Powell...',
+                  prefixIcon: Icon(Icons.edit_road),
                 ),
-                onTap: () => Navigator.pop(context, stop),
+                onSubmitted: (val) {
+                  if (val.trim().isNotEmpty) {
+                    Navigator.pop(context, val.trim());
+                  }
+                },
               ),
-          ],
+              const SizedBox(height: AppSpacing.md),
+              const Text(
+                'Sugerencias frecuentes en Quilpué:',
+                style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: AppSpacing.xs),
+              Wrap(
+                spacing: 6,
+                runSpacing: 4,
+                children: [
+                  for (final sugerida in _kCallesSugeridasQuilpue.take(8))
+                    ActionChip(
+                      label: Text(sugerida, style: const TextStyle(fontSize: 11)),
+                      onPressed: () => Navigator.pop(context, sugerida),
+                    ),
+                ],
+              ),
+            ],
+          ),
         ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () {
+              final text = streetCtrl.text.trim();
+              if (text.isNotEmpty) Navigator.pop(context, text);
+            },
+            child: const Text('Agregar'),
+          ),
+        ],
       ),
     );
 
-    if (selected != null) {
-      setState(() => _paraderoIds = [..._paraderoIds, selected.id]);
+    if (agregada != null && agregada.trim().isNotEmpty) {
+      setState(() {
+        if (esIda) {
+          _callesIda.add(agregada.trim());
+        } else {
+          _callesVuelta.add(agregada.trim());
+        }
+      });
     }
   }
 
   Future<void> _save() async {
     if (_saving) return;
-    if (!(_formKey.currentState?.validate() ?? false)) return;
+    if (!(_formKey.currentState?.validate() ?? false)) {
+      _tabController.animateTo(0);
+      return;
+    }
 
     final l10n = AppLocalizations.of(context)!;
-    if (_paraderoIds.length < 2) {
+    if (_callesIda.isEmpty && _callesVuelta.isEmpty) {
       ScaffoldMessenger.of(context)
         ..hideCurrentSnackBar()
-        ..showSnackBar(SnackBar(content: Text(l10n.routeNeedsStops)));
+        ..showSnackBar(
+          const SnackBar(
+            content: Text('Debes registrar al menos una calle en la cartola de ida o vuelta'),
+          ),
+        );
+      _tabController.animateTo(1);
       return;
     }
 
     setState(() => _saving = true);
     final original = widget.recorrido;
-    // Si los paraderos no cambiaron, el trazado guardado sigue siendo válido
-    // y se conserva tal cual. Antes se guardaba siempre sin geometría: cambiar
-    // el nombre o el color de una línea reemplazaba su trazado afinado por uno
-    // recalculado, o lo borraba si OSRM no respondía.
-    final mismaGeometria =
-        original != null && listEquals(original.paraderoIds, _paraderoIds);
+    final varianteObj = varianteById(_varianteId);
+
     try {
       final (_, outcome) = await GaritaService.instance.upsertRecorrido(
         Recorrido(
@@ -291,8 +363,15 @@ class _RecorridoEditorScreenState extends State<RecorridoEditorScreen> {
           garitaId: widget.garitaId,
           nombre: _nombre.text.trim(),
           colorValue: _color,
-          paraderoIds: _paraderoIds,
-          geometria: mismaGeometria ? original.geometria : null,
+          varianteId: _varianteId,
+          varianteNombre: varianteObj?.nombre ?? '',
+          callesIda: _callesIda,
+          callesVuelta: _callesVuelta,
+          paraderoIds: original?.paraderoIds ?? const [],
+          geometria: original?.geometria,
+          geometriaVuelta: original?.geometriaVuelta,
+          trazado: original?.trazado ?? const [],
+          trazadoVuelta: original?.trazadoVuelta ?? const [],
           activo: _activo,
         ),
       );
@@ -310,7 +389,7 @@ class _RecorridoEditorScreenState extends State<RecorridoEditorScreen> {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final theme = Theme.of(context);
-    final stops = StopsService.instance;
+    final tabIndex = _tabController.index;
 
     return Scaffold(
       appBar: AppBar(
@@ -328,141 +407,269 @@ class _RecorridoEditorScreenState extends State<RecorridoEditorScreen> {
             onPressed: _saving ? null : _save,
           ),
         ],
+        bottom: TabBar(
+          controller: _tabController,
+          tabs: [
+            const Tab(
+              icon: Icon(Icons.tune),
+              text: 'General',
+            ),
+            Tab(
+              icon: const Icon(Icons.arrow_forward),
+              text: 'Ida (${_callesIda.length})',
+            ),
+            Tab(
+              icon: const Icon(Icons.arrow_back),
+              text: 'Vuelta (${_callesVuelta.length})',
+            ),
+          ],
+        ),
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: _addStop,
-        icon: const Icon(Icons.add_location_alt_outlined),
-        label: Text(l10n.routeAddStop),
-      ),
+      floatingActionButton: tabIndex == 0
+          ? null
+          : FloatingActionButton.extended(
+              onPressed: () => _agregarCalle(tabIndex == 1),
+              icon: const Icon(Icons.add_road),
+              label: Text(tabIndex == 1 ? 'Agregar a Ida' : 'Agregar a Vuelta'),
+            ),
       body: Center(
         child: ConstrainedBox(
           constraints: const BoxConstraints(
             maxWidth: Breakpoints.maxContentWidth,
           ),
-          child: Form(
-            key: _formKey,
-            child: Column(
-              children: [
-                Padding(
+          child: TabBarView(
+            controller: _tabController,
+            children: [
+              // Tab 1: Datos Generales
+              Form(
+                key: _formKey,
+                child: ListView(
                   padding: const EdgeInsets.all(AppSpacing.lg),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      TextFormField(
-                        controller: _nombre,
-                        textCapitalization: TextCapitalization.words,
-                        maxLength: 80,
-                        decoration: InputDecoration(
-                          labelText: l10n.routeName,
-                          prefixIcon: const Icon(Icons.timeline_outlined),
-                        ),
-                        validator: (v) =>
-                            (v ?? '').trim().isEmpty ? l10n.authRequired : null,
+                  children: [
+                    TextFormField(
+                      controller: _nombre,
+                      textCapitalization: TextCapitalization.words,
+                      maxLength: 80,
+                      decoration: InputDecoration(
+                        labelText: l10n.routeName,
+                        hintText: 'Ej. Línea 101 - Variante Belloto 2000',
+                        prefixIcon: const Icon(Icons.alt_route),
                       ),
-                      const SizedBox(height: AppSpacing.lg),
-                      Text(l10n.routeColor, style: theme.textTheme.bodyLarge),
-                      const SizedBox(height: AppSpacing.sm),
-                      _ColorPicker(
-                        value: _color,
-                        onChanged: (c) => setState(() => _color = c),
+                      validator: (v) =>
+                          (v ?? '').trim().isEmpty ? l10n.authRequired : null,
+                    ),
+                    const SizedBox(height: AppSpacing.md),
+                    DropdownButtonFormField<String>(
+                      initialValue: _varianteId.isNotEmpty ? _varianteId : null,
+                      decoration: const InputDecoration(
+                        labelText: 'Variante Operacional',
+                        prefixIcon: Icon(Icons.hub_outlined),
                       ),
-                      const SizedBox(height: AppSpacing.md),
-                      SettingSwitchTile(
-                        title: l10n.routeActive,
-                        value: _activo,
-                        onChanged: (v) => setState(() => _activo = v),
-                      ),
-                      const SizedBox(height: AppSpacing.md),
-                      Text(l10n.routeStops, style: theme.textTheme.titleSmall),
-                      Text(
-                        l10n.routeStopsHelp,
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: theme.colorScheme.onSurfaceVariant,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                Expanded(
-                  child: _paraderoIds.isEmpty
-                      ? StatusMessageView(
-                          icon: Icons.add_location_alt_outlined,
-                          title: l10n.routeNeedsStops,
-                          message: l10n.routeTraceHint,
-                        )
-                      : ReorderableListView.builder(
-                          padding: const EdgeInsets.fromLTRB(
-                            AppSpacing.lg,
-                            0,
-                            AppSpacing.lg,
-                            96,
+                      items: [
+                        for (final v in kVariantesSerrano)
+                          DropdownMenuItem(
+                            value: v.id,
+                            child: Text(v.nombre),
                           ),
-                          itemCount: _paraderoIds.length,
-                          // `onReorderItem` y no `onReorder`: el índice ya
-                          // viene ajustado a la lista sin el elemento movido,
-                          // así que se acabó el clásico `if (newIndex >
-                          // oldIndex) newIndex -= 1`.
-                          onReorderItem: (oldIndex, newIndex) {
-                            setState(() {
-                              final id = _paraderoIds.removeAt(oldIndex);
-                              _paraderoIds.insert(newIndex, id);
-                            });
-                          },
-                          itemBuilder: (context, index) {
-                            final id = _paraderoIds[index];
-                            final stop = stops.byId(id);
-                            return Card(
-                              key: ValueKey(id),
-                              margin: const EdgeInsets.only(
-                                bottom: AppSpacing.sm,
-                              ),
-                              child: ListTile(
-                                leading: CircleAvatar(
-                                  radius: 14,
-                                  backgroundColor: Color(_color),
-                                  child: Text(
-                                    '${index + 1}',
-                                    style: theme.textTheme.labelSmall?.copyWith(
-                                      color: Colors.white,
-                                    ),
-                                  ),
-                                ),
-                                // Un paradero dado de baja no desaparece del
-                                // recorrido: se muestra su id para que el
-                                // administrador vea que hay algo que arreglar.
-                                title: Text(stop?.name ?? id),
-                                subtitle: stop == null
-                                    ? null
-                                    : Text(
-                                        stop.address,
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                      ),
-                                trailing: Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    IconButton(
-                                      icon: const Icon(Icons.close),
-                                      onPressed: () => setState(
-                                        () => _paraderoIds.removeAt(index),
-                                      ),
-                                    ),
-                                    ReorderableDragStartListener(
-                                      index: index,
-                                      child: const Icon(Icons.drag_handle),
-                                    ),
-                                  ],
+                      ],
+                      onChanged: (val) {
+                        if (val != null) setState(() => _varianteId = val);
+                      },
+                    ),
+                    const SizedBox(height: AppSpacing.lg),
+                    Text(l10n.routeColor, style: theme.textTheme.bodyLarge),
+                    const SizedBox(height: AppSpacing.sm),
+                    _ColorPicker(
+                      value: _color,
+                      onChanged: (c) => setState(() => _color = c),
+                    ),
+                    const SizedBox(height: AppSpacing.md),
+                    SettingSwitchTile(
+                      title: l10n.routeActive,
+                      value: _activo,
+                      onChanged: (v) => setState(() => _activo = v),
+                    ),
+                    const SizedBox(height: AppSpacing.lg),
+                    Card(
+                      color: theme.colorScheme.surfaceContainerHighest,
+                      child: Padding(
+                        padding: const EdgeInsets.all(AppSpacing.md),
+                        child: Row(
+                          children: [
+                            Icon(
+                              Icons.info_outline,
+                              color: theme.colorScheme.onSurfaceVariant,
+                            ),
+                            const SizedBox(width: AppSpacing.md),
+                            Expanded(
+                              child: Text(
+                                'Las cartolas oficiales determinan el orden de calles de ida y vuelta que los choferes y pasajeros verán.',
+                                style: theme.textTheme.bodySmall?.copyWith(
+                                  color: theme.colorScheme.onSurfaceVariant,
                                 ),
                               ),
-                            );
-                          },
+                            ),
+                          ],
                         ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+              // Tab 2: Cartola de Ida
+              _CartolaListTab(
+                calles: _callesIda,
+                esIda: true,
+                colorValue: _color,
+                onReorder: (oldIndex, newIndex) {
+                  setState(() {
+                    final item = _callesIda.removeAt(oldIndex);
+                    _callesIda.insert(newIndex, item);
+                  });
+                },
+                onDelete: (index) {
+                  setState(() => _callesIda.removeAt(index));
+                },
+                onAdd: () => _agregarCalle(true),
+              ),
+
+              // Tab 3: Cartola de Vuelta
+              _CartolaListTab(
+                calles: _callesVuelta,
+                esIda: false,
+                colorValue: _color,
+                onReorder: (oldIndex, newIndex) {
+                  setState(() {
+                    final item = _callesVuelta.removeAt(oldIndex);
+                    _callesVuelta.insert(newIndex, item);
+                  });
+                },
+                onDelete: (index) {
+                  setState(() => _callesVuelta.removeAt(index));
+                },
+                onAdd: () => _agregarCalle(false),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _CartolaListTab extends StatelessWidget {
+  const _CartolaListTab({
+    required this.calles,
+    required this.esIda,
+    required this.colorValue,
+    required this.onReorder,
+    required this.onDelete,
+    required this.onAdd,
+  });
+
+  final List<String> calles;
+  final bool esIda;
+  final int colorValue;
+  final void Function(int oldIndex, int newIndex) onReorder;
+  final ValueChanged<int> onDelete;
+  final VoidCallback onAdd;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    if (calles.isEmpty) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(AppSpacing.xl),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                esIda ? Icons.arrow_forward : Icons.arrow_back,
+                size: 48,
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+              const SizedBox(height: AppSpacing.md),
+              Text(
+                esIda ? 'Sin calles en Cartola de Ida' : 'Sin calles en Cartola de Vuelta',
+                style: theme.textTheme.titleMedium,
+              ),
+              const SizedBox(height: AppSpacing.xs),
+              Text(
+                'Agrega las calles o hitos principales que componen el trayecto oficial.',
+                textAlign: TextAlign.center,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+              const SizedBox(height: AppSpacing.lg),
+              FilledButton.icon(
+                onPressed: onAdd,
+                icon: const Icon(Icons.add_road),
+                label: const Text('Agregar primera calle'),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return ReorderableListView.builder(
+      padding: const EdgeInsets.fromLTRB(
+        AppSpacing.lg,
+        AppSpacing.md,
+        AppSpacing.lg,
+        96,
+      ),
+      itemCount: calles.length,
+      onReorderItem: onReorder,
+      itemBuilder: (context, index) {
+        final calle = calles[index];
+        return Card(
+          key: ValueKey('cartola_${esIda ? "ida" : "vuelta"}_${index}_$calle'),
+          margin: const EdgeInsets.only(bottom: AppSpacing.sm),
+          child: ListTile(
+            leading: CircleAvatar(
+              radius: 14,
+              backgroundColor: Color(colorValue),
+              child: Text(
+                '${index + 1}',
+                style: theme.textTheme.labelSmall?.copyWith(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+            title: Text(calle, style: theme.textTheme.titleSmall),
+            subtitle: Text(
+              index == 0
+                  ? 'Origen / Inicio de cartola'
+                  : index == calles.length - 1
+                      ? 'Destino / Fin de cartola'
+                      : 'Tramo intermedio',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                IconButton(
+                  icon: const Icon(Icons.close),
+                  tooltip: 'Quitar de la cartola',
+                  onPressed: () => onDelete(index),
+                ),
+                ReorderableDragStartListener(
+                  index: index,
+                  child: const Icon(Icons.drag_handle),
                 ),
               ],
             ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 }

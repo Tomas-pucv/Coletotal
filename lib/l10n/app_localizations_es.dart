@@ -12,7 +12,7 @@ class AppLocalizationsEs extends AppLocalizations {
   String get navMap => 'Mapa';
 
   @override
-  String get navRoutes => 'Paraderos';
+  String get navRoutes => 'Recorridos';
 
   @override
   String get navPreferences => 'Preferencias';
@@ -27,7 +27,7 @@ class AppLocalizationsEs extends AppLocalizations {
   String get closeRoute => 'Cerrar ruta';
 
   @override
-  String get tapToGoStop => 'Tocar para ir al paradero';
+  String get tapToGoStop => 'Tocar para ver recorrido';
 
   @override
   String coordsLabel(String lat, String lng) {
@@ -49,7 +49,7 @@ class AppLocalizationsEs extends AppLocalizations {
 
   @override
   String stopSemanticLabel(String name, String address) {
-    return 'Paradero $name, $address';
+    return 'Recorrido $name, $address';
   }
 
   @override
@@ -63,27 +63,28 @@ class AppLocalizationsEs extends AppLocalizations {
   String get moreSettings => 'Más ajustes';
 
   @override
-  String get calculateRouteTitle => 'Calcular Ruta';
+  String get calculateRouteTitle => 'Recorridos';
 
   @override
   String get originLabel => 'Origen (Mi ubicación actual)';
 
   @override
-  String get searchStopHint => 'Buscar paradero por nombre o dirección…';
+  String get searchStopHint => 'Buscar por calle, sector o punto de interés…';
 
   @override
-  String get whereToGo => '¿A dónde quieres ir?';
+  String get whereToGo => 'Recorridos disponibles';
 
   @override
   String noResults(String query) {
-    return 'Sin resultados para \"$query\"';
+    return 'Sin recorridos para \"$query\"';
   }
 
   @override
-  String get noResultsHint => 'Prueba con otro nombre o revisa la ortografía.';
+  String get noResultsHint =>
+      'Prueba con otra calle, avenida o sector de Quilpué.';
 
   @override
-  String get goToNearestStop => 'Ir al paradero más cercano';
+  String get goToNearestStop => 'Línea más cercana';
 
   @override
   String get locationUnavailable =>
@@ -106,21 +107,21 @@ class AppLocalizationsEs extends AppLocalizations {
 
   @override
   String get enableLocationForSorting =>
-      'Activa la ubicación para ordenar los paraderos por cercanía.';
+      'Activa la ubicación para ordenar las líneas por cercanía.';
 
   @override
-  String get recentStops => 'Consultados recientemente';
+  String get recentStops => 'Consultadas recientemente';
 
   @override
-  String get allStops => 'Todos los paraderos';
+  String get allStops => 'Todas las líneas';
 
   @override
   String get locationOffMessage =>
-      'Activa el GPS del teléfono para ver tu posición y los paraderos cercanos.';
+      'Activa el GPS del teléfono para ver tu posición y los recorridos cercanos.';
 
   @override
   String get locationDeniedMessage =>
-      'ColeTotal necesita acceso a tu ubicación para calcular rutas y mostrarte los paraderos más cercanos.';
+      'ColeTotal necesita acceso a tu ubicación para calcular las líneas más cercanas.';
 
   @override
   String get locationDisabledByPreference =>

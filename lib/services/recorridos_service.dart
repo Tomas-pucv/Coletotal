@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import 'package:latlong2/latlong.dart';
 
+import 'package:taxi1/data/serrano_recorridos.dart';
 import 'package:taxi1/models/bus_stop.dart';
 import 'package:taxi1/models/recorrido.dart';
 import 'package:taxi1/services/routing.dart';
@@ -11,11 +12,10 @@ import 'package:taxi1/services/stops_service.dart';
 
 /// Los recorridos de la línea, para **todo el mundo**.
 ///
-/// Antes sólo existían dentro de `GaritaService`, que únicamente escucha cuando
-/// hay un administrador en sesión. Pero el pasajero también los necesita: son
-/// la respuesta a "¿qué colectivos pasan por este paradero?" y "¿por dónde va
-/// esa línea?". Mismo reparto que con los paraderos: la lectura pública vive
-/// acá y `GaritaService` se queda sólo con las escrituras del administrador.
+/// En el transporte de taxis colectivos, los recorridos se estructuran por
+/// variantes y cartolas de ida/vuelta. Los datos están disponibles fuera de
+/// línea con la semilla oficial de Transportes Serrano y se sincronizan en vivo
+/// con Firestore si hay red.
 class RecorridosService extends ChangeNotifier {
   RecorridosService._();
   static final RecorridosService instance = RecorridosService._();
@@ -25,31 +25,25 @@ class RecorridosService extends ChangeNotifier {
   FirebaseFirestore get _db => FirebaseFirestore.instance;
 
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _sub;
-  List<Recorrido> _recorridos = const [];
+  List<Recorrido> _recorridos = List.unmodifiable(kSerranoRecorridosSeed);
 
   /// Trazados ya calculados, por id de recorrido.
-  ///
-  /// El trazado se deriva de los paraderos con un enrutador, que es una petición
-  /// de red por línea: sin caché, volver a abrir la misma línea la pediría otra
-  /// vez. Se invalida entera cuando cambian los paraderos, porque mover uno
-  /// cambia el trazado de todas las líneas que lo incluyen.
   final Map<String, List<LatLng>> _trazados = {};
 
   Recorrido? _selected;
   bool _loadingTrazado = false;
-  bool _loaded = false;
+  bool _loaded = true;
 
   List<Recorrido> get recorridos => _recorridos;
 
-  /// Si ya llegó el primer snapshot. Mientras no, una lista vacía significa
-  /// "todavía no sé", no "la garita no tiene recorridos".
+  /// Si ya llegó el primer snapshot.
   bool get loaded => _loaded;
 
   /// Recorrido que el usuario está viendo dibujado en el mapa.
   Recorrido? get selected => _selected;
   bool get loadingTrazado => _loadingTrazado;
 
-  /// Puntos del recorrido seleccionado. Vacío mientras se calcula.
+  /// Puntos del recorrido seleccionado (trazado de ida o trazado principal).
   List<LatLng> get trazadoSeleccionado {
     if (_selected == null) return const [];
     final cached = _trazados[_selected!.id];
@@ -58,16 +52,53 @@ class RecorridosService extends ChangeNotifier {
     return const [];
   }
 
-  /// Las líneas que sirven a [paraderoId], que es lo que se le muestra al
-  /// pasajero cuando toca un paradero.
+  /// Puntos de la vuelta del recorrido seleccionado.
+  List<LatLng> get trazadoVueltaSeleccionado {
+    if (_selected == null) return const [];
+    return _selected!.trazadoVuelta;
+  }
+
+  /// Recorridos que pertenecen a una variante específica.
+  List<Recorrido> porVariante(String varianteId) => _recorridos
+      .where((r) => r.activo && r.varianteId == varianteId)
+      .toList(growable: false);
+
+  /// Filtra y ordena los recorridos por cercanía a la traza vial del usuario.
+  List<Recorrido> filtrar({
+    String? varianteId,
+    String? searchQuery,
+    LatLng? userLocation,
+  }) {
+    var resultado = _recorridos.where((r) => r.activo).toList();
+
+    if (varianteId != null &&
+        varianteId.isNotEmpty &&
+        varianteId != 'todas' &&
+        varianteId != 'all') {
+      resultado = resultado.where((r) => r.varianteId == varianteId).toList();
+    }
+
+    if (searchQuery != null && searchQuery.trim().isNotEmpty) {
+      resultado = resultado.where((r) => r.matchesQuery(searchQuery)).toList();
+    }
+
+    if (userLocation != null) {
+      resultado.sort((a, b) {
+        final da = a.distanceFrom(userLocation);
+        final db = b.distanceFrom(userLocation);
+        return da.compareTo(db);
+      });
+    }
+
+    return resultado;
+  }
+
+  /// Las líneas que sirven a [paraderoId].
   List<Recorrido> porParadero(String paraderoId) => _recorridos
       .where((r) => r.activo && r.paraderoIds.contains(paraderoId))
       .toList(growable: false);
 
   /// Todas las líneas de una garita, activas o no.
-  ///
-  /// Es lo que ve su administrador: para él un recorrido desactivado sigue
-  /// existiendo y tiene que poder volver a encenderlo.
   List<Recorrido> porGarita(String garitaId) =>
       _recorridos.where((r) => r.garitaId == garitaId).toList(growable: false);
 
@@ -86,18 +117,18 @@ class RecorridosService extends ChangeNotifier {
         .snapshots()
         .listen(
           (snapshot) {
-            _recorridos = snapshot.docs
-                .map((doc) => Recorrido.fromMap(doc.id, doc.data()))
-                .toList(growable: false);
+            if (snapshot.docs.isNotEmpty) {
+              _recorridos = snapshot.docs
+                  .map((doc) => Recorrido.fromMap(doc.id, doc.data()))
+                  .toList(growable: false);
+            } else if (_recorridos.isEmpty) {
+              _recorridos = List.unmodifiable(kSerranoRecorridosSeed);
+            }
             _loaded = true;
 
-            // Un recorrido editado puede tener otros paraderos: su trazado viejo ya
-            // no lo describe.
             _trazados.clear();
             if (_selected != null) {
               final fresh = byId(_selected!.id);
-              // Si el administrador lo eliminó, se deja de dibujar en vez de
-              // mostrar una línea que ya no existe.
               _selected = fresh;
               if (fresh != null) unawaited(_ensureTrazado(fresh));
             }

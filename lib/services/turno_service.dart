@@ -57,11 +57,14 @@ class TurnoService extends ChangeNotifier {
   TurnoIssue _issue = TurnoIssue.none;
   bool _busy = false;
   String? _recorridoId;
+  bool _sentidoIda = true;
 
   bool get enTurno => _enTurno;
   EstadoCapacidad get estado => _estado;
   TurnoIssue get issue => _issue;
   bool get busy => _busy;
+  bool get sentidoIda => _sentidoIda;
+  String get sentidoLabel => _sentidoIda ? 'Ida' : 'Vuelta';
 
   /// Momento de la última posición confirmada por el servidor.
   ValueListenable<DateTime?> get ultimoEnvio => _telemetria.ultimoEnvio;
@@ -76,18 +79,22 @@ class TurnoService extends ChangeNotifier {
     if (id == null) return null;
     final recorrido = _recorridos.byId(id);
     if (recorrido == null || !recorrido.activo) return null;
-    if (recorrido.garitaId != _auth.garitaId) return null;
     return recorrido;
   }
 
-  /// Líneas activas de la garita del chofer: lo que puede elegir.
+  /// Nombre amigable que incluye el sentido de la marcha.
+  String? get recorridoNombreConSentido => recorridoAsignado == null
+      ? null
+      : '${recorridoAsignado!.nombre} ($sentidoLabel)';
+
+  /// Líneas activas de la garita del chofer.
   List<Recorrido> get recorridosDisponibles {
     final garitaId = _auth.garitaId;
-    if (garitaId == null) return const [];
-    return _recorridos
-        .porGarita(garitaId)
-        .where((r) => r.activo)
-        .toList(growable: false)
+    final base = (garitaId != null && garitaId.isNotEmpty)
+        ? _recorridos.porGarita(garitaId)
+        : _recorridos.recorridos;
+    final lista = base.isNotEmpty ? base : _recorridos.recorridos;
+    return lista.where((r) => r.activo).toList(growable: false)
       ..sort((a, b) => a.nombre.compareTo(b.nombre));
   }
 
@@ -179,9 +186,26 @@ class TurnoService extends ChangeNotifier {
     if (_enTurno) {
       SessionLogService.instance.logEvent('ROUTE_CHANGED', {
         'recorridoId': recorrido?.id,
-        'recorridoNombre': recorrido?.nombre,
+        'recorridoNombre': recorridoNombreConSentido,
       });
-      await _telemetria.setRecorrido(recorrido?.id, recorrido?.nombre);
+      await _telemetria.setRecorrido(recorrido?.id, recorridoNombreConSentido);
+    }
+  }
+
+  /// Alterna o define el sentido de marcha actual (Ida / Vuelta).
+  Future<void> setSentidoIda(bool esIda) async {
+    if (_sentidoIda == esIda) return;
+    _sentidoIda = esIda;
+    notifyListeners();
+
+    if (_enTurno) {
+      SessionLogService.instance.logEvent('DIRECTION_CHANGED', {
+        'sentido': sentidoLabel,
+      });
+      await _telemetria.setRecorrido(
+        recorridoAsignado?.id,
+        recorridoNombreConSentido,
+      );
     }
   }
 
@@ -218,13 +242,14 @@ class TurnoService extends ChangeNotifier {
       }
 
       final recorrido = recorridoAsignado;
+      final nombreConSentido = recorridoNombreConSentido;
       await _telemetria.iniciarTracking(
         uid: profile.uid,
         patente: profile.patente ?? profile.uid,
         garitaId: profile.garitaId,
         estado: _estado,
         recorridoId: recorrido?.id,
-        recorridoNombre: recorrido?.nombre,
+        recorridoNombre: nombreConSentido,
       );
       _enTurno = true;
 
@@ -233,7 +258,7 @@ class TurnoService extends ChangeNotifier {
         patente: profile.patente ?? profile.uid,
         garitaId: profile.garitaId,
         recorridoId: recorrido?.id,
-        recorridoNombre: recorrido?.nombre,
+        recorridoNombre: nombreConSentido,
       );
     } catch (e) {
       debugPrint('TurnoService: no se pudo iniciar el turno: $e');

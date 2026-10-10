@@ -4,7 +4,6 @@ import 'package:taxi1/l10n/app_localizations.dart';
 import 'package:taxi1/models/app_user.dart';
 import 'package:taxi1/navigation/app_destination.dart';
 import 'package:taxi1/screens/admin/choferes_admin_screen.dart';
-import 'package:taxi1/screens/admin/paraderos_admin_screen.dart';
 import 'package:taxi1/screens/admin/recorridos_admin_screen.dart';
 import 'package:taxi1/screens/auth/login_screen.dart';
 import 'package:taxi1/screens/auth/register_screen.dart';
@@ -81,7 +80,6 @@ class _AppDrawerState extends State<AppDrawer> {
   /// camino, así que el caso por defecto no debería ocurrir y devuelve
   /// Preferencias en vez de reventar.
   Widget _screenFor(AppDestination destination) => switch (destination) {
-    AppDestination.paraderos => const ParaderosAdminScreen(),
     AppDestination.recorridos => const RecorridosAdminScreen(),
     AppDestination.choferes => const ChoferesAdminScreen(),
     _ => const PreferencesScreen(showBackButton: true),

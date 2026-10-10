@@ -636,6 +636,14 @@ class _MapaPasajero extends StatelessWidget {
                 borderColor: status.routeLineCasing,
                 borderWidth: 1.5,
               ),
+            if (linea != null && linea.trazadoVuelta.length > 1)
+              MapLine(
+                points: linea.trazadoVuelta,
+                width: 5,
+                color: Color(linea.colorValue).withValues(alpha: 0.65),
+                borderColor: status.routeLineCasing,
+                borderWidth: 1.0,
+              ),
             // La ruta a pie, punteada: se distingue de un vistazo de la línea
             // continua del colectivo.
             if (destination != null && route.routePoints.isNotEmpty)
@@ -719,14 +727,6 @@ class _MapaPasajero extends StatelessWidget {
                   ),
                 ),
               ),
-            for (final stop in stops.stops)
-              _paradero(
-                stop,
-                color: colorParadero(stop),
-                selected: destination == stop,
-                status: status,
-                l10n: l10n,
-              ),
           ],
         );
       },
@@ -769,36 +769,6 @@ class _MapaPasajero extends StatelessWidget {
         offline ? l10n.colectivoNoSignal : estadoLabel(colectivo.estado, l10n),
       ),
       onTap: () => onTapColectivo(colectivo),
-    );
-  }
-
-  MapMarker _paradero(
-    BusStop stop, {
-    required Color color,
-    required bool selected,
-    required AppStatusColors status,
-    required AppLocalizations l10n,
-  }) {
-    return MapMarker(
-      id: 'paradero_${stop.id}',
-      point: stop.location,
-      icon: MarkerIcon.circle(
-        diameter: selected ? 40 : 28,
-        color: color,
-        borderColor: status.markerBorder,
-        borderWidth: selected ? 4 : 2,
-        glyph: Icons.directions_bus,
-        glyphColor: AppStatusColors.onColorFor(color),
-        glyphSize: selected ? 22 : 16,
-        shadow: BoxShadow(
-          color: Color(selected ? 0x66000000 : 0x40000000),
-          blurRadius: selected ? 8 : 4,
-          offset: const Offset(0, 2),
-        ),
-        tapTarget: AppSpacing.minTapTarget,
-      ),
-      semanticLabel: l10n.stopSemanticLabel(stop.name, stop.address),
-      onTap: () => onTapStop(stop),
     );
   }
 }

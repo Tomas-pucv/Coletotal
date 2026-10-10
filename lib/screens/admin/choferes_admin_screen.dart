@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'package:taxi1/l10n/app_localizations.dart';
 import 'package:taxi1/models/app_user.dart';
+import 'package:taxi1/models/variante.dart';
 import 'package:taxi1/navigation/app_destination.dart';
 import 'package:taxi1/services/firestore_writes.dart';
 import 'package:taxi1/services/auth_service.dart';
@@ -80,6 +81,71 @@ class _ChoferesAdminScreenState extends State<ChoferesAdminScreen> {
     }
   }
 
+  Future<void> _cambiarVariante(AppUser chofer) async {
+    final l10n = AppLocalizations.of(context)!;
+    final varianteActual = chofer.varianteId;
+    final seleccionada = await showDialog<String?>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(
+          chofer.nombre.isNotEmpty ? 'Variante: ${chofer.nombre}' : 'Asignar variante',
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.clear),
+              title: const Text('Sin variante'),
+              subtitle: const Text('Chofer sin asignación específica'),
+              selected: varianteActual == null,
+              onTap: () => Navigator.pop(context, ''),
+            ),
+            const Divider(),
+            for (final v in kVariantesSerrano)
+              ListTile(
+                leading: const Icon(Icons.alt_route),
+                title: Text(v.nombre),
+                subtitle: Text(v.descripcion),
+                selected: varianteActual == v.id,
+                onTap: () => Navigator.pop(context, v.id),
+              ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text(l10n.cancel),
+          ),
+        ],
+      ),
+    );
+
+    if (seleccionada == null) return;
+    final nuevoId = seleccionada.isEmpty ? null : seleccionada;
+    if (nuevoId == chofer.varianteId) return;
+
+    try {
+      final outcome = await _garita.setChoferVariante(chofer, nuevoId);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          SnackBar(
+            content: Text(
+              outcome == WriteOutcome.queuedOffline
+                  ? l10n.savedOffline
+                  : 'Variante actualizada para ${chofer.nombre.isNotEmpty ? chofer.nombre : chofer.displayName}',
+            ),
+          ),
+        );
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(SnackBar(content: Text(l10n.errAuthUnknown)));
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
@@ -121,6 +187,7 @@ class _ChoferesAdminScreenState extends State<ChoferesAdminScreen> {
                               chofer: chofer,
                               enServicio: enServicio.contains(chofer.uid),
                               onChanged: (v) => _toggle(chofer, v),
+                              onSelectVariante: () => _cambiarVariante(chofer),
                             ),
                             const SizedBox(height: AppSpacing.sm),
                           ],
@@ -147,11 +214,13 @@ class _ChoferTile extends StatelessWidget {
     required this.chofer,
     required this.enServicio,
     required this.onChanged,
+    required this.onSelectVariante,
   });
 
   final AppUser chofer;
   final bool enServicio;
   final ValueChanged<bool> onChanged;
+  final VoidCallback onSelectVariante;
 
   @override
   Widget build(BuildContext context) {
@@ -159,6 +228,7 @@ class _ChoferTile extends StatelessWidget {
     final scheme = theme.colorScheme;
     final status = AppStatusColors.of(context);
     final l10n = AppLocalizations.of(context)!;
+    final variante = varianteById(chofer.varianteId);
 
     return Card(
       child: Padding(
@@ -200,6 +270,52 @@ class _ChoferTile extends StatelessWidget {
                             letterSpacing: 1.1,
                           ),
                         ),
+                      InkWell(
+                        onTap: onSelectVariante,
+                        borderRadius: BorderRadius.circular(12),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 2,
+                          ),
+                          decoration: BoxDecoration(
+                            color: variante != null
+                                ? scheme.primaryContainer
+                                : scheme.surfaceContainerHighest,
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                Icons.alt_route,
+                                size: 12,
+                                color: variante != null
+                                    ? scheme.onPrimaryContainer
+                                    : scheme.onSurfaceVariant,
+                              ),
+                              const SizedBox(width: 4),
+                              Text(
+                                variante?.nombre ?? 'Sin variante',
+                                style: theme.textTheme.labelSmall?.copyWith(
+                                  color: variante != null
+                                      ? scheme.onPrimaryContainer
+                                      : scheme.onSurfaceVariant,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                              const SizedBox(width: 2),
+                              Icon(
+                                Icons.arrow_drop_down,
+                                size: 14,
+                                color: variante != null
+                                    ? scheme.onPrimaryContainer
+                                    : scheme.onSurfaceVariant,
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
                       if (enServicio)
                         Row(
                           mainAxisSize: MainAxisSize.min,

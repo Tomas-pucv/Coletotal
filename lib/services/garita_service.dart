@@ -241,6 +241,18 @@ class GaritaService extends ChangeNotifier {
         label: 'chofer activo=$activo',
       );
 
+  /// Asigna o reasigna la variante operacional de un chofer.
+  ///
+  /// En el modelo de garita de colectivos, cada chofer tiene una variante base
+  /// pero el administrador puede autorizar su reasignación según la necesidad.
+  Future<WriteOutcome> setChoferVariante(AppUser chofer, String? varianteId) =>
+      confirmOrQueue(
+        _db.collection(_colUsuarios).doc(chofer.uid).update({
+          'varianteId': varianteId ?? FieldValue.delete(),
+        }),
+        label: 'chofer variante=$varianteId',
+      );
+
   @override
   void dispose() {
     AuthService.instance.removeListener(_onAuthChanged);

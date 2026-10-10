@@ -8,7 +8,6 @@ import 'package:taxi1/screens/map_screen.dart';
 import 'package:taxi1/screens/admin/choferes_admin_screen.dart';
 import 'package:taxi1/screens/admin/flota_screen.dart';
 import 'package:taxi1/screens/admin/garita_hub_screen.dart';
-import 'package:taxi1/screens/admin/paraderos_admin_screen.dart';
 import 'package:taxi1/screens/admin/recorridos_admin_screen.dart';
 import 'package:taxi1/screens/driver/turno_screen.dart';
 import 'package:taxi1/screens/preferences_screen.dart';
@@ -182,7 +181,6 @@ class _MainScreenState extends State<MainScreen> {
       AppDestination.turno => const TurnoScreen(),
       AppDestination.flota => const FlotaScreen(),
       AppDestination.garita => const GaritaHubScreen(),
-      AppDestination.paraderos => const ParaderosAdminScreen(),
       AppDestination.recorridos => const RecorridosAdminScreen(),
       AppDestination.choferes => const ChoferesAdminScreen(),
     },

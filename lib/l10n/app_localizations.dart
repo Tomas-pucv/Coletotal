@@ -103,7 +103,7 @@ abstract class AppLocalizations {
   /// No description provided for @navRoutes.
   ///
   /// In es, this message translates to:
-  /// **'Paraderos'**
+  /// **'Recorridos'**
   String get navRoutes;
 
   /// No description provided for @navPreferences.
@@ -133,7 +133,7 @@ abstract class AppLocalizations {
   /// No description provided for @tapToGoStop.
   ///
   /// In es, this message translates to:
-  /// **'Tocar para ir al paradero'**
+  /// **'Tocar para ver recorrido'**
   String get tapToGoStop;
 
   /// No description provided for @coordsLabel.
@@ -169,7 +169,7 @@ abstract class AppLocalizations {
   /// No description provided for @stopSemanticLabel.
   ///
   /// In es, this message translates to:
-  /// **'Paradero {name}, {address}'**
+  /// **'Recorrido {name}, {address}'**
   String stopSemanticLabel(String name, String address);
 
   /// No description provided for @telemetryUnavailable.
@@ -193,7 +193,7 @@ abstract class AppLocalizations {
   /// No description provided for @calculateRouteTitle.
   ///
   /// In es, this message translates to:
-  /// **'Calcular Ruta'**
+  /// **'Recorridos'**
   String get calculateRouteTitle;
 
   /// No description provided for @originLabel.
@@ -205,31 +205,31 @@ abstract class AppLocalizations {
   /// No description provided for @searchStopHint.
   ///
   /// In es, this message translates to:
-  /// **'Buscar paradero por nombre o dirección…'**
+  /// **'Buscar por calle, sector o punto de interés…'**
   String get searchStopHint;
 
   /// No description provided for @whereToGo.
   ///
   /// In es, this message translates to:
-  /// **'¿A dónde quieres ir?'**
+  /// **'Recorridos disponibles'**
   String get whereToGo;
 
   /// No description provided for @noResults.
   ///
   /// In es, this message translates to:
-  /// **'Sin resultados para \"{query}\"'**
+  /// **'Sin recorridos para \"{query}\"'**
   String noResults(String query);
 
   /// No description provided for @noResultsHint.
   ///
   /// In es, this message translates to:
-  /// **'Prueba con otro nombre o revisa la ortografía.'**
+  /// **'Prueba con otra calle, avenida o sector de Quilpué.'**
   String get noResultsHint;
 
   /// No description provided for @goToNearestStop.
   ///
   /// In es, this message translates to:
-  /// **'Ir al paradero más cercano'**
+  /// **'Línea más cercana'**
   String get goToNearestStop;
 
   /// No description provided for @locationUnavailable.
@@ -271,31 +271,31 @@ abstract class AppLocalizations {
   /// No description provided for @enableLocationForSorting.
   ///
   /// In es, this message translates to:
-  /// **'Activa la ubicación para ordenar los paraderos por cercanía.'**
+  /// **'Activa la ubicación para ordenar las líneas por cercanía.'**
   String get enableLocationForSorting;
 
   /// No description provided for @recentStops.
   ///
   /// In es, this message translates to:
-  /// **'Consultados recientemente'**
+  /// **'Consultadas recientemente'**
   String get recentStops;
 
   /// No description provided for @allStops.
   ///
   /// In es, this message translates to:
-  /// **'Todos los paraderos'**
+  /// **'Todas las líneas'**
   String get allStops;
 
   /// No description provided for @locationOffMessage.
   ///
   /// In es, this message translates to:
-  /// **'Activa el GPS del teléfono para ver tu posición y los paraderos cercanos.'**
+  /// **'Activa el GPS del teléfono para ver tu posición y los recorridos cercanos.'**
   String get locationOffMessage;
 
   /// No description provided for @locationDeniedMessage.
   ///
   /// In es, this message translates to:
-  /// **'ColeTotal necesita acceso a tu ubicación para calcular rutas y mostrarte los paraderos más cercanos.'**
+  /// **'ColeTotal necesita acceso a tu ubicación para calcular las líneas más cercanas.'**
   String get locationDeniedMessage;
 
   /// No description provided for @locationDisabledByPreference.

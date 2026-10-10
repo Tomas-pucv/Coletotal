@@ -60,7 +60,23 @@ service cloud.firestore {
         && d.color is int
         && d.activo is bool
         && (!('geometria' in d)
-            || (d.geometria is string && d.geometria.size() <= 300000));
+            || d.geometria == null
+            || (d.geometria is string && d.geometria.size() <= 300000))
+        && (!('geometriaVuelta' in d)
+            || d.geometriaVuelta == null
+            || (d.geometriaVuelta is string && d.geometriaVuelta.size() <= 300000))
+        && (!('varianteId' in d)
+            || d.varianteId == null
+            || (d.varianteId is string && d.varianteId.size() <= 64))
+        && (!('varianteNombre' in d)
+            || d.varianteNombre == null
+            || (d.varianteNombre is string && d.varianteNombre.size() <= 80))
+        && (!('callesIda' in d)
+            || d.callesIda == null
+            || (d.callesIda is list && d.callesIda.size() <= 100))
+        && (!('callesVuelta' in d)
+            || d.callesVuelta == null
+            || (d.callesVuelta is list && d.callesVuelta.size() <= 100));
     }
 
     // Códigos de enrolamiento. El id del documento ES el código.
@@ -118,12 +134,15 @@ service cloud.firestore {
       allow create: if signedIn()
         && request.auth.uid == uid
         && request.resource.data.keys().hasOnly(
-             ['rol', 'nombre', 'garitaId', 'patente', 'email', 'activo', 'codigo'])
+             ['rol', 'nombre', 'garitaId', 'patente', 'email', 'activo', 'codigo', 'varianteId'])
         && request.resource.data.rol in ['colectivero', 'administrador']
         && request.resource.data.activo == true
         && request.resource.data.nombre is string
         && request.resource.data.nombre.size() > 0
         && request.resource.data.nombre.size() <= 60
+        && (!('varianteId' in request.resource.data)
+            || request.resource.data.varianteId == null
+            || (request.resource.data.varianteId is string && request.resource.data.varianteId.size() <= 64))
         && exists(/databases/$(database)/documents/codigos_acceso/$(request.resource.data.codigo))
         && codigo(request.resource.data.codigo).activo == true
         && codigo(request.resource.data.codigo).rol == request.resource.data.rol
@@ -138,9 +157,14 @@ service cloud.firestore {
         && request.resource.data.nombre.size() > 0
         && request.resource.data.nombre.size() <= 60;
 
-      // El administrador de la garita sólo puede habilitar o deshabilitar.
+      // El administrador de la garita puede habilitar/deshabilitar al chofer
+      // y/o cambiar su variante asignada.
       allow update: if isAdminOf(resource.data.garitaId)
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['activo']);
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['activo', 'varianteId'])
+        && (!('activo' in request.resource.data) || request.resource.data.activo is bool)
+        && (!('varianteId' in request.resource.data)
+            || request.resource.data.varianteId == null
+            || (request.resource.data.varianteId is string && request.resource.data.varianteId.size() <= 64));
 
       // Borrar una cuenta dejaría al usuario autenticado y sin perfil, que es
       // un estado peor que tenerla deshabilitada.
