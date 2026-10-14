@@ -2,10 +2,14 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:latlong2/latlong.dart';
 
 import 'package:taxi1/models/app_user.dart';
 import 'package:taxi1/models/colectivo_activo.dart';
+import 'package:taxi1/models/recorrido.dart';
 import 'package:taxi1/services/session_log_service.dart';
+import 'package:taxi1/screens/admin/recorridos_admin_screen.dart';
+import 'package:taxi1/utils/polyline.dart';
 
 /// Contrato entre lo que escribe el cliente y lo que aceptan las reglas.
 ///
@@ -80,6 +84,46 @@ void main() {
       );
       // + SHIFT_START y SHIFT_END, que no cuentan para el tope.
       expect(SessionLogService.maxEventos + 2, lessThanOrEqualTo(limite));
+    });
+
+    test('una línea con ida y vuelta tiene la forma que piden las reglas', () {
+      const puntos = [LatLng(-33.04, -71.44), LatLng(-33.05, -71.44)];
+      final trayecto = Trayecto(
+        puntos: puntos,
+        geometria: encodePolyline(puntos),
+        trazado: puntos,
+      );
+      final data = Recorrido(
+        id: 'r1',
+        garitaId: 'g1',
+        nombre: 'Línea 1',
+        colorValue: kRecorridoColors.first,
+        ida: trayecto,
+        vuelta: trayecto,
+      ).toMap();
+
+      // recorridoValido(): nombre, color entero, activo, ida y vuelta.
+      expect(data['nombre'], isA<String>());
+      expect(data['color'], isA<int>());
+      expect(data['activo'], isA<bool>());
+      for (final sentido in ['ida', 'vuelta']) {
+        expect(rules, contains('trayectoValido(d.$sentido)'));
+        final t = data[sentido] as Map<String, dynamic>;
+        // trayectoValido(): puntos (lista) y geometria (texto).
+        expect(t.keys, containsAll(['puntos', 'geometria']));
+        expect(t['puntos'], isA<List<Object?>>());
+        expect(t['geometria'], isA<String>());
+      }
+      // Los paraderos ya no existen: nada en las reglas los abre.
+      expect(rules, isNot(contains('match /paraderos')));
+      expect(data.containsKey('paraderoIds'), isFalse);
+    });
+
+    test('el tope de puntos del editor cabe en el de las reglas', () {
+      final limite = int.parse(
+        RegExp(r'puntos\.size\(\) <= (\d+)').firstMatch(rules)!.group(1)!,
+      );
+      expect(RecorridoEditorScreen.maxPuntos, lessThanOrEqualTo(limite));
     });
   });
 }

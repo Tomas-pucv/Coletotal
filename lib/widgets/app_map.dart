@@ -12,11 +12,22 @@ import 'package:maplibre_gl/maplibre_gl.dart' as ml;
 
 import 'package:taxi1/config/map_config.dart';
 import 'package:taxi1/services/basemap_service.dart';
+import 'package:taxi1/utils/polyline.dart';
 import 'package:taxi1/widgets/map_attribution.dart';
 
 // ---------------------------------------------------------------------------
 // Lo que las pantallas dibujan sobre el mapa
 // ---------------------------------------------------------------------------
+
+/// Una imagen que la app dibuja y le entrega a MapLibre: el mapa es una vista
+/// nativa y no puede llevar widgets adentro.
+abstract interface class MapImage {
+  /// Nombre de la imagen en el estilo: dos imágenes iguales comparten una.
+  String get key;
+
+  /// La imagen en PNG, a la densidad de la pantalla.
+  Future<Uint8List> toPng(double devicePixelRatio);
+}
 
 /// Ícono de un marcador. La app lo dibuja una vez y se lo entrega a MapLibre
 /// como imagen: el mapa es una vista nativa y no puede llevar widgets adentro.
@@ -27,7 +38,7 @@ import 'package:taxi1/widgets/map_attribution.dart';
 /// toque sobre la imagen entera, así que el área táctil sigue midiendo lo que
 /// medía el widget aunque el dibujo sea más chico.
 @immutable
-class MarkerIcon {
+class MarkerIcon implements MapImage {
   const MarkerIcon.circle({
     required double this.diameter,
     required this.color,
@@ -64,7 +75,7 @@ class MarkerIcon {
   final List<Shadow> glyphShadows;
   final double tapTarget;
 
-  /// Nombre de la imagen en el estilo: dos marcadores iguales comparten una.
+  @override
   String get key => [
     diameter ?? 'g',
     color.toARGB32(),
@@ -99,7 +110,7 @@ class MarkerIcon {
   double get extent =>
       math.max(tapTarget, _contenido + 2 * _margenSombra).ceilToDouble();
 
-  /// La imagen en PNG, a la densidad de la pantalla.
+  @override
   Future<Uint8List> toPng(double devicePixelRatio) async {
     final lado = extent;
     final recorder = ui.PictureRecorder();
@@ -153,16 +164,133 @@ class MarkerIcon {
       painter.dispose();
     }
 
-    final picture = recorder.endRecording();
-    final pixeles = (lado * devicePixelRatio).ceil();
-    final image = await picture.toImage(pixeles, pixeles);
-    picture.dispose();
-    try {
-      final datos = await image.toByteData(format: ui.ImageByteFormat.png);
-      return datos!.buffer.asUint8List();
-    } finally {
-      image.dispose();
-    }
+    final pixeles = lado * devicePixelRatio;
+    return _aPng(recorder.endRecording(), pixeles, pixeles);
+  }
+}
+
+/// Pasa a PNG un dibujo de [ancho] por [alto] píxeles físicos.
+Future<Uint8List> _aPng(ui.Picture picture, double ancho, double alto) async {
+  final image = await picture.toImage(ancho.ceil(), alto.ceil());
+  picture.dispose();
+  try {
+    final datos = await image.toByteData(format: ui.ImageByteFormat.png);
+    return datos!.buffer.asUint8List();
+  } finally {
+    image.dispose();
+  }
+}
+
+/// Insignia de una línea de colectivos: su rótulo corto sobre su color. Se
+/// repite a lo largo del trazado, como el escudo de una carretera.
+@immutable
+class LineBadge implements MapImage {
+  const LineBadge({
+    required this.text,
+    required this.color,
+    required this.textColor,
+    required this.borderColor,
+  });
+
+  final String text;
+  final Color color;
+  final Color textColor;
+  final Color borderColor;
+
+  static const double _alto = 22;
+  static const double _relleno = 6;
+  static const double _borde = 1.5;
+  static const double _sombra = 3;
+
+  @override
+  String get key => [
+    'insignia',
+    text,
+    color.toARGB32(),
+    textColor.toARGB32(),
+    borderColor.toARGB32(),
+  ].join('_');
+
+  @override
+  Future<Uint8List> toPng(double devicePixelRatio) {
+    final texto = TextPainter(
+      textDirection: TextDirection.ltr,
+      text: TextSpan(
+        text: text,
+        style: TextStyle(
+          fontSize: 13,
+          height: 1,
+          fontWeight: FontWeight.w800,
+          color: textColor,
+        ),
+      ),
+    )..layout();
+    final ancho = math.max(_alto, texto.width + 2 * _relleno);
+    final caja = RRect.fromRectAndRadius(
+      Rect.fromLTWH(_sombra, _sombra, ancho, _alto),
+      const Radius.circular(6),
+    );
+    final recorder = ui.PictureRecorder();
+    final canvas = Canvas(recorder)..scale(devicePixelRatio);
+    canvas
+      ..drawRRect(
+        caja.shift(const Offset(0, 1)),
+        Paint()
+          ..color = const Color(0x59000000)
+          ..maskFilter = MaskFilter.blur(
+            BlurStyle.normal,
+            Shadow.convertRadiusToSigma(_sombra - 1),
+          ),
+      )
+      ..drawRRect(caja, Paint()..color = color)
+      ..drawRRect(
+        caja.deflate(_borde / 2),
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = _borde
+          ..color = borderColor,
+      );
+    texto
+      ..paint(canvas, caja.center - Offset(texto.width / 2, texto.height / 2))
+      ..dispose();
+    return _aPng(
+      recorder.endRecording(),
+      (ancho + 2 * _sombra) * devicePixelRatio,
+      (_alto + 2 * _sombra) * devicePixelRatio,
+    );
+  }
+}
+
+/// Galón que muestra hacia dónde va una línea. Apunta al norte: el mapa lo
+/// gira con el rumbo de cada tramo. Blanco con un contorno oscuro, para que se
+/// vea sobre cualquier color de línea y sobre el mapa claro u oscuro.
+class _Galon implements MapImage {
+  const _Galon();
+
+  static const double _lado = 14;
+
+  @override
+  String get key => 'galon_linea';
+
+  @override
+  Future<Uint8List> toPng(double devicePixelRatio) {
+    final recorder = ui.PictureRecorder();
+    final canvas = Canvas(recorder)..scale(devicePixelRatio);
+    final galon = ui.Path()
+      ..moveTo(3, 9.5)
+      ..lineTo(7, 5)
+      ..lineTo(11, 9.5);
+    Paint trazo(Color color, double ancho) => Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = ancho
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round
+      ..color = color;
+    canvas
+      ..drawPath(galon, trazo(const Color(0x59000000), 4.2))
+      ..drawPath(galon, trazo(const Color(0xFFFFFFFF), 2.2));
+    final pixeles = _lado * devicePixelRatio;
+    return _aPng(recorder.endRecording(), pixeles, pixeles);
   }
 }
 
@@ -199,6 +327,10 @@ class MapLine {
     this.borderColor = const Color(0x00000000),
     this.borderWidth = 0,
     this.dotted = false,
+    this.badge,
+    this.badgeOpacity = 1,
+    this.arrows = false,
+    this.onTap,
   });
 
   final List<LatLng> points;
@@ -212,6 +344,18 @@ class MapLine {
   /// Punteada: para lo que se recorre a pie, distinto de la línea continua
   /// de los colectivos. Cada punto es un círculo de [width] con su borde.
   final bool dotted;
+
+  /// Insignia repetida a lo largo de la línea, por encima de los nombres de
+  /// calles. Si dos se topan, MapLibre muestra sólo una.
+  final LineBadge? badge;
+  final double badgeOpacity;
+
+  /// Flechas que avanzan por la línea en el orden de [points] (quietas si el
+  /// [AppMap] no las anima): hacia dónde va el colectivo.
+  final bool arrows;
+
+  /// Al tocar la línea o su insignia.
+  final VoidCallback? onTap;
 
   /// El punto con que se dibuja una línea [dotted].
   MarkerIcon get dotIcon => MarkerIcon.circle(
@@ -256,6 +400,85 @@ class MapPulse {
   final double toRadius;
 }
 
+/// Cómo sigue la cámara a la flecha de navegación ([MapNavigation]).
+enum MapFollow {
+  /// La cámara queda donde el usuario la deje.
+  none,
+
+  /// Sigue la posición, plana y con el norte arriba.
+  position,
+
+  /// Navegación, como en Google Maps: sigue la posición y el rumbo, inclinada,
+  /// con la flecha en la parte de abajo de la pantalla.
+  navigation,
+}
+
+/// Un arreglo del GPS para la flecha de navegación.
+@immutable
+class MapUserFix {
+  const MapUserFix({
+    required this.point,
+    required this.time,
+    this.heading,
+    this.speed,
+    this.accuracy,
+  });
+
+  final LatLng point;
+  final DateTime time;
+
+  /// Hacia dónde apunta la flecha, en grados desde el norte.
+  final double? heading;
+
+  /// En m/s.
+  final double? speed;
+
+  /// En metros.
+  final double? accuracy;
+
+  @override
+  bool operator ==(Object other) =>
+      other is MapUserFix &&
+      other.point == point &&
+      other.time == time &&
+      other.heading == heading &&
+      other.speed == speed &&
+      other.accuracy == accuracy;
+
+  @override
+  int get hashCode => Object.hash(point, time, heading, speed, accuracy);
+}
+
+/// La flecha de navegación del chofer y la cámara que la sigue.
+///
+/// La flecha es la de MapLibre (su "location component"), alimentada con las
+/// posiciones de la app en vez de con su propio GPS: MapLibre la desliza entre
+/// un arreglo y otro, y su cámara la sigue sin saltos.
+@immutable
+class MapNavigation {
+  const MapNavigation({
+    this.fix,
+    this.follow = MapFollow.none,
+    this.zoom = 16,
+    this.tilt = 50,
+    this.insets = EdgeInsets.zero,
+  });
+
+  /// La última posición; `null` mientras no hay ninguna (no se dibuja flecha).
+  final MapUserFix? fix;
+  final MapFollow follow;
+
+  /// Zoom mientras sigue a la flecha.
+  final double zoom;
+
+  /// Inclinación en [MapFollow.navigation], en grados (hasta 60).
+  final double tilt;
+
+  /// Margen de la cámara en [MapFollow.navigation]: con margen arriba, la
+  /// flecha queda más abajo en la pantalla y se ve más camino por delante.
+  final EdgeInsets insets;
+}
+
 // ---------------------------------------------------------------------------
 // Controlador
 // ---------------------------------------------------------------------------
@@ -297,6 +520,23 @@ class AppMapController {
     }
   }
 
+  /// Plana y con el norte arriba: para mostrar una zona entera después de
+  /// navegar con la cámara inclinada.
+  Future<void> animateToOverview(
+    LatLng point, {
+    required double zoom,
+    Duration duration = const Duration(milliseconds: 700),
+  }) async {
+    final map = _map;
+    if (map == null) return;
+    await map.animateCamera(
+      ml.CameraUpdate.newCameraPosition(
+        ml.CameraPosition(target: _ml(point), zoom: zoom),
+      ),
+      duration: duration,
+    );
+  }
+
   static ml.CameraUpdate _actualizacion(LatLng point, double? zoom) =>
       zoom == null
       ? ml.CameraUpdate.newLatLng(_ml(point))
@@ -311,6 +551,11 @@ ml.LatLng _ml(LatLng p) => ml.LatLng(p.latitude, p.longitude);
 @visibleForTesting
 double circleRadiusAtZoom0(double meters, double latitude) =>
     meters * 512 / (40075016.686 * math.cos(latitude * math.pi / 180));
+
+/// Metros que mide un píxel lógico en el [zoom] dado, en la [latitude] dada.
+@visibleForTesting
+double metersPerPixel(double latitude, double zoom) =>
+    1 / (circleRadiusAtZoom0(1, latitude) * math.pow(2, zoom));
 
 // ---------------------------------------------------------------------------
 // El mapa
@@ -335,6 +580,8 @@ class AppMap extends StatefulWidget {
     this.lines = const [],
     this.circles = const [],
     this.pulse,
+    this.animateArrows = true,
+    this.navigation,
     this.rotateGesturesEnabled = true,
     this.attributionAlignment = Alignment.bottomLeft,
     this.onMapReady,
@@ -351,13 +598,23 @@ class AppMap extends StatefulWidget {
   final List<MapLine> lines;
   final List<MapCircle> circles;
   final MapPulse? pulse;
+
+  /// Si las flechas de las líneas con [MapLine.arrows] avanzan. Sin
+  /// animaciones (la preferencia, o el mapa fuera de la vista), quedan quietas.
+  final bool animateArrows;
+
+  /// La flecha de navegación y cómo la sigue la cámara (pantalla de turno).
+  /// Tiene que estar desde que se crea el mapa: MapLibre arma su flecha al
+  /// crearse.
+  final MapNavigation? navigation;
   final bool rotateGesturesEnabled;
   final Alignment attributionAlignment;
 
   /// Cuando ya se puede mover la cámara.
   final VoidCallback? onMapReady;
 
-  /// El usuario arrastró o pellizcó el mapa (para dejar de seguirlo).
+  /// El usuario arrastró o pellizcó el mapa (para dejar de seguirlo). Con
+  /// [navigation], también cuando un gesto le quitó la cámara a la flecha.
   final VoidCallback? onUserGesture;
 
   final ValueChanged<LatLng>? onLongPress;
@@ -374,11 +631,31 @@ class AppMap extends StatefulWidget {
   State<AppMap> createState() => _AppMapState();
 }
 
-class _AppMapState extends State<AppMap> with SingleTickerProviderStateMixin {
+class _AppMapState extends State<AppMap> with TickerProviderStateMixin {
   static const _lineas = 'app_lineas';
+  static const _insignias = 'app_insignias';
+  static const _flechas = 'app_flechas';
   static const _circulos = 'app_circulos';
   static const _pulso = 'app_pulso';
   static const _marcadores = 'app_marcadores';
+
+  static const _galon = _Galon();
+
+  /// Las flechas avanzan sin mover nada en el mapa: cada una está dibujada en
+  /// [_fases] posiciones seguidas, una capa por posición, y la animación sólo
+  /// cambia qué capa se ve (la opacidad de una capa es un valor de pintura:
+  /// cambiarla no obliga a MapLibre a rehacer las teselas).
+  static const _fases = 8;
+
+  /// Entre una flecha y la siguiente, en píxeles lógicos.
+  static const double _espacioFlechas = 56;
+
+  /// Tope de flechas por envío, por si una línea muy larga cae en la zona.
+  static const _maxFlechas = 3000;
+
+  static final List<double> _flechasQuietas = [
+    for (var f = 0; f < _fases; f++) f == 0 ? 1.0 : 0.0,
+  ];
 
   /// Imágenes ya dibujadas, por ícono y densidad: se reusan entre mapas y al
   /// recargar el estilo.
@@ -415,6 +692,32 @@ class _AppMapState extends State<AppMap> with SingleTickerProviderStateMixin {
   late final AnimationController _animacion;
   bool _pintandoPulso = false;
 
+  /// Una vuelta: cada flecha avanza hasta donde estaba la siguiente.
+  late final AnimationController _flujo;
+
+  /// Opacidad de cada fase de las flechas: la que tiene el mapa y la que se
+  /// quiere ahora.
+  final List<double> _opacidadFlechas = List.of(_flechasQuietas);
+  List<double> _objetivoFlechas = _flechasQuietas;
+  bool _pintandoFlechas = false;
+
+  /// Zoom y zona (tres veces la pantalla) con que se repartieron las flechas:
+  /// su separación en metros depende del zoom.
+  ({double zoom, ml.LatLngBounds zona})? _vista;
+
+  /// Lo último que se le aplicó a la flecha de navegación y a su cámara.
+  MapUserFix? _fixEnviado;
+  MapFollow _seguimiento = MapFollow.none;
+  double? _zoomSeguimiento;
+  EdgeInsets? _margen;
+  bool _navegando = false;
+  bool _navegacionPendiente = false;
+
+  /// Cuándo la app cambió el seguimiento por su cuenta: MapLibre avisa que se
+  /// soltó el seguimiento también cuando lo suelta la app, y eso no es un
+  /// gesto del usuario.
+  DateTime _cambioPropio = DateTime.fromMillisecondsSinceEpoch(0);
+
   double _densidad = 1;
   bool _accesible = false;
   List<(MapMarker, Offset)> _semanticas = const [];
@@ -433,6 +736,12 @@ class _AppMapState extends State<AppMap> with SingleTickerProviderStateMixin {
       vsync: this,
       duration: const Duration(milliseconds: 1400),
     )..addListener(_pintarPulso);
+    // Unos 13 px por segundo: un avance tranquilo, que indica el sentido sin
+    // llamar la atención (a 40 px/s se veía apurado).
+    _flujo = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 4200),
+    )..addListener(_pintarFlechas);
     _basemap.addListener(_onBasemapChanged);
     if (!_basemap.isReady) unawaited(_basemap.load());
   }
@@ -441,6 +750,7 @@ class _AppMapState extends State<AppMap> with SingleTickerProviderStateMixin {
   void dispose() {
     _basemap.removeListener(_onBasemapChanged);
     _animacion.dispose();
+    _flujo.dispose();
     widget.controller?._map = null;
     final map = _map;
     if (map != null) map.onFeatureTapped.remove(_alTocar);
@@ -459,9 +769,14 @@ class _AppMapState extends State<AppMap> with SingleTickerProviderStateMixin {
       widget.controller?._map = _map;
     }
     _sincronizar();
+    _sincronizarNavegacion();
     _actualizarPulso();
+    _actualizarFlujo();
+    if (_vista == null) unawaited(_actualizarVista());
     if (_accesible) unawaited(_actualizarSemanticas());
   }
+
+  bool get _hayFlechas => widget.lines.any((l) => l.arrows);
 
   // --- MapLibre ------------------------------------------------------------
 
@@ -479,6 +794,13 @@ class _AppMapState extends State<AppMap> with SingleTickerProviderStateMixin {
     _generacion++;
     _imagenes.clear();
     _enviado.clear();
+    // Las capas de flechas nacen así (ver `_agregarCapas`).
+    _opacidadFlechas.setAll(0, _flechasQuietas);
+    // Con el estilo nuevo MapLibre rearma su flecha: se le vuelve a dar todo.
+    _fixEnviado = null;
+    _seguimiento = MapFollow.none;
+    _zoomSeguimiento = null;
+    _margen = null;
     try {
       await _agregarCapas(map, _debajoDe);
     } catch (e) {
@@ -489,13 +811,16 @@ class _AppMapState extends State<AppMap> with SingleTickerProviderStateMixin {
     if (!mounted || estilo != _estilo) return;
     _estiloListo = true;
     _sincronizar();
+    _sincronizarNavegacion();
     _actualizarPulso();
+    _actualizarFlujo();
+    unawaited(_actualizarVista());
     if (_accesible) unawaited(_actualizarSemanticas());
   }
 
-  /// Capas de la app. Las líneas, el halo y el pulso van debajo de
-  /// [debajoDe], la primera capa de nombres del mapa base; los marcadores,
-  /// encima de todo.
+  /// Capas de la app. Las líneas, sus flechas, el halo y el pulso van debajo
+  /// de [debajoDe], la primera capa de nombres del mapa base; las insignias de
+  /// las líneas y los marcadores, encima de todo.
   Future<void> _agregarCapas(
     ml.MapLibreMapController map,
     String? debajoDe,
@@ -542,8 +867,28 @@ class _AppMapState extends State<AppMap> with SingleTickerProviderStateMixin {
       ),
       belowLayerId: debajoDe,
       filter: continua,
-      enableInteraction: false,
+      // Tocar una línea la elige (ver `MapLine.onTap`).
+      enableInteraction: true,
     );
+    // Las flechas, encima de las líneas y debajo de la ruta a pie: son
+    // contexto, no la indicación que hay que seguir.
+    await map.addGeoJsonSource(_flechas, vacio);
+    for (var fase = 0; fase < _fases; fase++) {
+      await map.addSymbolLayer(
+        _flechas,
+        '${_flechas}_$fase',
+        _propiedadesFlecha(_flechasQuietas[fase]),
+        belowLayerId: debajoDe,
+        filter: [
+          '==',
+          ['get', 'fase'],
+          fase,
+        ],
+        // Más lejos, en una línea de pocos píxeles, serían puro ruido.
+        minzoom: 12,
+        enableInteraction: false,
+      );
+    }
     // Las punteadas, con un punto (imagen) cada [_espacioPuntos]: un guion de
     // largo cero con extremos redondos también da puntos, pero el borde
     // tendría que ser otra línea punteada, y sus puntos se desalinean
@@ -584,6 +929,25 @@ class _AppMapState extends State<AppMap> with SingleTickerProviderStateMixin {
       ),
       filter: ['get', 'punteada'],
       enableInteraction: false,
+    );
+    // Las insignias de las líneas, encima de los nombres de calles: donde va
+    // una, MapLibre no pone un nombre. Entre ellas tampoco se tapan; si dos se
+    // topan, gana la de la línea elegida (la última de la lista).
+    await map.addSymbolLayer(
+      _lineas,
+      _insignias,
+      ml.SymbolLayerProperties(
+        iconImage: ['get', 'insignia'],
+        iconOpacity: ['get', 'opacidadInsignia'],
+        symbolPlacement: 'line',
+        symbolSpacing: 280,
+        iconRotationAlignment: 'viewport',
+        iconPadding: 6,
+        symbolSortKey: ['-', ordenado],
+      ),
+      filter: ['has', 'insignia'],
+      minzoom: 11,
+      enableInteraction: true,
     );
 
     await map.addGeoJsonSource(_circulos, vacio);
@@ -646,6 +1010,13 @@ class _AppMapState extends State<AppMap> with SingleTickerProviderStateMixin {
     String layerId,
     ml.Annotation? annotation,
   ) {
+    if (layerId == _lineas || layerId == _insignias) {
+      // El id es `linea_<posición en la lista>` (ver `_lineasGeoJson`).
+      final lines = widget.lines;
+      final i = int.tryParse(id.replaceFirst('linea_', ''));
+      if (i != null && i >= 0 && i < lines.length) lines[i].onTap?.call();
+      return;
+    }
     if (layerId != _marcadores) return;
     for (final marker in widget.markers) {
       if (marker.id == id) {
@@ -663,6 +1034,7 @@ class _AppMapState extends State<AppMap> with SingleTickerProviderStateMixin {
 
   void _alQuedarQuieta() {
     if (_accesible) unawaited(_actualizarSemanticas());
+    unawaited(_actualizarVista());
     // El rumbo final, por si el último movimiento no lo trajo.
     final rumbo = _map?.cameraPosition?.bearing;
     if (rumbo != null) _avisarRumbo(rumbo);
@@ -710,10 +1082,13 @@ class _AppMapState extends State<AppMap> with SingleTickerProviderStateMixin {
     bool vigente() => _estiloListo && generacion == _generacion;
 
     final markers = widget.markers;
-    final iconos = [
+    final iconos = <MapImage>[
       for (final marker in markers) marker.icon,
-      for (final line in widget.lines)
+      for (final line in widget.lines) ...[
         if (line.dotted) line.dotIcon,
+        ?line.badge,
+      ],
+      if (_hayFlechas) _galon,
     ];
     for (final icono in iconos) {
       if (_imagenes.contains(icono.key)) continue;
@@ -745,6 +1120,31 @@ class _AppMapState extends State<AppMap> with SingleTickerProviderStateMixin {
       if (!vigente()) return;
       _enviado[id] = texto;
     }
+
+    // Repartir las flechas recorre las líneas enteras: sólo se hace si
+    // cambiaron las líneas que las llevan o la vista.
+    final firma = _firmaFlechas();
+    if (_enviado[_flechas] != firma) {
+      final datos = _flechasGeoJson(widget.lines, _vista);
+      if (!vigente()) return;
+      await map.setGeoJsonSource(_flechas, datos);
+      if (!vigente()) return;
+      _enviado[_flechas] = firma;
+    }
+  }
+
+  String _firmaFlechas() {
+    final vista = _vista;
+    final firma = StringBuffer(
+      vista == null
+          ? '-'
+          : '${vista.zoom} ${vista.zona.southwest} ${vista.zona.northeast}',
+    );
+    for (final l in widget.lines) {
+      if (!l.arrows || l.points.isEmpty) continue;
+      firma.write(' ${l.points.length} ${l.points.first} ${l.points.last}');
+    }
+    return firma.toString();
   }
 
   static Map<String, dynamic> _punto(
@@ -781,6 +1181,10 @@ class _AppMapState extends State<AppMap> with SingleTickerProviderStateMixin {
               'orden': i,
               'punteada': line.dotted,
               if (line.dotted) 'icono': line.dotIcon.key,
+              if (line.badge case final badge?) ...{
+                'insignia': badge.key,
+                'opacidadInsignia': line.badgeOpacity,
+              },
             },
             'geometry': {
               'type': 'LineString',
@@ -792,6 +1196,57 @@ class _AppMapState extends State<AppMap> with SingleTickerProviderStateMixin {
           },
     ],
   };
+
+  /// Las flechas de las líneas con [MapLine.arrows] que caen en la zona de
+  /// [vista], cada [_espacioFlechas] píxeles en su zoom. Entre una y otra van
+  /// sus otras [_fases] - 1 posiciones, una por capa.
+  static Map<String, dynamic> _flechasGeoJson(
+    List<MapLine> lines,
+    ({double zoom, ml.LatLngBounds zona})? vista,
+  ) {
+    final features = <Map<String, dynamic>>[];
+    if (vista != null) {
+      final sur = vista.zona.southwest;
+      final norte = vista.zona.northeast;
+      bool dentro(LatLng p) =>
+          p.latitude >= sur.latitude &&
+          p.latitude <= norte.latitude &&
+          p.longitude >= sur.longitude &&
+          p.longitude <= norte.longitude;
+      final paso =
+          metersPerPixel((sur.latitude + norte.latitude) / 2, vista.zoom) *
+          _espacioFlechas /
+          _fases;
+      todas:
+      for (final line in lines) {
+        if (!line.arrows) continue;
+        final puntos = puntosCada(
+          [
+            for (final p in line.points)
+              if (_finito(p)) p,
+          ],
+          paso,
+          desde: paso / 2,
+        );
+        for (final (i, p) in puntos.indexed) {
+          if (!dentro(p.punto)) continue;
+          features.add({
+            'type': 'Feature',
+            'properties': {
+              'fase': i % _fases,
+              'rumbo': (p.rumbo * 10).roundToDouble() / 10,
+            },
+            'geometry': {
+              'type': 'Point',
+              'coordinates': [p.punto.longitude, p.punto.latitude],
+            },
+          });
+          if (features.length >= _maxFlechas) break todas;
+        }
+      }
+    }
+    return {'type': 'FeatureCollection', 'features': features};
+  }
 
   static Map<String, dynamic> _circulosGeoJson(List<MapCircle> circles) => {
     'type': 'FeatureCollection',
@@ -870,6 +1325,269 @@ class _AppMapState extends State<AppMap> with SingleTickerProviderStateMixin {
     circleColor: _css(color.withValues(alpha: 1)),
     circlePitchAlignment: 'map',
   );
+
+  // --- Flechas -------------------------------------------------------------
+
+  /// Toma lo que se ve del mapa para repartir las flechas. Sólo cambia algo si
+  /// cambió el zoom o la cámara salió de la zona que ya tiene flechas.
+  Future<void> _actualizarVista() async {
+    final map = _map;
+    if (map == null || !_estiloListo || !_hayFlechas) return;
+    final zoom = map.cameraPosition?.zoom;
+    if (zoom == null) return;
+    final ml.LatLngBounds visible;
+    try {
+      visible = await map.getVisibleRegion();
+    } catch (_) {
+      return;
+    }
+    final vista = _vista;
+    if (!mounted ||
+        (vista != null &&
+            (vista.zoom - zoom).abs() < 0.25 &&
+            _contiene(vista.zona, visible))) {
+      return;
+    }
+    // La pantalla y otra más hacia cada lado: al arrastrar el mapa ya hay
+    // flechas antes de que la cámara se detenga.
+    final alto = visible.northeast.latitude - visible.southwest.latitude;
+    final ancho = visible.northeast.longitude - visible.southwest.longitude;
+    _vista = (
+      zoom: zoom,
+      zona: ml.LatLngBounds(
+        southwest: ml.LatLng(
+          visible.southwest.latitude - alto,
+          visible.southwest.longitude - ancho,
+        ),
+        northeast: ml.LatLng(
+          visible.northeast.latitude + alto,
+          visible.northeast.longitude + ancho,
+        ),
+      ),
+    );
+    _sincronizar();
+  }
+
+  static bool _contiene(ml.LatLngBounds afuera, ml.LatLngBounds adentro) =>
+      adentro.southwest.latitude >= afuera.southwest.latitude &&
+      adentro.southwest.longitude >= afuera.southwest.longitude &&
+      adentro.northeast.latitude <= afuera.northeast.latitude &&
+      adentro.northeast.longitude <= afuera.northeast.longitude;
+
+  void _actualizarFlujo() {
+    final hay = _estiloListo && _hayFlechas;
+    final animar = hay && widget.animateArrows;
+    if (animar && !_flujo.isAnimating) {
+      _flujo.repeat();
+    } else if (!animar && _flujo.isAnimating) {
+      _flujo
+        ..stop()
+        ..reset();
+    }
+    if (hay && !animar) _pedirOpacidades(_flechasQuietas);
+  }
+
+  /// Un cuadro de las flechas: la fase actual se apaga mientras se enciende la
+  /// siguiente, así que cada flecha parece deslizarse hacia adelante.
+  void _pintarFlechas() {
+    final t = _flujo.value * _fases;
+    final fase = t.floor() % _fases;
+    final avance = t - t.floor();
+    _pedirOpacidades([
+      for (var f = 0; f < _fases; f++)
+        f == fase
+            ? 1 - avance
+            : f == (fase + 1) % _fases
+            ? avance
+            : 0,
+    ]);
+  }
+
+  /// Lleva las capas de flechas a [objetivo]. Si todavía va un envío, éste
+  /// termina mandando lo último que se pidió: nunca se acumulan llamadas, y el
+  /// estado final (por ejemplo, quietas al apagar las animaciones) siempre
+  /// llega.
+  void _pedirOpacidades(List<double> objetivo) {
+    _objetivoFlechas = objetivo;
+    if (_pintandoFlechas) return;
+    _pintandoFlechas = true;
+    unawaited(() async {
+      try {
+        while (mounted && _estiloListo) {
+          final map = _map;
+          final objetivo = _objetivoFlechas;
+          final cambios = [
+            for (var f = 0; f < _fases; f++)
+              if ((objetivo[f] - _opacidadFlechas[f]).abs() > 0.01) f,
+          ];
+          if (map == null || cambios.isEmpty) break;
+          final generacion = _generacion;
+          await Future.wait([
+            for (final f in cambios)
+              map.setLayerProperties(
+                '${_flechas}_$f',
+                _propiedadesFlecha(objetivo[f]),
+              ),
+          ]);
+          // Con otro estilo las capas son nuevas y parten quietas.
+          if (generacion != _generacion) break;
+          for (final f in cambios) {
+            _opacidadFlechas[f] = objetivo[f];
+          }
+        }
+      } catch (_) {
+        // El estilo cambió a mitad del envío; su carga deja las flechas quietas.
+      } finally {
+        _pintandoFlechas = false;
+      }
+    }());
+  }
+
+  /// Todas las propiedades de una capa de flechas: `setLayerProperties` deja
+  /// en su valor por omisión las que no se le pasan. Repetir las mismas no
+  /// cuesta nada; MapLibre sólo aplica lo que cambia.
+  static ml.SymbolLayerProperties _propiedadesFlecha(double opacidad) =>
+      ml.SymbolLayerProperties(
+        iconImage: _galon.key,
+        iconRotate: ['get', 'rumbo'],
+        iconRotationAlignment: 'map',
+        iconAllowOverlap: true,
+        iconIgnorePlacement: true,
+        iconOpacity: opacidad,
+      );
+
+  // --- Navegación ----------------------------------------------------------
+
+  /// Lleva la flecha y la cámara a lo que pide [AppMap.navigation]. Como las
+  /// fuentes: si llega otro cambio mientras tanto, se aplica al terminar.
+  void _sincronizarNavegacion() {
+    if (!_estiloListo || _map == null || widget.navigation == null) return;
+    if (_navegando) {
+      _navegacionPendiente = true;
+      return;
+    }
+    _navegando = true;
+    unawaited(() async {
+      try {
+        do {
+          _navegacionPendiente = false;
+          await _aplicarNavegacion(_map!);
+        } while (_navegacionPendiente && mounted && _estiloListo);
+      } catch (e) {
+        debugPrint('AppMap: no se pudo actualizar la navegación: $e');
+      } finally {
+        _navegando = false;
+      }
+    }());
+  }
+
+  Future<void> _aplicarNavegacion(ml.MapLibreMapController map) async {
+    final nav = widget.navigation;
+    if (nav == null) return;
+    final generacion = _generacion;
+    bool vigente() => mounted && _estiloListo && generacion == _generacion;
+
+    // La posición primero: el seguimiento parte de ella.
+    final fix = nav.fix;
+    if (fix != null && fix != _fixEnviado) {
+      await map.updateManualLocation(
+        ml.ManualLocationUpdate(
+          target: _ml(fix.point),
+          bearing: fix.heading,
+          speed: fix.speed,
+          horizontalAccuracy: fix.accuracy,
+          timestamp: fix.time,
+        ),
+      );
+      if (!vigente()) return;
+      _fixEnviado = fix;
+    }
+    final punto = _fixEnviado?.point;
+    if (punto == null) return;
+
+    final navegando = nav.follow == MapFollow.navigation;
+    final margen = navegando ? nav.insets : EdgeInsets.zero;
+    final cambiaModo = nav.follow != _seguimiento;
+    final cambiaZoom =
+        nav.follow != MapFollow.none && nav.zoom != _zoomSeguimiento;
+    // El panel de abajo cambia de alto al iniciar el turno, por ejemplo.
+    final cambiaMargen = nav.follow != MapFollow.none && margen != _margen;
+    if (!cambiaModo && !cambiaZoom && !cambiaMargen) return;
+
+    // MapLibre no deja mover la cámara mientras sigue a la flecha (cualquier
+    // movimiento suelta el seguimiento; sólo la inclinación tiene su propia
+    // llamada). Así que se suelta, se lleva la cámara a donde tiene que estar y
+    // se vuelve a seguir. Con el zoom pasa pocas veces: la pantalla lo cambia
+    // por tramos de velocidad.
+    _cambioPropio = DateTime.now();
+    await map.updateMyLocationTrackingMode(ml.MyLocationTrackingMode.none);
+    if (!vigente()) return;
+    _seguimiento = MapFollow.none;
+    if (nav.follow == MapFollow.none) {
+      _zoomSeguimiento = null;
+      return;
+    }
+
+    final rapido = Duration(milliseconds: cambiaModo ? 900 : 700);
+    // El margen también es un movimiento de cámara: va con el seguimiento
+    // suelto.
+    if (margen != _margen) {
+      await map.updateContentInsets(margen, true);
+      if (!vigente()) return;
+      _margen = margen;
+    }
+    await map.animateCamera(
+      cambiaModo
+          ? ml.CameraUpdate.newCameraPosition(
+              ml.CameraPosition(
+                target: _ml(punto),
+                zoom: nav.zoom,
+                // Al pasar a navegación, de frente hacia donde va; al salir,
+                // plano y con el norte arriba.
+                bearing: navegando
+                    ? (_fixEnviado?.heading ?? map.cameraPosition?.bearing ?? 0)
+                    : 0,
+                tilt: navegando ? nav.tilt : 0,
+              ),
+            )
+          : ml.CameraUpdate.zoomTo(nav.zoom),
+      duration: rapido,
+    );
+    if (!vigente()) return;
+    _cambioPropio = DateTime.now();
+    await map.updateMyLocationTrackingMode(
+      navegando
+          ? ml.MyLocationTrackingMode.trackingGps
+          : ml.MyLocationTrackingMode.tracking,
+    );
+    if (!vigente()) return;
+    if (navegando) {
+      // Por si volver a seguir la enderezó.
+      try {
+        await map.setTrackingCameraOptions(
+          tilt: nav.tilt.clamp(0, 60).toDouble(),
+          duration: const Duration(milliseconds: 300),
+        );
+      } catch (_) {
+        // El seguimiento todavía estaba cambiando: queda la del movimiento.
+      }
+    }
+    if (!vigente()) return;
+    _seguimiento = nav.follow;
+    _zoomSeguimiento = nav.zoom;
+  }
+
+  /// MapLibre soltó el seguimiento. Si no fue la app, fue un gesto que el
+  /// [Listener] no alcanzó a ver (un doble toque para acercar, por ejemplo).
+  void _alSoltarseSeguimiento() {
+    final nav = widget.navigation;
+    if (nav == null || nav.follow == MapFollow.none) return;
+    if (DateTime.now().difference(_cambioPropio) < const Duration(seconds: 2)) {
+      return;
+    }
+    _seguimiento = MapFollow.none;
+    widget.onUserGesture?.call();
+  }
 
   // --- Lector de pantalla --------------------------------------------------
 
@@ -981,8 +1699,8 @@ class _AppMapState extends State<AppMap> with SingleTickerProviderStateMixin {
             onCameraIdle: _alQuedarQuieta,
             onCameraMove: _alMoverCamara,
             // Los movimientos de cámara cruzan al lado de Dart en cada cuadro:
-            // sólo si alguien quiere el rumbo.
-            trackCameraPosition: widget.onBearingChanged != null,
+            // sólo si alguien quiere el rumbo, o el zoom para las flechas.
+            trackCameraPosition: widget.onBearingChanged != null || _hayFlechas,
             cameraTargetBounds: ml.CameraTargetBounds(
               ml.LatLngBounds(
                 southwest: _ml(kChileBounds.southWest),
@@ -997,6 +1715,16 @@ class _AppMapState extends State<AppMap> with SingleTickerProviderStateMixin {
             tiltGesturesEnabled: false,
             // La pantalla del pasajero tiene su propio botón de brújula.
             compassEnabled: false,
+            // La flecha de navegación: la de MapLibre, alimentada con las
+            // posiciones de la app (ver [MapNavigation]).
+            myLocationEnabled: widget.navigation != null,
+            locationSource: widget.navigation != null
+                ? const ml.ManualLocationSource()
+                : const ml.PlatformLocationSource(),
+            myLocationRenderMode: widget.navigation != null
+                ? ml.MyLocationRenderMode.gps
+                : ml.MyLocationRenderMode.normal,
+            onCameraTrackingDismissed: _alSoltarseSeguimiento,
             // El crédito lo muestra [MapAttribution], siempre a la vista; el
             // botón "i" de MapLibre queda fuera de la pantalla.
             attributionButtonMargins: const math.Point(-1000, -1000),

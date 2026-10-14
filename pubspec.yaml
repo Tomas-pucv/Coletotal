@@ -54,6 +54,9 @@ dependencies:
   # Ya venía compilado en la app como dependencia transitiva de geolocator;
   # declararlo deja leer la versión real del APK en vez de repetirla a mano.
   package_info_plus: ^10.2.1
+  # La pantalla del chofer queda encendida durante el turno, como un
+  # navegador: es una marca de la ventana, que Android suelta solo al salir.
+  wakelock_plus: ^1.8.0
 
 dev_dependencies:
   flutter_test:

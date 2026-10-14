@@ -8,7 +8,7 @@ Este documento describe las cuentas configuradas para pruebas de campo, demostra
 > [!IMPORTANT]
 > **Los códigos de garita y las contraseñas no se escriben en el repositorio.** Un código de administrador permite registrarse como administrador de la garita y gestionarla entera (paraderos, recorridos, choferes, auditoría), y el repositorio se comparte.
 >
-> Los códigos y la contraseña de los choferes de prueba que estuvieron en versiones anteriores de este archivo y de `scripts/seed_dummy_data.js` siguen en el historial de git: **hay que rotarlos** (crear códigos nuevos en `codigos_acceso`, desactivar los viejos con `activo: false` y cambiar las contraseñas de las cuentas de prueba).
+> **Las credenciales de prueba son las de antes.** El 10 de octubre de 2026 se rotaron los códigos de acceso y la contraseña de los siete choferes de prueba, pero ese mismo día, a pedido del equipo, se restauraron los anteriores (los códigos nuevos quedaron con `activo: false`). Como los valores están en el historial público del repositorio, cualquiera que lo lea puede iniciar sesión como un chofer de prueba o registrarse como chofer o administrador de la garita: **antes de usar la app con choferes reales hay que volver a rotarlos**. Los valores vigentes están en `backups/` (ignorado por git).
 >
 > Las credenciales vigentes se entregan por un canal privado.
 

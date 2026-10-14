@@ -17,27 +17,55 @@ async function fetchRtdb(token, nodePath) {
   return res.json();
 }
 
-function toGeoJsonParaderos(paraderos) {
-  return {
-    type: 'FeatureCollection',
-    name: 'ColeTotal_Paraderos',
-    features: paraderos
-      .filter((p) => typeof p.lat === 'number' && typeof p.lng === 'number')
-      .map((p) => ({
+/** Decodifica una polilínea de precisión 6, como `lib/utils/polyline.dart`. */
+function decodificar(texto) {
+  const puntos = [];
+  let i = 0;
+  let lat = 0;
+  let lng = 0;
+  const siguiente = () => {
+    let r = 0;
+    let peso = 1;
+    let b;
+    do {
+      b = texto.charCodeAt(i++) - 63;
+      r += (b % 32) * peso;
+      peso *= 32;
+    } while (b >= 32);
+    return r % 2 ? -((r + 1) / 2) : r / 2;
+  };
+  while (i < texto.length) {
+    lat += siguiente();
+    lng += siguiente();
+    puntos.push([lng / 1e6, lat / 1e6]);
+  }
+  return puntos;
+}
+
+/**
+ * Las líneas como GeoJSON: un LineString por sentido (ida y vuelta), que se
+ * abre en cualquier SIG (QGIS, geojson.io) sin depender de Firebase.
+ */
+function toGeoJsonRecorridos(recorridos) {
+  const features = [];
+  for (const r of recorridos) {
+    for (const sentido of ['ida', 'vuelta']) {
+      const geometria = r[sentido] && r[sentido].geometria;
+      if (!geometria) continue;
+      features.push({
         type: 'Feature',
         properties: {
-          id: p.id,
-          nombre: p.nombre,
-          direccion: p.direccion || '',
-          garitaId: p.garitaId || '',
-          activo: p.activo !== false,
+          id: r.id,
+          nombre: r.nombre,
+          sentido,
+          garitaId: r.garitaId || '',
+          activo: r.activo !== false,
         },
-        geometry: {
-          type: 'Point',
-          coordinates: [p.lng, p.lat],
-        },
-      })),
-  };
+        geometry: { type: 'LineString', coordinates: decodificar(geometria) },
+      });
+    }
+  }
+  return { type: 'FeatureCollection', name: 'ColeTotal_Recorridos', features };
 }
 
 function write(dir, file, data) {
@@ -54,7 +82,8 @@ async function main() {
   fs.mkdirSync(backupDir, { recursive: true });
 
   // `config` guarda la versión publicada para la actualización OTA.
-  const collections = ['garitas', 'codigos_acceso', 'usuarios', 'paraderos', 'recorridos', 'config'];
+  // Ya no hay `paraderos`: se eliminaron el 10 de octubre de 2026.
+  const collections = ['garitas', 'codigos_acceso', 'usuarios', 'recorridos', 'config'];
   const manifest = {
     timestamp: new Date().toISOString(),
     projectId: PROJECT_ID,
@@ -71,9 +100,9 @@ async function main() {
     console.log(`✅ [${docs.length} documentos]`);
 
     if (col === 'garitas') garitas = docs;
-    if (col === 'paraderos') {
-      write(backupDir, 'paraderos.geojson', toGeoJsonParaderos(docs));
-      console.log('     🗺️ GeoJSON de paraderos generado: paraderos.geojson');
+    if (col === 'recorridos') {
+      write(backupDir, 'recorridos.geojson', toGeoJsonRecorridos(docs));
+      console.log('     🗺️ GeoJSON de las líneas generado: recorridos.geojson');
     }
   }
 

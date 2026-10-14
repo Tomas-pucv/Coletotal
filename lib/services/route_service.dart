@@ -5,7 +5,6 @@ import 'package:http/http.dart' as http;
 import 'package:latlong2/latlong.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'package:taxi1/models/bus_stop.dart';
 import 'package:taxi1/services/routing.dart';
 import 'package:taxi1/utils/polyline.dart';
 
@@ -31,7 +30,19 @@ class RouteResult {
   // conociera el idioma y duplicaba la lógica que ya existía en las pantallas.
 }
 
-/// Servicio de ruteo **a pie** hasta un paradero.
+/// Hasta dónde se camina: un punto y cómo llamarlo en pantalla.
+///
+/// Antes era siempre un paradero. Desde que los colectivos se toman en
+/// cualquier punto de su recorrido, es el punto de la línea donde conviene
+/// hacerle la seña.
+class WalkTarget {
+  const WalkTarget({required this.location, required this.label});
+
+  final LatLng location;
+  final String label;
+}
+
+/// Servicio de ruteo **a pie** hasta donde se toma el colectivo.
 ///
 /// Antes pedía rutas en auto (`driving-car` en OpenRouteService, `driving` en
 /// OSRM) y mostraba el tiempo en auto como si fuera caminando: un trayecto de
@@ -50,7 +61,7 @@ class RouteService extends ChangeNotifier {
   static final RouteService instance = RouteService._internal();
 
   LatLng? _origin;
-  BusStop? _destination;
+  WalkTarget? _destination;
   List<LatLng> _routePoints = [];
   RouteResult? _routeInfo;
   bool _loadingRoute = false;
@@ -69,7 +80,7 @@ class RouteService extends ChangeNotifier {
 
   /// Desde dónde se calculó la ruta actual.
   LatLng? get origin => _origin;
-  BusStop? get destination => _destination;
+  WalkTarget? get destination => _destination;
   List<LatLng> get routePoints => _routePoints;
   RouteResult? get routeInfo => _routeInfo;
   bool get loadingRoute => _loadingRoute;
@@ -84,11 +95,11 @@ class RouteService extends ChangeNotifier {
     notifyListeners();
   }
 
-  void setDestination(BusStop destination) {
-    // Otro paradero: la ruta anterior ya no aplica. Antes seguía dibujada, con
-    // su distancia y su tiempo, bajo el nombre del paradero nuevo mientras se
+  void setDestination(WalkTarget destination) {
+    // Otro destino: la ruta anterior ya no aplica. Antes seguía dibujada, con
+    // su distancia y su tiempo, bajo el nombre del destino nuevo mientras se
     // calculaba la nueva.
-    if (destination.id != _destination?.id) {
+    if (destination.location != _destination?.location) {
       _routePoints = [];
       _routeInfo = null;
       _activeProvider = null;
@@ -109,30 +120,6 @@ class RouteService extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Vuelve a resolver el destino contra la lista viva de paraderos.
-  ///
-  /// El destino se guarda **por valor**, así que si el administrador mueve o da
-  /// de baja el paradero que el pasajero tiene seleccionado, la polilínea
-  /// seguiría apuntando a un fantasma: al punto viejo, con el nombre viejo. Se
-  /// llama desde `main()` cada vez que cambian los paraderos.
-  void refreshDestination(BusStop? Function(String id) resolve) {
-    final current = _destination;
-    if (current == null) return;
-
-    final fresh = resolve(current.id);
-    if (fresh == null) {
-      // El paradero ya no existe: mejor cerrar la ruta que dibujarla hacia un
-      // lugar que la garita eliminó.
-      clearDestination();
-      return;
-    }
-    if (fresh.location == current.location && fresh.name == current.name) {
-      return;
-    }
-    _destination = fresh;
-    notifyListeners();
-  }
-
   Future<String> _resolveApiKey() async {
     // 1) Compile-time (preferido): --dart-define=ORS_API_KEY=xxx
     const compileKey = String.fromEnvironment('ORS_API_KEY', defaultValue: '');
@@ -145,7 +132,7 @@ class RouteService extends ChangeNotifier {
 
   /// Calcula la ruta a pie entre [origin] y [dest]. Devuelve `true` si se
   /// obtuvo una polilínea válida, `false` en caso contrario.
-  Future<bool> fetchRoute(LatLng origin, BusStop dest) async {
+  Future<bool> fetchRoute(LatLng origin, WalkTarget dest) async {
     final request = ++_request;
 
     // No llamar a las APIs si el origen o el destino son inválidos.
@@ -206,7 +193,7 @@ class RouteService extends ChangeNotifier {
 
   Future<RouteResult?> _fetchFromORS(
     LatLng origin,
-    BusStop dest,
+    WalkTarget dest,
     String apiKey,
   ) async {
     try {
@@ -311,7 +298,7 @@ class RouteService extends ChangeNotifier {
   // Sin API key: Valhalla, con OSRM de respaldo
   // ---------------------------------------------------------------------------
 
-  Future<RouteResult?> _fetchWithoutKey(LatLng origin, BusStop dest) async {
+  Future<RouteResult?> _fetchWithoutKey(LatLng origin, WalkTarget dest) async {
     final path = await Routing.walkingPath(origin, dest.location);
     if (path == null) return null;
     return RouteResult(

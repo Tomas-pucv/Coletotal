@@ -46,12 +46,32 @@ void main() {
       );
     });
 
-    test('preferencias sale de la barra pero sigue alcanzable', () {
-      for (final role in [UserRole.colectivero, UserRole.administrador]) {
-        expect(Destinations.isTab(AppDestination.preferencias, role), isFalse);
+    test('el administrador tiene preferencias fuera de la barra', () {
+      const role = UserRole.administrador;
+      expect(Destinations.isTab(AppDestination.preferencias, role), isFalse);
+      expect(
+        Destinations.extrasFor(role),
+        contains(AppDestination.preferencias),
+      );
+    });
+
+    test('el chofer: su mapa es Turno, y no tiene el del pasajero', () {
+      // Dos mapas vivos a la vez pesan en un teléfono de gama de entrada; la
+      // pestaña Turno ya es el mapa del chofer, con la flecha de navegación.
+      expect(Destinations.barFor(UserRole.colectivero), [
+        AppDestination.turno,
+        AppDestination.rutas,
+        AppDestination.preferencias,
+      ]);
+      expect(Destinations.extrasFor(UserRole.colectivero), isEmpty);
+      expect(Destinations.mapFor(UserRole.colectivero), AppDestination.turno);
+      expect(Destinations.mapFor(UserRole.invitado), AppDestination.mapa);
+      expect(Destinations.mapFor(UserRole.administrador), AppDestination.mapa);
+      for (final role in UserRole.values) {
         expect(
-          Destinations.extrasFor(role),
-          contains(AppDestination.preferencias),
+          Destinations.isTab(Destinations.mapFor(role), role),
+          isTrue,
+          reason: 'el mapa del rol ${role.wireName} no es una pestaña',
         );
       }
     });
@@ -82,6 +102,16 @@ void main() {
       nav.reconcile(UserRole.invitado);
       expect(nav.destination, AppDestination.mapa);
     });
+
+    test(
+      'si el rol nuevo no tiene mapa de pasajero, va a su primera pestaña',
+      () {
+        // El pasajero mirando el mapa inicia sesión como chofer: su mapa es Turno.
+        nav.go(AppDestination.mapa);
+        nav.reconcile(UserRole.colectivero);
+        expect(nav.destination, AppDestination.turno);
+      },
+    );
 
     test('conserva el destino si el rol nuevo también lo tiene', () {
       nav.go(AppDestination.rutas);

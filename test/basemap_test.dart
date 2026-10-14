@@ -6,7 +6,6 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:taxi1/config/map_config.dart';
 import 'package:taxi1/data/quilpue_pois.dart';
-import 'package:taxi1/models/bus_stop.dart';
 
 /// El mapa base offline que viaja en el APK (ver `scripts/mapa_base/`).
 ///
@@ -70,16 +69,9 @@ void main() {
       expect(valparaiso.limites.east, closeTo(kDetailBounds.east, 1e-5));
     });
 
-    test('todos los POIs y paraderos semilla caen en el mapa con calles', () {
+    test('todos los POIs caen en el mapa con calles', () {
       for (final poi in kQuilpuePois) {
         expect(kDetailBounds.contains(poi.location), isTrue, reason: poi.name);
-      }
-      for (final stop in quilpueBusStops) {
-        expect(
-          kDetailBounds.contains(stop.location),
-          isTrue,
-          reason: stop.name,
-        );
       }
     });
   });

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:maplibre_gl/maplibre_gl.dart' show MapLibreMap;
 
 import 'package:taxi1/config/app_version.dart';
 import 'package:taxi1/firebase_options.dart';
@@ -16,16 +17,21 @@ import 'package:taxi1/services/garita_service.dart';
 import 'package:taxi1/services/location_service.dart';
 import 'package:taxi1/services/preferences_service.dart';
 import 'package:taxi1/services/recorridos_service.dart';
-import 'package:taxi1/services/route_service.dart';
 import 'package:taxi1/services/turno_service.dart';
-import 'package:taxi1/services/stop_history_service.dart';
-import 'package:taxi1/services/stops_service.dart';
 import 'package:taxi1/services/street_index.dart';
 import 'package:taxi1/theme/app_text_scaler.dart';
 import 'package:taxi1/theme/app_theme.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // El mapa se dibuja en un TextureView y Flutter lo compone como una capa
+  // más. Con el modo por omisión (Virtual Display), Flutter redimensiona el
+  // mapa con una tarea diferida que puede correr cuando el mapa ya no existe:
+  // la app se cerraba al girar el teléfono o al cambiar de app mientras la
+  // ventana se achicaba (2026-10-10, NullPointerException en
+  // `SurfaceProducer.getWidth`). Tiene que fijarse antes del primer mapa.
+  MapLibreMap.useHybridComposition = true;
 
   // El mapa base viene en el APK y no depende de Firebase: se abre en
   // paralelo y sin esperarlo. La primera vez tras instalar copia unos 60 MB;
@@ -34,8 +40,8 @@ void main() async {
 
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
 
-  // Caché offline explícita (RF-07-01): los paraderos y recorridos tienen que
-  // verse en los tramos sin cobertura de los cerros de Quilpué.
+  // Caché offline explícita (RF-07-01): las líneas tienen que verse en los
+  // tramos sin cobertura de los cerros de Quilpué.
   FirebaseFirestore.instance.settings = const Settings(
     persistenceEnabled: true,
     cacheSizeBytes: Settings.CACHE_SIZE_UNLIMITED,
@@ -61,27 +67,13 @@ void main() async {
 
   await PreferencesService.instance.load();
 
-  // El listener de paraderos va aparte de la siembra: la lista ya trae los
-  // paraderos semilla desde el constructor, así que la app dibuja algo en el
-  // primer frame aunque Firestore tarde o no responda.
-  StopsService.instance.startListening();
-
-  // Los recorridos los lee todo el mundo, no sólo el administrador: son la
-  // respuesta a "qué colectivos pasan por este paradero".
+  // Las líneas las lee todo el mundo, no sólo el administrador: son lo que
+  // el pasajero busca para saber qué colectivo tomar.
   RecorridosService.instance.startListening();
 
   // La flota en vivo: una sola suscripción para toda la app. Antes cada
   // pantalla (mapa, flota, portada de garita, choferes) abría la suya.
   FirebaseTelemetriaService.instance.startListening();
-
-  // Si el administrador mueve o da de baja el paradero que el pasajero tiene
-  // como destino, la ruta dibujada apuntaría a un fantasma.
-  StopsService.instance.addListener(
-    () => RouteService.instance.refreshDestination(StopsService.instance.byId),
-  );
-
-  // Después de StopsService: el historial guarda ids y los resuelve contra él.
-  await StopHistoryService.instance.load();
 
   runApp(const ColeTotalApp());
 

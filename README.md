@@ -1,12 +1,17 @@
 # ColeTotal 🚖
 
-Aplicación móvil para la gestión de paraderos, recorridos y flotas de **taxis
-colectivos** en la Región de Valparaíso, con foco inicial en Transportes
-Serrano (Quilpué).
+Aplicación móvil para la gestión de líneas y flotas de **taxis colectivos** en
+la Región de Valparaíso, con foco inicial en Transportes Serrano (Quilpué).
 
-El pasajero ve dónde vienen los colectivos y a qué paradero le conviene ir; el
+El pasajero ve dónde vienen los colectivos y qué línea le conviene tomar; el
 conductor transmite su posición durante su turno; el administrador de garita
-gestiona los datos de la línea y supervisa la flota en vivo.
+dibuja las líneas y supervisa la flota en vivo.
+
+Los colectivos **no tienen paraderos**: paran donde se les hace la seña, a lo
+largo de todo su recorrido. La app trabaja con eso: cada línea es un trazado de
+ida y otro de vuelta, y al pasajero se le indica en qué punto de la línea
+subirse y bajarse. Los paraderos que tuvo hasta el 10 de octubre de 2026 eran
+datos de prueba y se eliminaron.
 
 Proyecto de título — Escuela de Ingeniería Informática, Pontificia Universidad
 Católica de Valparaíso.
@@ -20,9 +25,9 @@ activo y qué permite hacer.
 
 | Perfil | Cómo se entra | Para qué sirve |
 |---|---|---|
-| **Invitado** | Sin registro | Consultar el mapa, buscar paraderos y ver los colectivos en circulación |
+| **Invitado** | Sin registro | Consultar el mapa y las líneas, buscar cómo llegar y ver los colectivos en circulación |
 | **Colectivero** | Patente + contraseña | Transmitir su posición a los pasajeros y a la garita durante el turno |
-| **Administrador de garita** | Correo + contraseña | Gestionar paraderos, recorridos y choferes, y monitorear la flota |
+| **Administrador de garita** | Correo + contraseña | Dibujar las líneas, gestionar choferes y monitorear la flota |
 
 Los dos perfiles con cuenta se registran con un **código de garita** que entrega
 el administrador. El código determina el rol: no se elige en el formulario, y
@@ -39,22 +44,38 @@ las reglas de Firestore lo verifican en el servidor al crear la cuenta.
 - Al tocar un colectivo: su patente, su capacidad, hace cuánto se lo vio y,
   si el chofer la informó, su línea dibujada sobre el mapa.
 - **Buscador de direcciones**: se escribe a dónde se quiere ir y la app
-  recomienda el paradero, ordenando por el promedio de los dos tramos a pie
-  (lo que se camina hasta el paradero y lo que se camina desde la bajada).
-  Incluye un catálogo local de 26 lugares de Quilpué y no distingue tildes
-  ("lider" encuentra "Líder").
-- Lista de **paraderos** ordenada por cercanía a la posición actual o por los
-  últimos consultados.
-- Al tocar un paradero: los colectivos que pasan por él; al tocar una línea, su
-  recorrido dibujado sobre el mapa.
-- **Ruta a pie** hasta el paradero desde la posición actual, con distancia y
-  tiempo caminando.
+  propone qué línea tomar y en qué sentido, ordenando por lo que se camina en
+  total: hasta el punto de la línea más cercano y desde el punto donde
+  conviene bajarse. Sólo propone una línea si en ese sentido la bajada viene
+  después de la subida. Incluye un catálogo local de 26 lugares de Quilpué y
+  no distingue tildes ("lider" encuentra "Líder").
+- Las **líneas activas** están siempre dibujadas en el mapa,
+  semitransparentes, con la insignia de cada una (su número, sobre su color) a
+  lo largo del trazado y flechas que avanzan en el sentido en que va el
+  colectivo. Tocar una línea o su insignia la elige: resalta y las demás casi
+  desaparecen. Las flechas quedan quietas con "Animaciones" apagado.
+- Pestaña **Líneas**: las líneas activas de la garita, de la que pasa más
+  cerca a la más lejana, con cuántos colectivos andan en cada una. Al tocar una,
+  su ida y su vuelta dibujadas sobre el mapa.
+- **Ruta a pie** hasta el punto donde hacerle la seña al colectivo, con
+  distancia y tiempo caminando, y marcas de dónde subirse y bajarse.
 
 ### Colectivero
 
-- Pantalla de turno con un interruptor grande **En servicio / Fuera de
-  servicio**.
-- Elección del **recorrido** que se está cubriendo (se recuerda entre turnos y
+- Su pestaña **Turno** es un mapa de navegación, como Google Maps: el chofer es
+  una flecha y abajo está el botón grande de **Iniciar turno**. En turno, la
+  cámara se inclina, gira con el sentido de marcha y deja la flecha en la parte
+  de abajo; se aleja un poco a más velocidad. Al mover el mapa deja de seguirlo
+  y aparece **Volver a centrar**; el botón **2D/3D** cambia entre la vista
+  plana con el norte arriba y la de navegación. La pantalla queda encendida
+  durante el turno. Al primer turno la app pide las notificaciones y quedar
+  fuera del ahorro de batería, para seguir transmitiendo con la pantalla
+  bloqueada (en Xiaomi, además, avisa cómo dejarla sin restricciones).
+- En el mapa, su línea resaltada con las flechas de su sentido, las demás
+  líneas tenues y los demás colectivos en servicio.
+- Las pestañas del chofer son Turno, Líneas y Preferencias: no tiene el mapa
+  del pasajero aparte.
+- Elección de la **línea** que se está cubriendo (se recuerda entre turnos y
   se puede cambiar en pleno turno).
 - Selector de capacidad de un toque, que alimenta la semaforización que ven
   pasajeros y garita.
@@ -69,10 +90,14 @@ las reglas de Firestore lo verifican en el servidor al crear la cuenta.
 
 ### Administrador de garita
 
-- Portada con métricas: unidades en servicio, paraderos y recorridos.
-- **Paraderos**: crear, mover sobre el mapa, editar, dar de baja y reactivar.
-- **Recorridos**: nombre, color y lista ordenada de paraderos; el trazado se
-  calcula siguiendo las calles entre ellos y se recalcula al mover un paradero.
+- Portada con métricas: unidades en servicio, líneas activas y choferes.
+- **Recorridos**: cada línea con su nombre, su color y su recorrido de **ida**
+  y de **vuelta**, que se dibujan sobre el mapa manteniendo presionado punto
+  por punto (basta con los puntos donde la línea dobla). La app ajusta el
+  trazado a las calles y a sus sentidos de tránsito con el mismo Valhalla del
+  teléfono, y lo muestra antes de guardar. La vuelta se puede empezar desde la
+  ida, al revés. Encender o apagar una línea es un interruptor en la lista:
+  una línea apagada no la ven los pasajeros ni la eligen los choferes.
 - **Choferes**: padrón de la garita con indicador de quién está en servicio e
   interruptor para habilitar o deshabilitar el acceso. Deshabilitar a un
   chofer cierra su sesión (y su turno) en segundos.
@@ -85,8 +110,8 @@ las reglas de Firestore lo verifican en el servidor al crear la cuenta.
 - Interfaz en español, adaptable a teléfono y tablet (barra inferior o rail
   lateral según el ancho).
 - Tema claro / oscuro / automático, ajuste de tamaño de fuente y modo compacto.
-- Los paraderos se muestran sin conexión gracias a una semilla local y a la
-  caché offline de Firestore.
+- Las líneas se muestran sin conexión gracias a la caché offline de
+  Firestore: su trazado viene calculado, no se pide a ningún servidor.
 - El mapa viene dentro del APK: Chile entero en vista general y la Región de
   Valparaíso con todas sus calles, más un índice de sus calles para el
   buscador. Funcionan sin señal y sin claves de API; sólo la vista satelital
@@ -105,7 +130,7 @@ las reglas de Firestore lo verifican en el servidor al crear la cuenta.
 | Esri World Imagery | Vista satelital (requiere conexión) |
 | `geolocator` | GPS del dispositivo y seguimiento en segundo plano |
 | Firebase Authentication | Sesiones de choferes y administradores |
-| Cloud Firestore | Usuarios, garitas, paraderos y recorridos |
+| Cloud Firestore | Usuarios, garitas y líneas (recorridos) |
 | Firebase Realtime Database | Telemetría GPS de alta frecuencia |
 | Valhalla (dentro del teléfono), con OSRM de respaldo / OpenRouteService | Rutas a pie y trazado de los recorridos, también sin conexión |
 | `shared_preferences` | Preferencias e historial local |
@@ -121,9 +146,9 @@ flutter gen-l10n
 flutter run
 ```
 
-La app arranca como Invitado y muestra el mapa con paraderos de referencia sin
-necesidad de configurar nada. Para que funcionen el registro, los recorridos y
-el panel de garita hay que preparar el proyecto de Firebase:
+La app arranca como Invitado y muestra el mapa sin necesidad de configurar
+nada. Para que funcionen el registro, las líneas y el panel de garita hay que
+preparar el proyecto de Firebase:
 
 1. **Authentication → Sign-in method**: habilitar *Correo electrónico/contraseña*.
 2. **Firestore Database**: crearla en modo producción (la región es permanente).
@@ -141,11 +166,11 @@ el panel de garita hay que preparar el proyecto de Firebase:
    `SERRANO-CHO-7K4M9`). Los códigos **no** se guardan en el repositorio: el
    script de datos de prueba los recibe por variables de entorno
    (`CHOFER_CODE`, `ADMIN_CODE`, `TEST_DRIVER_PASSWORD`).
-5. Entrar como administrador y cargar los paraderos (hay un botón para importar
-   los de ejemplo) y los recorridos de la línea.
+5. Entrar como administrador y dibujar las líneas (menú → Recorridos).
 
-Sin el paso 5, la búsqueda de direcciones funciona, pero la ficha de paradero no
-tiene colectivos que mostrar y la recomendación cae a ordenar por cercanía.
+Sin el paso 5, la búsqueda de direcciones funciona, pero no hay líneas que
+proponer. Los pasajeros sólo ven las líneas de la garita `kGaritaPublica`
+(`lib/config/garita_config.dart`, la de Transportes Serrano).
 
 ### Claves de API
 
@@ -163,17 +188,12 @@ en la web se le pregunta a OSRM (servidores públicos de FOSSGIS a pie y de
 demostración en auto). Ninguno pide clave.
 
 OSRM es sólo el respaldo: en auto pasa por huellas y caminos de servicio
-(estacionamientos, accesos privados), y los trazados que calculó para las
-líneas lo muestran. Valhalla se limita a calles públicas. La ruta a pie, en
-cambio, va a propósito por pasajes y escaleras.
+(estacionamientos, accesos privados). Valhalla se limita a calles públicas. La
+ruta a pie, en cambio, va a propósito por pasajes y escaleras.
 
-El trazado de una línea es la ruta en auto que pasa por sus paraderos en
-orden, así que sólo sigue la calle correcta si los paraderos están sobre su
-calle: un paradero corrido obliga a la línea a desviarse o a dar la vuelta a
-la manzana para tocarlo. Se ubican desde el editor de paraderos (mantener
-presionado sobre el mapa), que vuelve a calcular las líneas que pasan por él;
-`node scripts/apply_recorridos_geometries.js` los recalcula todos (con
-`--dry-run`, sin guardar).
+El trazado de cada sentido de una línea es la ruta en auto que pasa por los
+puntos que marcó la garita, en orden. Si un tramo sale por otra calle, se
+agrega un punto sobre la calle correcta y el trazado se rehace solo.
 
 ## Mapa base offline
 
@@ -248,18 +268,18 @@ Vista satelital: Esri World Imagery.
 lib/
 ├── config/       Centro, límites y zoom del mapa; versión instalada
 ├── l10n/         Textos en español (ARB + generados)
-├── models/       AppUser, BusStop, Recorrido, ColectivoActivo, Garita
+├── models/       AppUser, Recorrido (ida y vuelta), ColectivoActivo, Garita
 ├── navigation/   Destinos y qué ve cada rol
-├── screens/      admin/ · auth/ · driver/ · mapa, paraderos, preferencias
+├── screens/      admin/ · auth/ · driver/ · mapa, líneas, preferencias
 ├── services/     Estado de la app en singletons ChangeNotifier (sesión,
-│                 paraderos, recorridos, telemetría, turno) más utilidades sin
-│                 estado (geocodificación, planificador de paraderos, ruteo)
+│                 líneas, telemetría, turno) más utilidades sin estado
+│                 (geocodificación, planificador de viajes, ruteo)
 ├── theme/        Tema Material 3, colores semánticos, espaciado
 ├── utils/        Formato de distancias, patentes, errores
-└── widgets/      Menú lateral, hojas de paradero y sugerencias, buscador
+└── widgets/      Menú lateral, sugerencias de viaje, buscador, mapa
 ```
 
-Verificación: `flutter analyze` y `flutter test` (176 pruebas, sin red ni
+Verificación: `flutter analyze` y `flutter test` (222 pruebas, sin red ni
 Firebase). Entre ellas hay pruebas de contrato que leen `firestore.rules` y
 `database.rules.json` y fallan si el cliente escribe un campo que las reglas
 rechazarían.
@@ -300,9 +320,9 @@ rechazarían.
 - **Sin recuperación de contraseña para choferes.** La patente se traduce a un
   correo sintético que no recibe mensajes; si un chofer pierde su contraseña,
   el administrador deshabilita la cuenta y le entrega un código nuevo.
-- **El sentido de marcha no se modela.** Un recorrido se trata como el conjunto
-  de sus paraderos, así que la recomendación asume que desde la subida se
-  alcanza cualquier otra parada de esa línea.
+- **Las líneas que pasan dos veces por el mismo lugar** (un circuito que vuelve
+  por la misma calle en el mismo sentido) se recomiendan por su primera pasada:
+  el punto más cercano de un trayecto es el primero que encuentra.
 - **El cálculo de ETA todavía no está implementado.**
 - Las reglas de Realtime Database no pueden consultar Firestore: no saben si un
   chofer está deshabilitado, y el `garitaId` de la telemetría se filtra del

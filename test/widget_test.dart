@@ -8,10 +8,10 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:taxi1/config/map_config.dart';
 import 'package:taxi1/l10n/app_localizations.dart';
-import 'package:taxi1/models/bus_stop.dart';
+import 'package:taxi1/models/app_user.dart';
 import 'package:taxi1/screens/preferences_screen.dart';
+import 'package:taxi1/services/auth_service.dart';
 import 'package:taxi1/services/preferences_service.dart';
-import 'package:taxi1/services/stop_history_service.dart';
 import 'package:taxi1/theme/app_colors.dart';
 import 'package:taxi1/theme/app_text_scaler.dart';
 import 'package:taxi1/theme/app_theme.dart';
@@ -61,7 +61,6 @@ void main() {
   setUpAll(() async {
     SharedPreferences.setMockInitialValues({});
     await PreferencesService.instance.load();
-    await StopHistoryService.instance.load();
   });
 
   group('buildAppTheme', () {
@@ -269,60 +268,6 @@ void main() {
     );
   });
 
-  group('historial de paraderos', () {
-    setUp(() async {
-      await StopHistoryService.instance.clear();
-      await PreferencesService.instance.setHistoryEnabled(true);
-    });
-
-    test('recuerda lo consultado, lo más reciente primero', () async {
-      final history = StopHistoryService.instance;
-      await history.record(quilpueBusStops[0]);
-      await history.record(quilpueBusStops[1]);
-
-      expect(history.recentStops.first.name, quilpueBusStops[1].name);
-      expect(history.recentStops.length, 2);
-    });
-
-    test('no duplica: volver a consultar lo sube al principio', () async {
-      final history = StopHistoryService.instance;
-      await history.record(quilpueBusStops[0]);
-      await history.record(quilpueBusStops[1]);
-      await history.record(quilpueBusStops[0]);
-
-      expect(history.recentStops.length, 2);
-      expect(history.recentStops.first.name, quilpueBusStops[0].name);
-    });
-
-    test('respeta el tope de entradas', () async {
-      final history = StopHistoryService.instance;
-      for (final stop in quilpueBusStops) {
-        await history.record(stop);
-      }
-      expect(
-        history.recentStops.length,
-        lessThanOrEqualTo(StopHistoryService.maxEntries),
-      );
-    });
-
-    test('con la preferencia apagada no registra ni expone nada', () async {
-      final history = StopHistoryService.instance;
-      await history.record(quilpueBusStops[0]);
-      expect(history.recentStops, isNotEmpty);
-
-      // Apagar oculta el historial sin destruirlo...
-      await PreferencesService.instance.setHistoryEnabled(false);
-      expect(history.recentStops, isEmpty);
-      await history.record(quilpueBusStops[3]);
-
-      // ...y volver a encenderlo devuelve lo de antes, sin la consulta hecha
-      // mientras estaba apagado.
-      await PreferencesService.instance.setHistoryEnabled(true);
-      expect(history.recentStops.length, 1);
-      expect(history.recentStops.first.name, quilpueBusStops[0].name);
-    });
-  });
-
   group('localización', () {
     testWidgets('un locale no soportado cae a español en vez de reventar', (
       tester,
@@ -424,17 +369,85 @@ void main() {
     // era una preferencia local que cualquiera cambiaba para empezar a
     // transmitir GPS. Ahora el rol es identidad y se prueba en el grupo
     // "roles y navegación", sin red.
-    testWidgets('la sección de cuenta ofrece iniciar sesión al invitado', (
+    testWidgets(
+      'la cuenta del invitado es una fila: nombre y botón para entrar',
+      (tester) async {
+        _useTallScreen(tester);
+
+        await tester.pumpWidget(_wrap(const PreferencesScreen()));
+        await tester.pumpAndSettle();
+
+        expect(find.text('Cuenta'.toUpperCase()), findsOneWidget);
+        expect(find.text('Invitado'), findsOneWidget);
+        // "Invitado" ya lo dice: el texto de abajo sobraba.
+        expect(find.text('Estás usando ColeTotal sin cuenta'), findsNothing);
+        final entrar = find.widgetWithText(FilledButton, 'Iniciar sesión');
+        expect(entrar, findsOneWidget);
+        // En la misma fila que el nombre, a su derecha.
+        final nombre = find.text('Invitado');
+        expect(
+          tester.getCenter(entrar).dy,
+          closeTo(tester.getCenter(nombre).dy, 4),
+        );
+        expect(
+          tester.getCenter(entrar).dx,
+          greaterThan(tester.getCenter(nombre).dx),
+        );
+      },
+    );
+
+    testWidgets('con letra grande el botón de la cuenta pasa abajo', (
+      tester,
+    ) async {
+      // Al lado del nombre no cabría y el nombre quedaría en "I…".
+      _useTallScreen(tester);
+
+      await tester.pumpWidget(_wrap(const PreferencesScreen(), textScale: 1.4));
+      await tester.pumpAndSettle();
+
+      expect(
+        tester
+            .getTopLeft(find.widgetWithText(FilledButton, 'Iniciar sesión'))
+            .dy,
+        greaterThan(tester.getBottomLeft(find.text('Invitado')).dy),
+      );
+    });
+
+    testWidgets('con sesión, la fila muestra el rol y el botón para salir', (
       tester,
     ) async {
       _useTallScreen(tester);
+      AuthService.instance.debugSetProfile(
+        const AppUser(
+          uid: 'u1',
+          rol: UserRole.colectivero,
+          nombre: 'Juan Pérez',
+          garitaId: 'g1',
+          patente: 'ABCD12',
+        ),
+      );
+      addTearDown(() => AuthService.instance.debugSetProfile(null));
 
       await tester.pumpWidget(_wrap(const PreferencesScreen()));
       await tester.pumpAndSettle();
 
-      expect(find.text('Cuenta'.toUpperCase()), findsOneWidget);
-      expect(find.text('Invitado'), findsOneWidget);
-      expect(find.text('Iniciar sesión'), findsOneWidget);
+      expect(find.text('Juan Pérez'), findsOneWidget);
+      expect(find.text('Colectivero'), findsOneWidget);
+      expect(find.text('Iniciar sesión'), findsNothing);
+      final salir = find.widgetWithText(OutlinedButton, 'Salir');
+      expect(salir, findsOneWidget);
+
+      // Salir sigue pidiendo confirmación antes de cerrar la sesión.
+      await tester.tap(salir);
+      await tester.pumpAndSettle();
+      expect(find.byType(AlertDialog), findsOneWidget);
+      expect(
+        find.descendant(
+          of: find.byType(AlertDialog),
+          matching: find.text('Cerrar sesión'),
+        ),
+        findsWidgets,
+      );
     });
 
     testWidgets('la fila entera del switch es tappable, no solo el control', (

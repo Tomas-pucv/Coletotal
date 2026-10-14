@@ -119,12 +119,34 @@ En la defensa de avance se criticaron principalmente tres vulnerabilidades del p
 * Antes la ruta "a pie" se pedía con perfiles **de auto** y se mostraba el tiempo en auto: un trayecto de 640 m y 9 minutos caminando aparecía como 1,1 km y 2 minutos.
 * Ahora `RouteService` usa OpenRouteService `foot-walking` (si hay clave) y, sin clave, `Routing.walkingPath` (`lib/services/routing.dart`): Valhalla peatonal en el teléfono, luego el servidor peatonal de OSRM de FOSSGIS y, como último recurso, el de autos con el tiempo recalculado a paso de peatón (1,3 m/s).
 
-### 3.12. Trazado de las Líneas: Valhalla y Paraderos sobre su Calle
-* **El Problema:** las líneas no seguían las calles reales. Se midieron los 9 trazados guardados contra las calles del mapa base: 8 iban sobre calles todo el tiempo, pero la 105 recorría 2,3 km por huellas de los cerros sobre el zoológico, y todas hacían desvíos y vueltas a la manzana para tocar paraderos. La causa principal son los datos: 18 de los 20 paraderos tienen coordenadas de prueba redondeadas a 3 o 4 decimales y casi ninguno está sobre la calle de su propia dirección (el de Villa Olímpica, a 260 m de cualquier calle).
-* **El enrutador no era el culpable:** OSRM y Valhalla calculan las mismas rutas para esas líneas. Lo que sí cambia es que Valhalla deja enganchar los paraderos sólo a calles públicas (`search_filter.min_road_class = residential`), sin senderos ni caminos de servicio: con eso la 105 deja los cerros. También se dejó el servidor de demostración de OSRM, que no es para uso real.
-* **La Solución:** `lib/services/routing.dart` decide el orden para la ruta a pie y para el trazado de las líneas: el **Valhalla del propio teléfono** (`lib/services/valhalla_client.dart`) y, si no está o no encuentra ruta, OSRM. No se usa ningún servidor de Valhalla: se probó el de FOSSGIS y se quitó. Medido sobre las 10 líneas, los trazados que guardó OSRM pasan 2,3 km por huellas (la 105) y 1,6 km por caminos de servicio (estacionamientos, accesos privados); los de Valhalla en el teléfono, 0 km y 0,3 km.
-* **Valhalla en el teléfono (Android):** la biblioteca `valhalla-mobile` 0.6.4 (Valhalla 3.9.1) corre en `MainActivity.kt`, detrás del canal `cl.coletotal/valhalla`: recibe la misma consulta JSON que el servidor y devuelve la misma respuesta, en un hilo aparte (unos milisegundos por ruta). Lee `assets/map/ruteo_valparaiso.tar` (65 MB, 27 MB comprimido en el APK): el grafo de calles de la región, que `scripts/mapa_base/ruteo.py` arma con pyvalhalla 3.9.1 a partir del extracto de Chile de Geofabrik, guardando sólo las teselas que tocan la región. `BasemapService` lo copia a la carpeta de la app **después** de mostrar el mapa, y mientras tanto las rutas van a OSRM. Fuera de la región, en iOS y en la web también se usa OSRM. `scripts/apply_recorridos_geometries.js` recalcula los trazados guardados con los mismos datos, en el computador (`scripts/mapa_base/ruta.py`, pyvalhalla). Los paraderos se corrigen desde el editor, que recalcula las líneas afectadas, o con `scripts/apply_recorridos_geometries.js`. Las utilidades de polilíneas viven en `lib/utils/polyline.dart`.
+### 3.12. Trazado de las Líneas: Valhalla en el Teléfono
+* **El Problema (8 de octubre de 2026):** las líneas no seguían las calles reales: una recorría 2,3 km por huellas de los cerros y todas hacían desvíos para tocar paraderos mal ubicados. OSRM y Valhalla calculaban las mismas rutas; lo que cambia es que Valhalla engancha los puntos sólo a calles públicas (`search_filter.min_road_class = residential`), sin senderos ni caminos de servicio.
+* **La Solución:** `lib/services/routing.dart` decide el orden para la ruta a pie y para el trazado de las líneas: el **Valhalla del propio teléfono** (`lib/services/valhalla_client.dart`) y, si no está o no encuentra ruta, OSRM. No se usa ningún servidor de Valhalla: se probó el de FOSSGIS y se quitó. Medido entonces sobre las 10 líneas de prueba, los trazados de OSRM pasaban 2,3 km por huellas y 1,6 km por caminos de servicio; los de Valhalla en el teléfono, 0 km y 0,3 km.
+* **Valhalla en el teléfono (Android):** la biblioteca `valhalla-mobile` 0.6.4 (Valhalla 3.9.1) corre en `MainActivity.kt`, detrás del canal `cl.coletotal/valhalla`: recibe la misma consulta JSON que el servidor y devuelve la misma respuesta, en un hilo aparte (unos milisegundos por ruta). Lee `assets/map/ruteo_valparaiso.tar` (65 MB, 27 MB comprimido en el APK): el grafo de calles de la región, que `scripts/mapa_base/ruteo.py` arma con pyvalhalla 3.9.1 a partir del extracto de Chile de Geofabrik, guardando sólo las teselas que tocan la región. `BasemapService` lo copia a la carpeta de la app **después** de mostrar el mapa, y mientras tanto las rutas van a OSRM. Fuera de la región, en iOS y en la web también se usa OSRM. `scripts/mapa_base/ruta.py` calcula la misma ruta en el computador (pyvalhalla), para probar. Las utilidades de polilíneas viven en `lib/utils/polyline.dart`.
 * La ruta parte de la posición **actual**, no del primer punto GPS de la sesión.
+
+### 3.13. Sin Paraderos: Líneas de Ida y Vuelta (10 de octubre de 2026)
+* **El Problema:** la app estaba armada alrededor de paraderos —el pasajero caminaba a uno, una línea era una lista ordenada de paraderos, la garita los editaba y la pestaña Paraderos los listaba—, pero los colectivos **no tienen paraderos**: paran donde se les hace la seña. Además, 18 de los 20 paraderos y las 10 líneas eran datos de prueba inventados. Los recorridos reales de Transportes Serrano no están publicados en ninguna parte (ni en OpenStreetMap ni en la consulta pública del Registro Nacional de Transporte), así que tienen que venir de la garita.
+* **La Solución:**
+  1. **Datos:** se respaldó Firestore (`backups/backup_2026-10-10T04-53-30-364Z`) y se borraron los 20 `paraderos` y los 10 `recorridos`. La colección `paraderos` ya no existe en las reglas (cae en la regla final, que lo cierra todo).
+  2. **Modelo** (`lib/models/recorrido.dart`): `Recorrido` = nombre, color, `activo`, `ida` y `vuelta` opcional. Cada `Trayecto` guarda los `puntos` que marcó la garita y la `geometria` (polyline6) del trazado por calle calculado a partir de ellos. Las reglas (`trayectoValido`, `recorridoValido`) validan esa forma.
+  3. **Editor de la garita** (`lib/screens/admin/recorridos_admin_screen.dart`): se mantiene presionado el mapa para agregar puntos, con Ida/Vuelta por separado; cada cambio se ajusta a las calles con `Routing.linePath` (Valhalla del teléfono, en auto) y se muestra antes de guardar. La vuelta puede empezar desde la ida, al revés. En la lista, un interruptor enciende o apaga una línea.
+  4. **Pasajero:** sólo ve las líneas **activas** de la garita `kGaritaPublica` (`lib/config/garita_config.dart`, la de Serrano), vía `RecorridosService.publicas`. La pestaña Líneas (`lib/screens/lineas_screen.dart`) reemplaza a Paraderos y las ordena por cercanía. Al buscar un destino, `LinePlanner` (`lib/services/line_planner.dart`) busca en cada línea y sentido el punto más cercano al usuario (la subida) y al destino (la bajada), y sólo la propone si la bajada viene **después** de la subida en ese sentido (`nearestOnPolyline`, en `lib/utils/polyline.dart`). Ordena por lo que se camina en total, con tope de 1,5 km por tramo. El mapa dibuja ese sentido, la ruta a pie hasta la subida y las marcas "Súbete aquí" y "Bájate aquí".
+  5. **Las líneas siempre a la vista** (`lineasDelMapa`, en `lib/widgets/recorrido_lines.dart`): el mapa del pasajero dibuja todas las líneas públicas, semitransparentes; la elegida resalta y las demás casi desaparecen (`LineEmphasis`). Cada sentido lleva la insignia de la línea (`Recorrido.sigla`, el primer número del nombre) repetida a lo largo del trazado, encima de los nombres de calles, y tocar la línea o su insignia la elige. Las flechas de sentido las reparte la app (`puntosCada`, en `lib/utils/polyline.dart`) cada 56 px del zoom actual, en 8 posiciones seguidas, una capa de MapLibre por posición; la animación sólo cambia la opacidad de esas capas, un valor de pintura que no obliga a rehacer las teselas. Se recalculan al detenerse la cámara, sólo si cambió el zoom o salió de la zona ya cubierta (tres veces la pantalla). Quietas con "Animaciones" apagado o con otra pestaña a la vista.
+  6. Se eliminaron `BusStop` y sus 7 paraderos semilla, `StopsService`, `StopHistoryService`, `StopPlanner`, las hojas de paradero y de sugerencias, el editor de paraderos y `scripts/apply_recorridos_geometries.js`. `scripts/seed_dummy_data.js` ya no siembra paraderos ni líneas, y `scripts/backup_coletotal.js` exporta las líneas como GeoJSON (un LineString por sentido).
+
+### 3.14. El Turno del Chofer como Navegador (10 de octubre de 2026)
+* **El Pedido:** que la pantalla del chofer fuera como Google Maps: el mapa entero, el botón de "Iniciar turno" encima y una flecha de navegación que la cámara sigue.
+* **La Solución:**
+  1. **Pestañas:** el chofer tiene Turno · Líneas · Preferencias (`Destinations.barFor`). Su pestaña Turno es el mapa; el del pasajero no se monta, así que hay un solo mapa vivo. `Destinations.mapFor(rol)` dice a qué pestaña lleva "ver en el mapa" (por ejemplo, desde Líneas), y `reconcile` cae en la primera pestaña del rol.
+  2. **La flecha es la de MapLibre** (su *location component*, `myLocationRenderMode: gps`), alimentada con las posiciones de `LocationService` mediante `ManualLocationSource` y `updateManualLocation`: no se abre un segundo GPS y MapLibre desliza la flecha entre arreglos. `AppMap` recibe un `MapNavigation` declarativo (arreglo, modo de seguimiento, zoom, inclinación y márgenes) y lo aplica con `_aplicarNavegacion`. Fuera de turno sigue la posición con el norte arriba; en turno usa `trackingGps`, inclinado 50°, con un margen arriba que deja la flecha 110 px sobre el panel.
+  3. **Zoom según la velocidad** (`zoomParaVelocidad`, en `lib/utils/navegacion.dart`): 17, 16,3 y 15,7 en tramos de 20 y 45 km/h, con 5 km/h de margen y como mucho un cambio cada 8 s. MapLibre no permite hacer zoom mientras sigue a la flecha (cualquier movimiento de cámara suelta el seguimiento; sólo la inclinación tiene su propia llamada), así que cada cambio suelta el seguimiento, anima el zoom y lo retoma. Lo mismo pasa con los márgenes, que en Android también son un movimiento de cámara.
+  4. **Rumbo:** `LocationService` expone `speed` y `heading`; el rumbo sólo se actualiza desde 1,5 m/s y con precisión de 45° o mejor (`rumboConfiable`), así que la flecha no apunta al norte en cada semáforo.
+  5. **Ritmo del GPS y de la telemetría:** en turno el GPS da un arreglo por segundo (antes uno cada 3 s), para que la flecha se mueva suave. `FirebaseTelemetriaService` publica como mucho una posición cada 3 s (la última), así que Realtime Database recibe lo mismo que antes; la capacidad y la línea salen al instante.
+  6. **Pantalla encendida** durante el turno mientras se ve la pestaña (`wakelock_plus`, una marca de la ventana que Android suelta al salir de la app).
+  7. **Cierre al cambiar de app:** la app se cerraba con un `NullPointerException` en `SurfaceProducer.getWidth` cuando la ventana se achicaba (al ir a otra app) o al girar el teléfono. Con el modo por omisión de MapLibre en Android (Virtual Display), Flutter redimensiona el mapa con una tarea diferida que puede correr cuando el mapa ya no tiene superficie. Desde el 10 de octubre `main()` fija `MapLibreMap.useHybridComposition = true`: el mapa se dibuja en un `TextureView` que Flutter compone como una capa más y redimensiona en el momento.
+  8. **Vista 2D/3D y segundo plano:** en turno, un botón "2D" deja la cámara plana y con el norte arriba (`MapFollow.position`) y "3D" vuelve a la navegación. Al primer "Iniciar turno", `SegundoPlano.preparar()` (canal `cl.coletotal/segundo_plano` en `MainActivity.kt`) pide el permiso de notificaciones —no estaba en el manifiesto, así que la notificación del servicio del GPS nunca se veía en Android 13+— y la exención de ahorro de batería; en Xiaomi, además, un aviso único que abre los ajustes de la app. La barra de arriba ya no muestra la hora del último envío, sólo el aviso sin señal.
+  9. Los marcadores de colectivos pasaron a `lib/widgets/colectivo_marker.dart`, compartidos por los dos mapas. En el del chofer no se dibuja su propio colectivo (es la flecha) y no se pueden tocar: manejando, una ficha que se abre distrae.
 
 ---
 
@@ -143,10 +165,12 @@ lib/
 │   ├── colectivo_activo.dart      <-- Telemetría, presencia, antigüedad (45 s / 180 s)
 │   ├── garita.dart                <-- Entidad terminal y CodigoAcceso
 │   ├── place_result.dart          <-- Resultado del buscador
-│   └── recorrido.dart             <-- Trazados de líneas y paraderos asociados
+│   └── recorrido.dart             <-- Líneas: ida y vuelta (puntos de la garita + trazado por calle)
 ├── screens/
 │   ├── admin/flota_screen.dart    <-- Consola multi-garita
+│   ├── admin/recorridos_admin_screen.dart <-- Líneas de la garita y editor de ida/vuelta sobre el mapa
 │   ├── driver/turno_screen.dart   <-- Turno, recorrido y capacidad
+│   ├── lineas_screen.dart         <-- Pestaña Líneas: las activas de la garita, por cercanía
 │   ├── main_screen.dart           <-- Navegación principal y chequeo OTA
 │   ├── map_screen.dart            <-- Mapa con capas que escuchan sus propios datos
 │   └── preferences_screen.dart    <-- Tema, tamaño de letra y "Buscar actualizaciones"
@@ -157,6 +181,8 @@ lib/
 │   ├── firebase_telemetria_service.dart <-- Presencia + lectura compartida de la flota
 │   ├── firestore_writes.dart      <-- confirmOrQueue: escrituras que no se cuelgan sin red
 │   ├── geocoding_service.dart     <-- Buscador: POIs + calles offline + Photon
+│   ├── line_planner.dart          <-- Qué línea y sentido tomar: subida y bajada sobre el trazado
+│   ├── recorridos_service.dart    <-- Lectura de las líneas; `publicas` = activas de la garita pública
 │   ├── location_service.dart      <-- Único dueño del GPS (modo pasajero / modo turno)
 │   ├── routing.dart               <-- Qué enrutador calcula cada ruta: Valhalla del teléfono y OSRM de respaldo
 │   ├── valhalla_client.dart       <-- Valhalla del teléfono (canal a MainActivity.kt)
@@ -175,7 +201,6 @@ public/
 └── afiche.html                    <-- Afiche imprimible en A4 con QR para la garita
 scripts/
 ├── lib/firebase_rest.js           <-- Credenciales de Firebase CLI + REST de Firestore
-├── apply_recorridos_geometries.js <-- Recalcula y guarda el trazado de cada línea
 ├── backup_coletotal.js            <-- Respaldo JSON/GeoJSON (con paginación y auditoría)
 ├── mapa_base/build.js             <-- Genera assets/map: teselas, estilos, íconos, tipografías, miniaturas, índice de calles y ruteo
 ├── mapa_base/ruteo.py             <-- Grafo de Valhalla de la región (pyvalhalla + extracto de Geofabrik)
@@ -187,9 +212,10 @@ scripts/
 
 ## 🧪 5. Suite de Pruebas y Estado de Verificación
 
-`flutter analyze` sin observaciones y **176 pruebas automatizadas aprobadas**, sin red ni Firebase:
+`flutter analyze` sin observaciones y **222 pruebas automatizadas aprobadas**, sin red ni Firebase:
 - Roles, destinos y patentes (`roles_test.dart`).
-- Planificador de paraderos y cliente OSRM: troceo de líneas largas, codificación de polilíneas (`planner_test.dart`); Valhalla y el orden de los enrutadores: el del teléfono y, si no encuentra ruta, OSRM; paraderos sólo sobre calles públicas, tramos cosidos (`valhalla_client_test.dart`).
+- Planificador de viajes y cliente OSRM: punto más cercano sobre un trazado, subida antes de la bajada en cada sentido, líneas apagadas o de otra garita fuera, tope de caminata, ida y vuelta por Firestore, troceo de líneas largas y codificación de polilíneas (`planner_test.dart`); Valhalla y el orden de los enrutadores: el del teléfono y, si no encuentra ruta, OSRM; puntos sólo sobre calles públicas, tramos cosidos (`valhalla_client_test.dart`).
+- Pestaña Líneas: sólo las activas de la garita, la más cercana primero, búsqueda sin tildes; la vuelta del editor parte de la ida al revés (`lineas_screen_test.dart`).
 - Ruta a pie: perfil peatonal, tiempo a paso de peatón, respuestas tardías (`route_service_test.dart`).
 - GPS único: una sola solicitud de permiso, servicio en primer plano en el turno (`location_service_test.dart`).
 - Telemetría: nodos ilegibles, antigüedad contra la hora del servidor, "sin señal" (`telemetria_test.dart`).
@@ -197,7 +223,9 @@ scripts/
 - Auditoría de turnos: agrupación, tope, recuperación tras cierre (`session_log_test.dart`).
 - Escrituras sin red (`firestore_writes_test.dart`), búsqueda sin tildes (`text_search_test.dart`), POIs, calles offline y Photon con HTTP simulado (`quilpue_pois_test.dart`).
 - Mapa base offline: las cabeceras reales de los PMTiles y sus límites, estilos que apuntan a íconos, tipografías y fuentes que existen, la capa de detalle sin fondo y las etiquetas de la general escondidas en la región (`basemap_test.dart`); la copia única al dispositivo, las rutas `file://` de los estilos y el borrado de las cachés viejas (`basemap_service_test.dart`); íconos de marcadores, área táctil y halo en metros (`app_map_test.dart`).
-- Persistencia de paraderos e historial (`stops_test.dart`), actualizador (`app_update_test.dart`), tema y Preferencias (`widget_test.dart`).
+- Turno del chofer: fuera de turno sigue la posición y ofrece "Iniciar turno"; en turno navega inclinado, con capacidad y "Terminar turno"; un gesto suelta la cámara y "Volver a centrar" la retoma; su propio colectivo no se dibuja (`turno_screen_test.dart`). Zoom por tramos de velocidad con margen, rumbo que se conserva detenido y una posición publicada cada 3 s (`navegacion_test.dart`). Pestañas del chofer y a dónde lleva "ver en el mapa" (`roles_test.dart`).
+- Líneas en el mapa: rótulo corto de cada línea, flechas cada tantos metros con el rumbo del tramo, metros por píxel según el zoom, cuál resalta y cuál lleva flechas, y a qué línea lleva tocar una insignia (`lineas_mapa_test.dart`).
+- Actualizador (`app_update_test.dart`), tema y Preferencias (`widget_test.dart`), menú lateral (`app_drawer_test.dart`), giro de pantalla sin recrear el mapa (`main_screen_test.dart`).
 
 ---
 
@@ -206,7 +234,7 @@ scripts/
 1. **`config`:** lectura pública, escritura sólo desde la consola o los scripts.
 2. **`garitas/{garitaId}/auditoria_turnos/{sessionId}`:** cada chofer crea sólo sus propios turnos (`uid` igual al de la sesión), en su propia garita y con a lo más 500 eventos. Sólo el administrador de esa garita los lee. Son inmutables: no hay `update` ni `delete`.
 3. **`usuarios`:** el administrador sólo puede listar los usuarios de **su** garita, y sólo si está activo.
-4. **`paraderos` y `recorridos`:** sólo el administrador de la garita escribe, con tipos y largos validados en cada `create` y `update`.
+4. **`recorridos`:** sólo el administrador de la garita escribe, con nombre, color, ida y vuelta validados en cada `create` y `update`. `paraderos` ya no existe: queda cerrado por la regla final.
 5. **`colectivos_activos` (Realtime Database):** cada chofer escribe sólo su nodo, con campos y tipos validados; `ts` no puede ser futuro.
 6. **Códigos y contraseñas:** no se guardan en el repositorio. Los códigos de garita que estuvieron versionados en la rama `Proto` deben **rotarse** en la consola (el historial de git los conserva).
 

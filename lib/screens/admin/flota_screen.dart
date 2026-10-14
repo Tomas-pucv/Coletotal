@@ -17,6 +17,7 @@ import 'package:taxi1/utils/estado_format.dart';
 import 'package:taxi1/utils/patente.dart';
 import 'package:taxi1/widgets/app_map.dart';
 import 'package:taxi1/widgets/map_overlay_card.dart';
+import 'package:taxi1/widgets/recorrido_lines.dart';
 import 'package:taxi1/widgets/state_views.dart';
 
 /// Monitoreo de flota en vivo (informe §7.3.1-C).
@@ -147,12 +148,6 @@ class _FlotaScreenState extends State<FlotaScreen> {
     final linea = seleccionada?.recorridoId == null
         ? null
         : _recorridos.byId(seleccionada!.recorridoId!);
-    final trazado = linea == null
-        ? const <LatLng>[]
-        : (linea.trazado.length >= 2
-              ? linea.trazado
-              : _recorridos.puntosDe(linea));
-
     return Scaffold(
       appBar: AppBar(
         title: Text(AppDestination.flota.label(l10n)),
@@ -189,16 +184,7 @@ class _FlotaScreenState extends State<FlotaScreen> {
                   initialCenter: kQuilpueCenter,
                   // Al elegir una unidad se ilumina la línea que informa estar
                   // cubriendo.
-                  lines: [
-                    if (linea != null && trazado.length > 1)
-                      MapLine(
-                        points: trazado,
-                        width: 5,
-                        color: Color(linea.colorValue).withValues(alpha: 0.85),
-                        borderColor: status.routeLineCasing,
-                        borderWidth: 1.5,
-                      ),
-                  ],
+                  lines: [if (linea != null) ...recorridoLines(linea, status)],
                   markers: [
                     for (final unidad in unidades)
                       _marcador(

@@ -2,22 +2,19 @@ import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
-import 'package:latlong2/latlong.dart';
 
 import 'package:taxi1/models/app_user.dart';
 import 'package:taxi1/models/garita.dart';
 import 'package:taxi1/models/recorrido.dart';
 import 'package:taxi1/services/auth_service.dart';
 import 'package:taxi1/services/firestore_writes.dart';
-import 'package:taxi1/services/routing.dart';
-import 'package:taxi1/services/recorridos_service.dart';
-import 'package:taxi1/services/stops_service.dart';
 
 /// Datos que gestiona el administrador de garita: recorridos y choferes.
 ///
-/// Los paraderos **no** están acá: los lee todo el mundo, incluido el invitado,
-/// así que viven en `StopsService`. Este servicio sólo escucha cuando hay un
-/// administrador en sesión, y corta sus suscripciones al cerrarla — si no, un
+/// Las líneas las lee todo el mundo, incluido el invitado, así que se escuchan
+/// en `RecorridosService`; acá sólo se escriben. Este servicio sólo escucha
+/// cuando hay un administrador en sesión, y corta sus suscripciones al
+/// cerrarla — si no, un
 /// listener de Firestore seguiría abierto contra datos que el usuario ya no
 /// tiene permiso de leer, y las reglas empezarían a devolver errores.
 class GaritaService extends ChangeNotifier {
@@ -57,7 +54,6 @@ class GaritaService extends ChangeNotifier {
     if (gid == _garitaId) return;
 
     _garitaId = gid;
-    StopsService.instance.watchGarita(gid);
     if (gid == null) {
       _stop();
       _choferes = const [];
@@ -74,9 +70,8 @@ class GaritaService extends ChangeNotifier {
     notifyListeners();
 
     // Los recorridos NO se leen aquí: los escucha `RecorridosService`, que es
-    // público porque el pasajero también los necesita para saber qué colectivos
-    // pasan por un paradero. Dos listeners sobre la misma colección serían dos
-    // suscripciones cobradas para el mismo dato.
+    // público porque el pasajero también los necesita. Dos listeners sobre la
+    // misma colección serían dos suscripciones cobradas para el mismo dato.
     _choferesSub = _db
         .collection(_colUsuarios)
         .where('garitaId', isEqualTo: garitaId)
@@ -135,23 +130,11 @@ class GaritaService extends ChangeNotifier {
   /// Crea o actualiza un recorrido. Devuelve su id y si quedó confirmado o
   /// encolado sin red.
   ///
-  /// Si el recorrido trae `geometria` se respeta tal cual: el editor la
-  /// conserva cuando los paraderos no cambiaron, para que renombrar una línea
-  /// o cambiarle el color no reemplace un trazado afinado a mano por uno
-  /// recalculado (o lo borre, si el enrutador no respondía). Si no la trae, se
-  /// calcula siguiendo las calles, en tramos si la línea es larga.
+  /// El recorrido llega con el trazado de cada sentido ya calculado: lo hace
+  /// el editor, que además se lo muestra a la garita antes de guardar.
   Future<(String, WriteOutcome)> upsertRecorrido(Recorrido recorrido) async {
-    var geometria = recorrido.geometria;
-    if (geometria == null || geometria.isEmpty) {
-      final points = _puntos(recorrido.paraderoIds);
-      if (points.length >= 2) {
-        geometria = await Routing.encodedLinePath(points);
-      }
-    }
-
     final data = {
       ...recorrido.toMap(),
-      'geometria': ?geometria,
       'actualizadoEn': FieldValue.serverTimestamp(),
     };
     final ref = recorrido.id.isEmpty
@@ -161,67 +144,23 @@ class GaritaService extends ChangeNotifier {
     return (ref.id, outcome);
   }
 
+  /// Enciende o apaga una línea sin tocar su trazado. Una línea apagada no la
+  /// ven los pasajeros ni la pueden elegir los choferes.
+  Future<WriteOutcome> setRecorridoActivo(Recorrido recorrido, bool activo) =>
+      confirmOrQueue(
+        _db.collection(_colRecorridos).doc(recorrido.id).update({
+          'activo': activo,
+          'actualizadoEn': FieldValue.serverTimestamp(),
+        }),
+        label: 'recorrido activo=$activo',
+      );
+
   Future<WriteOutcome> deleteRecorrido(Recorrido recorrido) async {
     if (recorrido.id.isEmpty) return WriteOutcome.confirmed;
     return confirmOrQueue(
       _db.collection(_colRecorridos).doc(recorrido.id).delete(),
       label: 'borrar recorrido',
     );
-  }
-
-  /// Rehace el trazado guardado de las líneas de la garita que pasan por
-  /// [paraderoId], después de que el administrador lo movió a [nuevaUbicacion].
-  ///
-  /// El trazado se guarda calculado y los clientes lo usan tal cual, así que
-  /// mover un paradero no cambiaba el dibujo de ninguna línea. Si el enrutador
-  /// no responde, se borra la geometría: los clientes vuelven a calcularla en
-  /// vivo desde los paraderos, que ya es mejor que dibujar el lugar viejo.
-  /// Devuelve cuántas líneas se tocaron.
-  Future<int> recomputeGeometriasFor(
-    String paraderoId,
-    LatLng nuevaUbicacion,
-  ) async {
-    final gid = _garitaId;
-    if (gid == null) return 0;
-    final afectados = RecorridosService.instance
-        .porGarita(gid)
-        .where((r) => r.paraderoIds.contains(paraderoId))
-        .toList(growable: false);
-
-    for (final recorrido in afectados) {
-      final points = _puntos(
-        recorrido.paraderoIds,
-        override: {paraderoId: nuevaUbicacion},
-      );
-      final geometria = points.length >= 2
-          ? await Routing.encodedLinePath(points)
-          : null;
-      try {
-        await confirmOrQueue(
-          _db.collection(_colRecorridos).doc(recorrido.id).update({
-            'geometria': geometria ?? FieldValue.delete(),
-            'actualizadoEn': FieldValue.serverTimestamp(),
-          }),
-          label: 'geometría de ${recorrido.id}',
-        );
-      } catch (e) {
-        debugPrint('GaritaService: no se actualizó ${recorrido.id}: $e');
-      }
-    }
-    return afectados.length;
-  }
-
-  List<LatLng> _puntos(
-    List<String> paraderoIds, {
-    Map<String, LatLng> override = const {},
-  }) {
-    final stops = StopsService.instance;
-    final points = <LatLng>[];
-    for (final id in paraderoIds) {
-      final location = override[id] ?? stops.byId(id)?.location;
-      if (location != null) points.add(location);
-    }
-    return points;
   }
 
   // --- Choferes ------------------------------------------------------------

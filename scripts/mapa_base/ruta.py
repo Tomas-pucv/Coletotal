@@ -2,9 +2,9 @@
 ruteo que lleva la app (`assets/map/ruteo_valparaiso.tar`).
 
 Lee la consulta de Valhalla (JSON) por la entrada estándar y escribe la
-respuesta por la salida. La usa scripts/apply_recorridos_geometries.js para
-recalcular los trazados guardados igual que los calcula el teléfono, sin
-depender de ningún servidor.
+respuesta por la salida. Sirve para probar desde el computador una ruta igual
+que la calcula el teléfono (por ejemplo, el trazado de una línea que dibujó la
+garita), sin depender de ningún servidor.
 
     echo '{"locations": [...], "costing": "auto"}' | python scripts/mapa_base/ruta.py
 

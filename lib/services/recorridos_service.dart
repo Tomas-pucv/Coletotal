@@ -2,20 +2,19 @@ import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
-import 'package:latlong2/latlong.dart';
 
-import 'package:taxi1/models/bus_stop.dart';
+import 'package:taxi1/config/garita_config.dart';
 import 'package:taxi1/models/recorrido.dart';
-import 'package:taxi1/services/routing.dart';
-import 'package:taxi1/services/stops_service.dart';
 
-/// Los recorridos de la línea, para **todo el mundo**.
+/// Las líneas de colectivo, para **todo el mundo**.
 ///
-/// Antes sólo existían dentro de `GaritaService`, que únicamente escucha cuando
-/// hay un administrador en sesión. Pero el pasajero también los necesita: son
-/// la respuesta a "¿qué colectivos pasan por este paradero?" y "¿por dónde va
-/// esa línea?". Mismo reparto que con los paraderos: la lectura pública vive
-/// acá y `GaritaService` se queda sólo con las escrituras del administrador.
+/// El pasajero y el chofer ven sólo las públicas ([publicas]): las activas de
+/// la garita [kGaritaPublica]. El administrador ve todas las de su garita
+/// ([porGarita]); las escrituras son de `GaritaService`.
+///
+/// El trazado de cada sentido viene calculado desde Firestore (lo calcula el
+/// editor de la garita al guardar), así que dibujar una línea no pide nada a
+/// ningún enrutador: funciona igual sin señal.
 class RecorridosService extends ChangeNotifier {
   RecorridosService._();
   static final RecorridosService instance = RecorridosService._();
@@ -27,49 +26,38 @@ class RecorridosService extends ChangeNotifier {
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _sub;
   List<Recorrido> _recorridos = const [];
 
-  /// Trazados ya calculados, por id de recorrido.
-  ///
-  /// El trazado se deriva de los paraderos con un enrutador, que es una petición
-  /// de red por línea: sin caché, volver a abrir la misma línea la pediría otra
-  /// vez. Se invalida entera cuando cambian los paraderos, porque mover uno
-  /// cambia el trazado de todas las líneas que lo incluyen.
-  final Map<String, List<LatLng>> _trazados = {};
-
   Recorrido? _selected;
-  bool _loadingTrazado = false;
+  Sentido? _selectedSentido;
   bool _loaded = false;
 
+  /// Todas las líneas que llegaron, de todas las garitas.
   List<Recorrido> get recorridos => _recorridos;
 
   /// Si ya llegó el primer snapshot. Mientras no, una lista vacía significa
-  /// "todavía no sé", no "la garita no tiene recorridos".
+  /// "todavía no sé", no "no hay líneas".
   bool get loaded => _loaded;
 
-  /// Recorrido que el usuario está viendo dibujado en el mapa.
-  Recorrido? get selected => _selected;
-  bool get loadingTrazado => _loadingTrazado;
-
-  /// Puntos del recorrido seleccionado. Vacío mientras se calcula.
-  List<LatLng> get trazadoSeleccionado {
-    if (_selected == null) return const [];
-    final cached = _trazados[_selected!.id];
-    if (cached != null) return cached;
-    if (_selected!.trazado.length >= 2) return _selected!.trazado;
-    return const [];
-  }
-
-  /// Las líneas que sirven a [paraderoId], que es lo que se le muestra al
-  /// pasajero cuando toca un paradero.
-  List<Recorrido> porParadero(String paraderoId) => _recorridos
-      .where((r) => r.activo && r.paraderoIds.contains(paraderoId))
-      .toList(growable: false);
+  /// Lo que ven el pasajero y el chofer: las líneas activas y dibujables de la
+  /// garita pública, por nombre.
+  List<Recorrido> get publicas =>
+      _recorridos
+          .where((r) => r.garitaId == kGaritaPublica && r.activo && r.isValid)
+          .toList(growable: false)
+        ..sort((a, b) => a.nombre.compareTo(b.nombre));
 
   /// Todas las líneas de una garita, activas o no.
   ///
-  /// Es lo que ve su administrador: para él un recorrido desactivado sigue
-  /// existiendo y tiene que poder volver a encenderlo.
+  /// Es lo que ve su administrador: para él una línea apagada sigue existiendo
+  /// y tiene que poder volver a encenderla.
   List<Recorrido> porGarita(String garitaId) =>
       _recorridos.where((r) => r.garitaId == garitaId).toList(growable: false);
+
+  /// Línea que el usuario está viendo dibujada en el mapa.
+  Recorrido? get selected => _selected;
+
+  /// Sentido elegido de [selected], o `null` para dibujar los dos (cuando se
+  /// eligió la línea en la pestaña Líneas y no un viaje).
+  Sentido? get selectedSentido => _selectedSentido;
 
   Recorrido? byId(String id) {
     for (final r in _recorridos) {
@@ -90,16 +78,11 @@ class RecorridosService extends ChangeNotifier {
                 .map((doc) => Recorrido.fromMap(doc.id, doc.data()))
                 .toList(growable: false);
             _loaded = true;
-
-            // Un recorrido editado puede tener otros paraderos: su trazado viejo ya
-            // no lo describe.
-            _trazados.clear();
+            // Si el administrador la editó, se dibuja la versión nueva; si la
+            // borró, se deja de dibujar una línea que ya no existe.
             if (_selected != null) {
-              final fresh = byId(_selected!.id);
-              // Si el administrador lo eliminó, se deja de dibujar en vez de
-              // mostrar una línea que ya no existe.
-              _selected = fresh;
-              if (fresh != null) unawaited(_ensureTrazado(fresh));
+              _selected = byId(_selected!.id);
+              if (_selected == null) _selectedSentido = null;
             }
             notifyListeners();
           },
@@ -107,92 +90,41 @@ class RecorridosService extends ChangeNotifier {
             debugPrint('RecorridosService: no se pudo leer recorridos: $e');
           },
         );
-
-    // Mover un paradero cambia el trazado de todas las líneas que lo tocan.
-    StopsService.instance.addListener(_onStopsChanged);
-  }
-
-  void _onStopsChanged() {
-    _trazados.clear();
-    final current = _selected;
-    if (current != null) unawaited(_ensureTrazado(current));
   }
 
   Future<void> stopListening() async {
     await _sub?.cancel();
     _sub = null;
-    StopsService.instance.removeListener(_onStopsChanged);
   }
 
-  // --- Selección y trazado -------------------------------------------------
-
-  Future<void> select(Recorrido recorrido) async {
-    if (_selected?.id == recorrido.id) return;
+  /// Dibuja [recorrido] en el mapa: entero, o sólo [sentido].
+  ///
+  /// Con [encuadrar], el mapa además mueve la cámara para mostrarla completa:
+  /// lo pide la pestaña Líneas. Tocar un colectivo en el mapa no lo pide,
+  /// porque alejaría la cámara del colectivo que se acaba de tocar.
+  void select(Recorrido recorrido, {Sentido? sentido, bool encuadrar = false}) {
+    final misma = _selected?.id == recorrido.id && _selectedSentido == sentido;
+    if (misma && !encuadrar) return;
     _selected = recorrido;
+    _selectedSentido = sentido;
+    _encuadrePendiente = encuadrar;
     notifyListeners();
-    await _ensureTrazado(recorrido);
+  }
+
+  bool _encuadrePendiente = false;
+
+  /// Si quien eligió la línea pidió mostrarla completa. Devuelve `true` una
+  /// sola vez por pedido.
+  bool tomarEncuadre() {
+    final pendiente = _encuadrePendiente;
+    _encuadrePendiente = false;
+    return pendiente;
   }
 
   void clearSelection() {
     if (_selected == null) return;
     _selected = null;
-    _loadingTrazado = false;
-    notifyListeners();
-  }
-
-  /// Puntos de los paraderos de [recorrido], en orden y saltándose los que ya
-  /// no existan.
-  List<LatLng> puntosDe(Recorrido recorrido) {
-    final stops = StopsService.instance;
-    final points = <LatLng>[];
-    for (final id in recorrido.paraderoIds) {
-      final stop = stops.byId(id);
-      if (stop != null) points.add(stop.location);
-    }
-    return points;
-  }
-
-  List<BusStop> paraderosDe(Recorrido recorrido) {
-    final stops = StopsService.instance;
-    final result = <BusStop>[];
-    for (final id in recorrido.paraderoIds) {
-      final stop = stops.byId(id);
-      if (stop != null) result.add(stop);
-    }
-    return result;
-  }
-
-  Future<void> _ensureTrazado(Recorrido recorrido) async {
-    if (_trazados.containsKey(recorrido.id)) return;
-
-    // Si el recorrido ya tiene una geometría precomputada válida que respeta
-    // las calles y sentidos de tránsito, la usamos de inmediato:
-    // 0 latencia, offline total y trazado exacto sin depender de la red.
-    if (recorrido.trazado.length >= 2) {
-      _trazados[recorrido.id] = recorrido.trazado;
-      notifyListeners();
-      return;
-    }
-
-    final puntos = puntosDe(recorrido);
-    if (puntos.length < 2) {
-      _trazados[recorrido.id] = const [];
-      notifyListeners();
-      return;
-    }
-
-    _loadingTrazado = true;
-    notifyListeners();
-
-    final trazado = (await Routing.linePath(puntos))?.points;
-
-    // Si ningún enrutador responde se unen los paraderos con rectas. Es menos
-    // bonito, pero deja ver por dónde va la línea, que es lo que se estaba
-    // preguntando; no dibujar nada sería el peor de los resultados.
-    _trazados[recorrido.id] = trazado ?? puntos;
-    // Si mientras tanto el usuario eligió otra línea, el indicador de carga es
-    // de esa otra petición y no se apaga acá.
-    if (_selected?.id == recorrido.id) _loadingTrazado = false;
+    _selectedSentido = null;
     notifyListeners();
   }
 
@@ -200,7 +132,6 @@ class RecorridosService extends ChangeNotifier {
   void debugSetRecorridos(List<Recorrido> recorridos) {
     _recorridos = List.unmodifiable(recorridos);
     _loaded = true;
-    _trazados.clear();
     notifyListeners();
   }
 }

@@ -120,7 +120,10 @@ void main() {
     final turno = fake.streamSettings.last as AndroidSettings;
     expect(turno.foregroundNotificationConfig, isNotNull);
     expect(turno.foregroundNotificationConfig!.enableWakeLock, isTrue);
-    expect(turno.intervalDuration, const Duration(seconds: 3));
+    // Un arreglo por segundo aunque el auto esté detenido: la flecha de
+    // navegación se mueve con cada uno (la telemetría publica cada tres).
+    expect(turno.intervalDuration, const Duration(seconds: 1));
+    expect(turno.distanceFilter, 0);
 
     await service.setDriverMode(false);
     final despues = fake.streamSettings.last as AndroidSettings;

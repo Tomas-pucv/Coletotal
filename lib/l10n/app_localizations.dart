@@ -103,7 +103,7 @@ abstract class AppLocalizations {
   /// No description provided for @navRoutes.
   ///
   /// In es, this message translates to:
-  /// **'Paraderos'**
+  /// **'Líneas'**
   String get navRoutes;
 
   /// No description provided for @navPreferences.
@@ -118,29 +118,11 @@ abstract class AppLocalizations {
   /// **'Calculando ruta…'**
   String get calculatingRoute;
 
-  /// No description provided for @searchingLocation.
-  ///
-  /// In es, this message translates to:
-  /// **'Buscando ubicación…'**
-  String get searchingLocation;
-
   /// No description provided for @closeRoute.
   ///
   /// In es, this message translates to:
   /// **'Cerrar ruta'**
   String get closeRoute;
-
-  /// No description provided for @tapToGoStop.
-  ///
-  /// In es, this message translates to:
-  /// **'Tocar para ir al paradero'**
-  String get tapToGoStop;
-
-  /// No description provided for @coordsLabel.
-  ///
-  /// In es, this message translates to:
-  /// **'Lat: {lat}, Lng: {lng}'**
-  String coordsLabel(String lat, String lng);
 
   /// No description provided for @routeErrorDefault.
   ///
@@ -166,12 +148,6 @@ abstract class AppLocalizations {
   /// **'Centrar en mi ubicación'**
   String get recenterInactive;
 
-  /// No description provided for @stopSemanticLabel.
-  ///
-  /// In es, this message translates to:
-  /// **'Paradero {name}, {address}'**
-  String stopSemanticLabel(String name, String address);
-
   /// No description provided for @telemetryUnavailable.
   ///
   /// In es, this message translates to:
@@ -189,54 +165,6 @@ abstract class AppLocalizations {
   /// In es, this message translates to:
   /// **'Más ajustes'**
   String get moreSettings;
-
-  /// No description provided for @calculateRouteTitle.
-  ///
-  /// In es, this message translates to:
-  /// **'Calcular Ruta'**
-  String get calculateRouteTitle;
-
-  /// No description provided for @originLabel.
-  ///
-  /// In es, this message translates to:
-  /// **'Origen (Mi ubicación actual)'**
-  String get originLabel;
-
-  /// No description provided for @searchStopHint.
-  ///
-  /// In es, this message translates to:
-  /// **'Buscar paradero por nombre o dirección…'**
-  String get searchStopHint;
-
-  /// No description provided for @whereToGo.
-  ///
-  /// In es, this message translates to:
-  /// **'¿A dónde quieres ir?'**
-  String get whereToGo;
-
-  /// No description provided for @noResults.
-  ///
-  /// In es, this message translates to:
-  /// **'Sin resultados para \"{query}\"'**
-  String noResults(String query);
-
-  /// No description provided for @noResultsHint.
-  ///
-  /// In es, this message translates to:
-  /// **'Prueba con otro nombre o revisa la ortografía.'**
-  String get noResultsHint;
-
-  /// No description provided for @goToNearestStop.
-  ///
-  /// In es, this message translates to:
-  /// **'Ir al paradero más cercano'**
-  String get goToNearestStop;
-
-  /// No description provided for @locationUnavailable.
-  ///
-  /// In es, this message translates to:
-  /// **'Tu ubicación aún no está disponible. Activa el GPS o espera unos segundos.'**
-  String get locationUnavailable;
 
   /// No description provided for @veryClose.
   ///
@@ -262,29 +190,11 @@ abstract class AppLocalizations {
   /// **'Lejos'**
   String get far;
 
-  /// No description provided for @distanceUnavailable.
-  ///
-  /// In es, this message translates to:
-  /// **'Distancia no disponible'**
-  String get distanceUnavailable;
-
-  /// No description provided for @enableLocationForSorting.
-  ///
-  /// In es, this message translates to:
-  /// **'Activa la ubicación para ordenar los paraderos por cercanía.'**
-  String get enableLocationForSorting;
-
   /// No description provided for @recentStops.
   ///
   /// In es, this message translates to:
   /// **'Consultados recientemente'**
   String get recentStops;
-
-  /// No description provided for @allStops.
-  ///
-  /// In es, this message translates to:
-  /// **'Todos los paraderos'**
-  String get allStops;
 
   /// No description provided for @locationOffMessage.
   ///
@@ -460,30 +370,6 @@ abstract class AppLocalizations {
   /// **'¿Estás seguro? El mapa necesita tu ubicación para funcionar correctamente.'**
   String get disableTrackingMessage;
 
-  /// No description provided for @saveHistory.
-  ///
-  /// In es, this message translates to:
-  /// **'Guardar historial'**
-  String get saveHistory;
-
-  /// No description provided for @saveHistoryDesc.
-  ///
-  /// In es, this message translates to:
-  /// **'Recuerda los últimos {count} paraderos consultados'**
-  String saveHistoryDesc(String count);
-
-  /// No description provided for @clearHistory.
-  ///
-  /// In es, this message translates to:
-  /// **'Borrar'**
-  String get clearHistory;
-
-  /// No description provided for @historyCleared.
-  ///
-  /// In es, this message translates to:
-  /// **'Historial borrado.'**
-  String get historyCleared;
-
   /// No description provided for @cancel.
   ///
   /// In es, this message translates to:
@@ -646,12 +532,6 @@ abstract class AppLocalizations {
   /// **'Garita'**
   String get navGarita;
 
-  /// No description provided for @navStops.
-  ///
-  /// In es, this message translates to:
-  /// **'Gestión de paraderos'**
-  String get navStops;
-
   /// No description provided for @navRecorridos.
   ///
   /// In es, this message translates to:
@@ -681,12 +561,6 @@ abstract class AppLocalizations {
   /// In es, this message translates to:
   /// **'Administrador'**
   String get roleAdmin;
-
-  /// No description provided for @roleGuestSubtitle.
-  ///
-  /// In es, this message translates to:
-  /// **'Estás usando ColeTotal sin cuenta'**
-  String get roleGuestSubtitle;
 
   /// No description provided for @roleColectiveroSubtitle.
   ///
@@ -735,6 +609,12 @@ abstract class AppLocalizations {
   /// In es, this message translates to:
   /// **'Cerrar sesión'**
   String get signOut;
+
+  /// No description provided for @signOutShort.
+  ///
+  /// In es, this message translates to:
+  /// **'Salir'**
+  String get signOutShort;
 
   /// No description provided for @signOutMessage.
   ///
@@ -994,18 +874,6 @@ abstract class AppLocalizations {
   /// **'Fuera de servicio'**
   String get turnoOff;
 
-  /// No description provided for @turnoOnDesc.
-  ///
-  /// In es, this message translates to:
-  /// **'Los pasajeros ven tu posición en el mapa.'**
-  String get turnoOnDesc;
-
-  /// No description provided for @turnoOffDesc.
-  ///
-  /// In es, this message translates to:
-  /// **'No se transmite nada. Nadie ve dónde estás.'**
-  String get turnoOffDesc;
-
   /// No description provided for @turnoStart.
   ///
   /// In es, this message translates to:
@@ -1017,18 +885,6 @@ abstract class AppLocalizations {
   /// In es, this message translates to:
   /// **'Terminar turno'**
   String get turnoEnd;
-
-  /// No description provided for @turnoCapacity.
-  ///
-  /// In es, this message translates to:
-  /// **'Capacidad'**
-  String get turnoCapacity;
-
-  /// No description provided for @turnoCapacityHelp.
-  ///
-  /// In es, this message translates to:
-  /// **'Cambia el color de tu marcador para los pasajeros y la garita.'**
-  String get turnoCapacityHelp;
 
   /// No description provided for @capacityAvailable.
   ///
@@ -1096,24 +952,6 @@ abstract class AppLocalizations {
   /// **'Colectivo {patente}, {estado}'**
   String colectivoSemanticLabel(String patente, String estado);
 
-  /// No description provided for @turnoVehicle.
-  ///
-  /// In es, this message translates to:
-  /// **'Mi vehículo'**
-  String get turnoVehicle;
-
-  /// No description provided for @turnoLastSent.
-  ///
-  /// In es, this message translates to:
-  /// **'Última posición enviada hace {tiempo}'**
-  String turnoLastSent(String tiempo);
-
-  /// No description provided for @turnoNoSignal.
-  ///
-  /// In es, this message translates to:
-  /// **'Aún no se ha enviado ninguna posición.'**
-  String get turnoNoSignal;
-
   /// No description provided for @turnoIssueTracking.
   ///
   /// In es, this message translates to:
@@ -1162,12 +1000,6 @@ abstract class AppLocalizations {
   /// **'Sin señal: tu posición se enviará apenas vuelva la conexión.'**
   String get turnoOffline;
 
-  /// No description provided for @turnoRoute.
-  ///
-  /// In es, this message translates to:
-  /// **'Recorrido'**
-  String get turnoRoute;
-
   /// No description provided for @turnoRouteNone.
   ///
   /// In es, this message translates to:
@@ -1180,17 +1012,71 @@ abstract class AppLocalizations {
   /// **'Elegir recorrido'**
   String get turnoRoutePick;
 
-  /// No description provided for @turnoRouteHelp.
-  ///
-  /// In es, this message translates to:
-  /// **'Los pasajeros ven tu línea al tocar tu colectivo en el mapa.'**
-  String get turnoRouteHelp;
-
   /// No description provided for @turnoRouteEmpty.
   ///
   /// In es, this message translates to:
   /// **'Tu garita todavía no tiene recorridos activos.'**
   String get turnoRouteEmpty;
+
+  /// No description provided for @turnoRecenter.
+  ///
+  /// In es, this message translates to:
+  /// **'Volver a centrar'**
+  String get turnoRecenter;
+
+  /// No description provided for @turnoEndConfirmTitle.
+  ///
+  /// In es, this message translates to:
+  /// **'¿Terminar el turno?'**
+  String get turnoEndConfirmTitle;
+
+  /// No description provided for @turnoEndConfirmBody.
+  ///
+  /// In es, this message translates to:
+  /// **'Los pasajeros dejarán de ver tu colectivo en el mapa.'**
+  String get turnoEndConfirmBody;
+
+  /// No description provided for @turnoConsentTitle.
+  ///
+  /// In es, this message translates to:
+  /// **'Tu ubicación durante el turno'**
+  String get turnoConsentTitle;
+
+  /// No description provided for @turnoView2d.
+  ///
+  /// In es, this message translates to:
+  /// **'Vista plana, con el norte arriba'**
+  String get turnoView2d;
+
+  /// No description provided for @turnoView3d.
+  ///
+  /// In es, this message translates to:
+  /// **'Vista de navegación'**
+  String get turnoView3d;
+
+  /// No description provided for @turnoXiaomiTitle.
+  ///
+  /// In es, this message translates to:
+  /// **'Para que tu turno no se corte'**
+  String get turnoXiaomiTitle;
+
+  /// No description provided for @turnoXiaomiBody.
+  ///
+  /// In es, this message translates to:
+  /// **'En los teléfonos Xiaomi, abre los ajustes de ColeTotal, deja «Ahorro de batería» en «Sin restricciones» y activa el «Inicio automático». Si no, el teléfono corta la conexión al bloquear la pantalla y los pasajeros dejan de ver tu colectivo.'**
+  String get turnoXiaomiBody;
+
+  /// No description provided for @turnoXiaomiOpen.
+  ///
+  /// In es, this message translates to:
+  /// **'Abrir ajustes'**
+  String get turnoXiaomiOpen;
+
+  /// No description provided for @turnoXiaomiLater.
+  ///
+  /// In es, this message translates to:
+  /// **'Ahora no'**
+  String get turnoXiaomiLater;
 
   /// No description provided for @agoSeconds.
   ///
@@ -1228,28 +1114,16 @@ abstract class AppLocalizations {
   /// **'En servicio'**
   String get adminMetricUnits;
 
-  /// No description provided for @adminMetricStops.
-  ///
-  /// In es, this message translates to:
-  /// **'Paraderos'**
-  String get adminMetricStops;
-
   /// No description provided for @adminMetricRoutes.
   ///
   /// In es, this message translates to:
-  /// **'Recorridos'**
+  /// **'Líneas activas'**
   String get adminMetricRoutes;
-
-  /// No description provided for @adminStopsDesc.
-  ///
-  /// In es, this message translates to:
-  /// **'Agrega, mueve o da de baja paraderos'**
-  String get adminStopsDesc;
 
   /// No description provided for @adminRoutesDesc.
   ///
   /// In es, this message translates to:
-  /// **'Define los recorridos de la línea'**
+  /// **'Dibuja la ida y la vuelta de cada línea'**
   String get adminRoutesDesc;
 
   /// No description provided for @adminDriversDesc.
@@ -1276,131 +1150,11 @@ abstract class AppLocalizations {
   /// **'Operación'**
   String get adminSectionOps;
 
-  /// No description provided for @stopAdd.
-  ///
-  /// In es, this message translates to:
-  /// **'Añadir paradero'**
-  String get stopAdd;
-
-  /// No description provided for @stopEdit.
-  ///
-  /// In es, this message translates to:
-  /// **'Editar paradero'**
-  String get stopEdit;
-
-  /// No description provided for @stopName.
-  ///
-  /// In es, this message translates to:
-  /// **'Nombre'**
-  String get stopName;
-
-  /// No description provided for @stopAddress.
-  ///
-  /// In es, this message translates to:
-  /// **'Dirección'**
-  String get stopAddress;
-
-  /// No description provided for @stopActive.
-  ///
-  /// In es, this message translates to:
-  /// **'Visible para los pasajeros'**
-  String get stopActive;
-
-  /// No description provided for @stopDeleteTitle.
-  ///
-  /// In es, this message translates to:
-  /// **'Dar de baja el paradero'**
-  String get stopDeleteTitle;
-
-  /// No description provided for @stopDeleteMessage.
-  ///
-  /// In es, this message translates to:
-  /// **'{nombre} dejará de aparecer en el mapa y en las búsquedas. No se borra: los recorridos y el historial que lo referencian siguen funcionando.'**
-  String stopDeleteMessage(String nombre);
-
-  /// No description provided for @stopDeactivate.
-  ///
-  /// In es, this message translates to:
-  /// **'Dar de baja'**
-  String get stopDeactivate;
-
-  /// No description provided for @stopSaved.
-  ///
-  /// In es, this message translates to:
-  /// **'Paradero guardado.'**
-  String get stopSaved;
-
-  /// No description provided for @stopDeleted.
-  ///
-  /// In es, this message translates to:
-  /// **'Paradero dado de baja.'**
-  String get stopDeleted;
-
-  /// No description provided for @stopPickOnMap.
-  ///
-  /// In es, this message translates to:
-  /// **'Mantén pulsado el mapa para mover el paradero'**
-  String get stopPickOnMap;
-
-  /// No description provided for @stopSearchHint.
-  ///
-  /// In es, this message translates to:
-  /// **'Buscar paradero…'**
-  String get stopSearchHint;
-
-  /// No description provided for @stopsEmpty.
-  ///
-  /// In es, this message translates to:
-  /// **'Todavía no hay paraderos cargados.'**
-  String get stopsEmpty;
-
-  /// No description provided for @stopsImportSeed.
-  ///
-  /// In es, this message translates to:
-  /// **'Importar paraderos de ejemplo'**
-  String get stopsImportSeed;
-
-  /// No description provided for @stopsImported.
-  ///
-  /// In es, this message translates to:
-  /// **'Se importaron {count} paraderos.'**
-  String stopsImported(String count);
-
-  /// No description provided for @stopsSeedNotice.
-  ///
-  /// In es, this message translates to:
-  /// **'Estos son paraderos de referencia, todavía no están en la base de datos de tu garita. Impórtalos una vez para poder editarlos.'**
-  String get stopsSeedNotice;
-
-  /// No description provided for @stopInactive.
-  ///
-  /// In es, this message translates to:
-  /// **'Dado de baja'**
-  String get stopInactive;
-
-  /// No description provided for @stopReactivate.
-  ///
-  /// In es, this message translates to:
-  /// **'Reactivar'**
-  String get stopReactivate;
-
-  /// No description provided for @stopReactivated.
-  ///
-  /// In es, this message translates to:
-  /// **'Paradero reactivado.'**
-  String get stopReactivated;
-
   /// No description provided for @savedOffline.
   ///
   /// In es, this message translates to:
   /// **'Guardado sin conexión: se sincronizará al recuperar la señal.'**
   String get savedOffline;
-
-  /// No description provided for @routeGeometryUpdated.
-  ///
-  /// In es, this message translates to:
-  /// **'Se actualizó el trazado de {count} recorridos.'**
-  String routeGeometryUpdated(String count);
 
   /// No description provided for @fleetEmpty.
   ///
@@ -1441,97 +1195,61 @@ abstract class AppLocalizations {
   /// No description provided for @routeAdd.
   ///
   /// In es, this message translates to:
-  /// **'Nuevo recorrido'**
+  /// **'Nueva línea'**
   String get routeAdd;
 
   /// No description provided for @routeEdit.
   ///
   /// In es, this message translates to:
-  /// **'Editar recorrido'**
+  /// **'Editar línea'**
   String get routeEdit;
 
   /// No description provided for @routeName.
   ///
   /// In es, this message translates to:
-  /// **'Nombre del recorrido'**
+  /// **'Nombre de la línea'**
   String get routeName;
-
-  /// No description provided for @routeColor.
-  ///
-  /// In es, this message translates to:
-  /// **'Color en el mapa'**
-  String get routeColor;
-
-  /// No description provided for @routeStops.
-  ///
-  /// In es, this message translates to:
-  /// **'Paraderos del recorrido'**
-  String get routeStops;
-
-  /// No description provided for @routeStopsHelp.
-  ///
-  /// In es, this message translates to:
-  /// **'Arrastra para reordenar: el trazado sigue este orden.'**
-  String get routeStopsHelp;
-
-  /// No description provided for @routeAddStop.
-  ///
-  /// In es, this message translates to:
-  /// **'Agregar paradero'**
-  String get routeAddStop;
 
   /// No description provided for @routeActive.
   ///
   /// In es, this message translates to:
-  /// **'Recorrido activo'**
+  /// **'Línea activa'**
   String get routeActive;
 
   /// No description provided for @routeSaved.
   ///
   /// In es, this message translates to:
-  /// **'Recorrido guardado.'**
+  /// **'Línea guardada.'**
   String get routeSaved;
 
   /// No description provided for @routeDeleted.
   ///
   /// In es, this message translates to:
-  /// **'Recorrido eliminado.'**
+  /// **'Línea eliminada.'**
   String get routeDeleted;
 
   /// No description provided for @routesEmpty.
   ///
   /// In es, this message translates to:
-  /// **'Todavía no hay recorridos definidos.'**
+  /// **'Todavía no hay líneas.'**
   String get routesEmpty;
-
-  /// No description provided for @routeStopCount.
-  ///
-  /// In es, this message translates to:
-  /// **'{count} paraderos'**
-  String routeStopCount(String count);
-
-  /// No description provided for @routeNeedsStops.
-  ///
-  /// In es, this message translates to:
-  /// **'Un recorrido necesita al menos dos paraderos.'**
-  String get routeNeedsStops;
 
   /// No description provided for @routeDeleteTitle.
   ///
   /// In es, this message translates to:
-  /// **'Eliminar recorrido'**
+  /// **'Eliminar línea'**
   String get routeDeleteTitle;
 
   /// No description provided for @routeDeleteMessage.
   ///
   /// In es, this message translates to:
-  /// **'Se eliminará {nombre}. Los paraderos no se tocan.'**
+  /// **'Se eliminará {nombre}, con su ida y su vuelta.'**
   String routeDeleteMessage(String nombre);
 
   /// No description provided for @routeTraceHint.
   ///
   /// In es, this message translates to:
-  /// **'El trazado se calcula siguiendo las calles entre los paraderos, en el orden de la lista.'**
+  /// **'Mantén presionado el mapa para marcar el recorrido punto por punto. La app lo ajusta a las calles y a sus sentidos de tránsito.'**
   String get routeTraceHint;
 
   /// No description provided for @driversEmpty.
@@ -1570,48 +1288,6 @@ abstract class AppLocalizations {
   /// **'Cambios guardados.'**
   String get driverSaved;
 
-  /// No description provided for @sortNearest.
-  ///
-  /// In es, this message translates to:
-  /// **'Cercanos'**
-  String get sortNearest;
-
-  /// No description provided for @sortRecent.
-  ///
-  /// In es, this message translates to:
-  /// **'Recientes'**
-  String get sortRecent;
-
-  /// No description provided for @sortRecentEmpty.
-  ///
-  /// In es, this message translates to:
-  /// **'Todavía no has consultado ningún paradero.'**
-  String get sortRecentEmpty;
-
-  /// No description provided for @stopLinesTitle.
-  ///
-  /// In es, this message translates to:
-  /// **'Colectivos que pasan por aquí'**
-  String get stopLinesTitle;
-
-  /// No description provided for @stopLinesEmpty.
-  ///
-  /// In es, this message translates to:
-  /// **'Todavía no hay colectivos asignados a este paradero.'**
-  String get stopLinesEmpty;
-
-  /// No description provided for @stopLinesEmptyHint.
-  ///
-  /// In es, this message translates to:
-  /// **'La garita aún no ha cargado sus recorridos.'**
-  String get stopLinesEmptyHint;
-
-  /// No description provided for @stopWalkHere.
-  ///
-  /// In es, this message translates to:
-  /// **'Cómo llegar'**
-  String get stopWalkHere;
-
   /// No description provided for @lineOnMap.
   ///
   /// In es, this message translates to:
@@ -1623,12 +1299,6 @@ abstract class AppLocalizations {
   /// In es, this message translates to:
   /// **'Quitar recorrido'**
   String get clearLine;
-
-  /// No description provided for @loadingLine.
-  ///
-  /// In es, this message translates to:
-  /// **'Trazando el recorrido…'**
-  String get loadingLine;
 
   /// No description provided for @searchAddressHint.
   ///
@@ -1657,38 +1327,20 @@ abstract class AppLocalizations {
   /// No description provided for @suggestTitle.
   ///
   /// In es, this message translates to:
-  /// **'Mejores paraderos para tu destino'**
+  /// **'Cómo llegar en colectivo'**
   String get suggestTitle;
 
   /// No description provided for @suggestSubtitle.
   ///
   /// In es, this message translates to:
-  /// **'Ordenados por lo que caminas en total'**
+  /// **'Ordenadas por lo que caminas en total'**
   String get suggestSubtitle;
-
-  /// No description provided for @suggestWalkToStop.
-  ///
-  /// In es, this message translates to:
-  /// **'{d} hasta el paradero'**
-  String suggestWalkToStop(String d);
-
-  /// No description provided for @suggestWalkFromStop.
-  ///
-  /// In es, this message translates to:
-  /// **'{d} desde la bajada'**
-  String suggestWalkFromStop(String d);
 
   /// No description provided for @suggestTakeLine.
   ///
   /// In es, this message translates to:
-  /// **'Toma {linea}'**
-  String suggestTakeLine(String linea);
-
-  /// No description provided for @suggestGetOff.
-  ///
-  /// In es, this message translates to:
-  /// **'Bájate en {paradero}'**
-  String suggestGetOff(String paradero);
+  /// **'Toma {linea} ({sentido})'**
+  String suggestTakeLine(String linea, String sentido);
 
   /// No description provided for @suggestTotal.
   ///
@@ -1696,23 +1348,209 @@ abstract class AppLocalizations {
   /// **'{d} a pie en total'**
   String suggestTotal(String d);
 
-  /// No description provided for @suggestNoRoutes.
-  ///
-  /// In es, this message translates to:
-  /// **'La garita todavía no ha cargado sus recorridos, así que estos paraderos se ordenan sólo por cercanía.'**
-  String get suggestNoRoutes;
-
   /// No description provided for @suggestEmpty.
   ///
   /// In es, this message translates to:
-  /// **'No hay paraderos que sirvan para ese destino.'**
+  /// **'Ninguna línea pasa cerca de ti y de tu destino a la vez.'**
   String get suggestEmpty;
 
   /// No description provided for @suggestLocationNeeded.
   ///
   /// In es, this message translates to:
-  /// **'Necesitamos tu ubicación para recomendarte un paradero.'**
+  /// **'Necesitamos tu ubicación para recomendarte una línea.'**
   String get suggestLocationNeeded;
+
+  /// No description provided for @sentidoIda.
+  ///
+  /// In es, this message translates to:
+  /// **'Ida'**
+  String get sentidoIda;
+
+  /// No description provided for @sentidoVuelta.
+  ///
+  /// In es, this message translates to:
+  /// **'Vuelta'**
+  String get sentidoVuelta;
+
+  /// No description provided for @routeActiveDesc.
+  ///
+  /// In es, this message translates to:
+  /// **'La ven los pasajeros y la pueden elegir los choferes'**
+  String get routeActiveDesc;
+
+  /// No description provided for @routeInactive.
+  ///
+  /// In es, this message translates to:
+  /// **'Apagada'**
+  String get routeInactive;
+
+  /// No description provided for @routeSummaryBoth.
+  ///
+  /// In es, this message translates to:
+  /// **'Ida {ida} · vuelta {vuelta}'**
+  String routeSummaryBoth(String ida, String vuelta);
+
+  /// No description provided for @routeSummaryIdaOnly.
+  ///
+  /// In es, this message translates to:
+  /// **'Sólo ida · {ida}'**
+  String routeSummaryIdaOnly(String ida);
+
+  /// No description provided for @routeSummaryEmpty.
+  ///
+  /// In es, this message translates to:
+  /// **'Sin recorrido dibujado'**
+  String get routeSummaryEmpty;
+
+  /// No description provided for @routeAddPointHint.
+  ///
+  /// In es, this message translates to:
+  /// **'Mantén presionado el mapa para agregar el siguiente punto'**
+  String get routeAddPointHint;
+
+  /// No description provided for @routeUndoPoint.
+  ///
+  /// In es, this message translates to:
+  /// **'Deshacer el último punto'**
+  String get routeUndoPoint;
+
+  /// No description provided for @routeClearPoints.
+  ///
+  /// In es, this message translates to:
+  /// **'Borrar los puntos de este sentido'**
+  String get routeClearPoints;
+
+  /// No description provided for @routeVueltaFromIda.
+  ///
+  /// In es, this message translates to:
+  /// **'Empezar la vuelta desde la ida'**
+  String get routeVueltaFromIda;
+
+  /// No description provided for @routePointsButton.
+  ///
+  /// In es, this message translates to:
+  /// **'Puntos ({count})'**
+  String routePointsButton(String count);
+
+  /// No description provided for @routePointLabel.
+  ///
+  /// In es, this message translates to:
+  /// **'Punto {n}'**
+  String routePointLabel(String n);
+
+  /// No description provided for @routeTrayectoSummary.
+  ///
+  /// In es, this message translates to:
+  /// **'{count} puntos · {distancia}'**
+  String routeTrayectoSummary(String count, String distancia);
+
+  /// No description provided for @routeSnapping.
+  ///
+  /// In es, this message translates to:
+  /// **'Ajustando a las calles…'**
+  String get routeSnapping;
+
+  /// No description provided for @routeSnapFailed.
+  ///
+  /// In es, this message translates to:
+  /// **'No se pudo ajustar a las calles. Revisa que los puntos estén sobre calles.'**
+  String get routeSnapFailed;
+
+  /// No description provided for @routeNeedsIda.
+  ///
+  /// In es, this message translates to:
+  /// **'Marca al menos dos puntos en la ida.'**
+  String get routeNeedsIda;
+
+  /// No description provided for @linesSearchHint.
+  ///
+  /// In es, this message translates to:
+  /// **'Buscar línea…'**
+  String get linesSearchHint;
+
+  /// No description provided for @linesEmpty.
+  ///
+  /// In es, this message translates to:
+  /// **'La garita todavía no ha publicado sus líneas.'**
+  String get linesEmpty;
+
+  /// No description provided for @linesNoMatch.
+  ///
+  /// In es, this message translates to:
+  /// **'Ninguna línea coincide con tu búsqueda.'**
+  String get linesNoMatch;
+
+  /// No description provided for @linesPassesAt.
+  ///
+  /// In es, this message translates to:
+  /// **'Pasa a {d} de ti'**
+  String linesPassesAt(String d);
+
+  /// No description provided for @linesOnlyIda.
+  ///
+  /// In es, this message translates to:
+  /// **'Sólo ida'**
+  String get linesOnlyIda;
+
+  /// No description provided for @lineShowOnMap.
+  ///
+  /// In es, this message translates to:
+  /// **'Ver en el mapa'**
+  String get lineShowOnMap;
+
+  /// No description provided for @suggestWalkToLine.
+  ///
+  /// In es, this message translates to:
+  /// **'Camina {d} hasta la línea'**
+  String suggestWalkToLine(String d);
+
+  /// No description provided for @suggestRide.
+  ///
+  /// In es, this message translates to:
+  /// **'Viaja {d} en colectivo'**
+  String suggestRide(String d);
+
+  /// No description provided for @suggestWalkFromLine.
+  ///
+  /// In es, this message translates to:
+  /// **'Bájate a {d} de tu destino'**
+  String suggestWalkFromLine(String d);
+
+  /// No description provided for @boardHere.
+  ///
+  /// In es, this message translates to:
+  /// **'Súbete aquí'**
+  String get boardHere;
+
+  /// No description provided for @alightHere.
+  ///
+  /// In es, this message translates to:
+  /// **'Bájate aquí'**
+  String get alightHere;
+
+  /// No description provided for @tripBoardHint.
+  ///
+  /// In es, this message translates to:
+  /// **'Hazle la seña al colectivo en el punto marcado'**
+  String get tripBoardHint;
+
+  /// No description provided for @tapToSeeBoarding.
+  ///
+  /// In es, this message translates to:
+  /// **'Tocar para ver dónde subir'**
+  String get tapToSeeBoarding;
+
+  /// No description provided for @routePointRemoved.
+  ///
+  /// In es, this message translates to:
+  /// **'Punto eliminado'**
+  String get routePointRemoved;
+
+  /// No description provided for @undo.
+  ///
+  /// In es, this message translates to:
+  /// **'Deshacer'**
+  String get undo;
 }
 
 class _AppLocalizationsDelegate

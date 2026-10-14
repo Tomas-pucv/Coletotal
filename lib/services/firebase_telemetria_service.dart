@@ -188,6 +188,25 @@ class FirebaseTelemetriaService {
   bool _connected = false;
   bool _onDisconnectArmed = false;
 
+  /// Como mucho una posición cada tres segundos. En turno el GPS da una por
+  /// segundo, para que la flecha de navegación del chofer se mueva suave; a
+  /// los pasajeros les basta esto, y la base de datos recibe lo mismo que
+  /// cuando el GPS daba una cada tres.
+  static const Duration intervaloPosiciones = Duration(seconds: 3);
+  DateTime? _ultimaPosicionPublicada;
+  Timer? _posicionPendiente;
+
+  /// Cuánto falta para poder publicar otra posición, dada la [ultima]
+  /// publicada: cero si ya se puede.
+  @visibleForTesting
+  static Duration esperaParaPublicar(DateTime? ultima, DateTime ahora) {
+    if (ultima == null) return Duration.zero;
+    final pasado = ahora.difference(ultima);
+    return pasado >= intervaloPosiciones
+        ? Duration.zero
+        : intervaloPosiciones - pasado;
+  }
+
   /// Momento de la última posición que el servidor confirmó.
   ValueListenable<DateTime?> get ultimoEnvio => _ultimoEnvio;
   final ValueNotifier<DateTime?> _ultimoEnvio = ValueNotifier(null);
@@ -256,6 +275,20 @@ class FirebaseTelemetriaService {
       longitud: position.longitude,
     );
     _hasFix = true;
+    // Si todavía no toca, la última posición sale al cumplirse el plazo: el
+    // temporizador publica `_current`, que siempre es la más reciente.
+    final espera = esperaParaPublicar(_ultimaPosicionPublicada, DateTime.now());
+    if (espera == Duration.zero) {
+      _publicarPosicion();
+    } else {
+      _posicionPendiente ??= Timer(espera, _publicarPosicion);
+    }
+  }
+
+  void _publicarPosicion() {
+    _posicionPendiente?.cancel();
+    _posicionPendiente = null;
+    _ultimaPosicionPublicada = DateTime.now();
     unawaited(_publicar());
   }
 
@@ -342,6 +375,9 @@ class FirebaseTelemetriaService {
   /// el filtro de antigüedad saca a la unidad del mapa a los tres minutos.
   Future<void> detenerTracking() async {
     _isTracking = false;
+    _posicionPendiente?.cancel();
+    _posicionPendiente = null;
+    _ultimaPosicionPublicada = null;
     await _positionSub?.cancel();
     _positionSub = null;
     await _connectedSub?.cancel();

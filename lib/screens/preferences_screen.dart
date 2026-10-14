@@ -8,7 +8,6 @@ import 'package:taxi1/screens/main_screen.dart';
 import 'package:taxi1/services/app_update_service.dart';
 import 'package:taxi1/services/auth_service.dart';
 import 'package:taxi1/services/preferences_service.dart';
-import 'package:taxi1/services/stop_history_service.dart';
 import 'package:taxi1/theme/app_spacing.dart';
 import 'package:taxi1/theme/breakpoints.dart';
 import 'package:taxi1/utils/role_format.dart';
@@ -36,7 +35,6 @@ class PreferencesScreen extends StatefulWidget {
 class _PreferencesScreenState extends State<PreferencesScreen>
     with SingleTickerProviderStateMixin {
   final prefs = PreferencesService.instance;
-  final history = StopHistoryService.instance;
   final auth = AuthService.instance;
   final updates = AppUpdateService.instance;
   late final AnimationController _fadeController;
@@ -45,7 +43,6 @@ class _PreferencesScreenState extends State<PreferencesScreen>
   void initState() {
     super.initState();
     prefs.addListener(_onChanged);
-    history.addListener(_onChanged);
     auth.addListener(_onChanged);
     updates.addListener(_onChanged);
 
@@ -68,7 +65,6 @@ class _PreferencesScreenState extends State<PreferencesScreen>
   @override
   void dispose() {
     prefs.removeListener(_onChanged);
-    history.removeListener(_onChanged);
     auth.removeListener(_onChanged);
     updates.removeListener(_onChanged);
     _fadeController.dispose();
@@ -175,12 +171,71 @@ class _PreferencesScreenState extends State<PreferencesScreen>
   /// *preferencia*: cualquiera lo cambiaba y se ponía a transmitir su GPS a la
   /// garita. El rol pasó a ser identidad, así que esta sección ya no elige
   /// nada, informa: quién eres y por dónde se entra o se sale.
+  /// La cuenta en una sola fila: avatar, nombre y rol, y el botón para entrar
+  /// o salir a la derecha. Antes era una tarjeta de tres pisos con un texto que
+  /// repetía lo que ya decía el nombre ("Invitado") y un botón a medio ancho.
+  /// Crear una cuenta queda en la pantalla de inicio de sesión.
   Widget _accountSection(AppLocalizations l10n) {
     final theme = Theme.of(context);
-    final scheme = theme.colorScheme;
     final role = auth.role;
     final profile = auth.profile;
-    final badge = roleBadgeColors(role, scheme);
+    final avatar = accountAvatarColors(theme.colorScheme);
+    final isGuest = role == UserRole.invitado;
+
+    final identidad = Row(
+      children: [
+        CircleAvatar(
+          backgroundColor: avatar.background,
+          foregroundColor: avatar.foreground,
+          child: isGuest
+              ? Icon(roleIcon(role))
+              : Text(
+                  profile!.initials,
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    color: avatar.foreground,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+        ),
+        const SizedBox(width: AppSpacing.md),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                profile?.displayName ?? l10n.roleGuest,
+                style: theme.textTheme.titleSmall,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+              // Para el invitado el nombre *es* el rol, así que repetirlo
+              // debajo sería ruido.
+              if (!isGuest)
+                Text(
+                  roleLabel(role, l10n),
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ],
+    );
+
+    final boton = isGuest
+        ? FilledButton.icon(
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(builder: (_) => const LoginScreen()),
+            ),
+            icon: const Icon(Icons.login, size: 18),
+            label: Text(l10n.signIn),
+          )
+        : OutlinedButton.icon(
+            onPressed: () => _confirmSignOut(l10n),
+            icon: const Icon(Icons.logout, size: 18),
+            label: Text(l10n.signOutShort),
+          );
 
     return SettingsSection(
       icon: Icons.account_circle_outlined,
@@ -191,75 +246,29 @@ class _PreferencesScreenState extends State<PreferencesScreen>
           child: Card(
             child: Padding(
               padding: const EdgeInsets.all(AppSpacing.md),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
+              // Con letra grande el botón ya no cabe al lado del nombre: pasa
+              // abajo, a todo el ancho, en vez de dejar el nombre en "J…".
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final escala = MediaQuery.textScalerOf(context).scale(1);
+                  if (constraints.maxWidth >= 300 * escala) {
+                    return Row(
+                      children: [
+                        Expanded(child: identidad),
+                        const SizedBox(width: AppSpacing.sm),
+                        boton,
+                      ],
+                    );
+                  }
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      CircleAvatar(
-                        backgroundColor: badge.background,
-                        foregroundColor: badge.foreground,
-                        child: profile == null
-                            ? Icon(roleIcon(role))
-                            : Text(
-                                profile.initials,
-                                style: theme.textTheme.titleSmall?.copyWith(
-                                  color: badge.foreground,
-                                ),
-                              ),
-                      ),
-                      const SizedBox(width: AppSpacing.md),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              profile?.displayName ?? l10n.roleGuest,
-                              style: theme.textTheme.titleSmall,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                            // Para el invitado el nombre *es* el rol, así que
-                            // repetirlo debajo sería ruido.
-                            if (profile != null)
-                              Text(
-                                roleLabel(role, l10n),
-                                style: theme.textTheme.bodySmall?.copyWith(
-                                  color: scheme.onSurfaceVariant,
-                                ),
-                              ),
-                          ],
-                        ),
-                      ),
+                      identidad,
+                      const SizedBox(height: AppSpacing.md),
+                      boton,
                     ],
-                  ),
-                  const SizedBox(height: AppSpacing.sm),
-                  Text(
-                    roleSubtitle(role, l10n),
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: scheme.onSurfaceVariant,
-                    ),
-                  ),
-                  const SizedBox(height: AppSpacing.sm),
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: role == UserRole.invitado
-                        ? FilledButton.tonalIcon(
-                            onPressed: () => Navigator.of(context).push(
-                              MaterialPageRoute<void>(
-                                builder: (_) => const LoginScreen(),
-                              ),
-                            ),
-                            icon: const Icon(Icons.login, size: 18),
-                            label: Text(l10n.signIn),
-                          )
-                        : TextButton.icon(
-                            onPressed: () => _confirmSignOut(l10n),
-                            icon: const Icon(Icons.logout, size: 18),
-                            label: Text(l10n.signOut),
-                          ),
-                  ),
-                ],
+                  );
+                },
               ),
             ),
           ),
@@ -382,15 +391,6 @@ class _PreferencesScreenState extends State<PreferencesScreen>
     return SettingsSection(
       icon: Icons.privacy_tip_outlined,
       title: l10n.sectionPrivacy,
-      action: history.hasHistory
-          ? TextButton(
-              onPressed: () async {
-                await history.clear();
-                if (mounted) _toast(l10n.historyCleared);
-              },
-              child: Text(l10n.clearHistory),
-            )
-          : null,
       children: [
         SettingSwitchTile(
           title: l10n.locationTracking,
@@ -399,14 +399,6 @@ class _PreferencesScreenState extends State<PreferencesScreen>
           onChanged: (value) => value
               ? prefs.setLocationTracking(true)
               : _confirmDisableTracking(l10n),
-        ),
-        // Ya no es un interruptor decorativo: alimenta la fila "Consultados
-        // recientemente" de la pestaña Rutas (ver StopHistoryService).
-        SettingSwitchTile(
-          title: l10n.saveHistory,
-          subtitle: l10n.saveHistoryDesc('${StopHistoryService.maxEntries}'),
-          value: prefs.historyEnabled,
-          onChanged: prefs.setHistoryEnabled,
         ),
       ],
     );

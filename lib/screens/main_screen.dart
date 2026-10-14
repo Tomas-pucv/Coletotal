@@ -8,11 +8,10 @@ import 'package:taxi1/screens/map_screen.dart';
 import 'package:taxi1/screens/admin/choferes_admin_screen.dart';
 import 'package:taxi1/screens/admin/flota_screen.dart';
 import 'package:taxi1/screens/admin/garita_hub_screen.dart';
-import 'package:taxi1/screens/admin/paraderos_admin_screen.dart';
 import 'package:taxi1/screens/admin/recorridos_admin_screen.dart';
 import 'package:taxi1/screens/driver/turno_screen.dart';
 import 'package:taxi1/screens/preferences_screen.dart';
-import 'package:taxi1/screens/routes_screen.dart';
+import 'package:taxi1/screens/lineas_screen.dart';
 import 'package:taxi1/services/app_update_service.dart';
 import 'package:taxi1/services/auth_service.dart';
 import 'package:taxi1/theme/breakpoints.dart';
@@ -20,7 +19,7 @@ import 'package:taxi1/widgets/app_drawer.dart';
 import 'package:taxi1/widgets/app_update_dialog.dart';
 
 /// Controller ligero que permite cambiar de pestaña desde cualquier pantalla
-/// (por ejemplo, desde [RoutesScreen] cuando se elige un paradero).
+/// (por ejemplo, desde [LineasScreen] cuando se elige una línea).
 ///
 /// Se expone como singleton para no acoplar las pantallas con `BuildContext`
 /// ni tener que pasar callbacks por todo el árbol de widgets.
@@ -49,7 +48,7 @@ class MainNavigationController extends ChangeNotifier {
   /// una pestaña que el invitado no tiene.
   void reconcile(UserRole role) {
     if (Destinations.isTab(_destination, role)) return;
-    _destination = AppDestination.mapa;
+    _destination = Destinations.barFor(role).first;
     notifyListeners();
   }
 
@@ -62,7 +61,7 @@ class MainNavigationController extends ChangeNotifier {
 
   /// Atajos semánticos: llevan al usuario a una pestaña concreta sin que quien
   /// llama tenga que conocer el orden de los destinos.
-  void showMap() => go(AppDestination.mapa);
+  void showMap() => go(Destinations.mapFor(AuthService.instance.role));
   void showRoutes() => go(AppDestination.rutas);
 
   /// Preferencias es pestaña para el invitado, pero no para el chofer ni el
@@ -177,12 +176,11 @@ class _MainScreenState extends State<MainScreen> {
     destination,
     () => switch (destination) {
       AppDestination.mapa => const MapScreen(),
-      AppDestination.rutas => const RoutesScreen(),
+      AppDestination.rutas => const LineasScreen(),
       AppDestination.preferencias => const PreferencesScreen(),
       AppDestination.turno => const TurnoScreen(),
       AppDestination.flota => const FlotaScreen(),
       AppDestination.garita => const GaritaHubScreen(),
-      AppDestination.paraderos => const ParaderosAdminScreen(),
       AppDestination.recorridos => const RecorridosAdminScreen(),
       AppDestination.choferes => const ChoferesAdminScreen(),
     },

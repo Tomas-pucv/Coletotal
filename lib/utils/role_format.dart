@@ -14,11 +14,27 @@ String roleLabel(UserRole role, AppLocalizations l10n) => switch (role) {
   UserRole.administrador => l10n.roleAdmin,
 };
 
-String roleSubtitle(UserRole role, AppLocalizations l10n) => switch (role) {
-  UserRole.invitado => l10n.roleGuestSubtitle,
+/// Qué hace el usuario con su rol, o `null` si no hay nada que contar: para el
+/// invitado, "Invitado" ya lo dice todo.
+String? roleSubtitle(UserRole role, AppLocalizations l10n) => switch (role) {
+  UserRole.invitado => null,
   UserRole.colectivero => l10n.roleColectiveroSubtitle,
   UserRole.administrador => l10n.roleAdminSubtitle,
 };
+
+/// Colores del avatar de la cuenta, en el menú lateral y en Preferencias.
+///
+/// Es el amarillo del letrero del colectivo en ambos temas y para todos los
+/// roles (el rol lo dice la insignia): de día es `primaryContainer`; de noche
+/// ese contenedor es oliva oscuro y el amarillo es `primary`.
+({Color background, Color foreground}) accountAvatarColors(
+  ColorScheme scheme,
+) => scheme.brightness == Brightness.light
+    ? (
+        background: scheme.primaryContainer,
+        foreground: scheme.onPrimaryContainer,
+      )
+    : (background: scheme.primary, foreground: scheme.onPrimary);
 
 IconData roleIcon(UserRole role) => switch (role) {
   UserRole.invitado => Icons.person_outline,

@@ -1,220 +1,209 @@
 import 'dart:convert';
 
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:latlong2/latlong.dart';
 
-import 'package:taxi1/models/bus_stop.dart';
+import 'package:taxi1/config/garita_config.dart';
 import 'package:taxi1/models/recorrido.dart';
+import 'package:taxi1/services/line_planner.dart';
 import 'package:taxi1/services/osrm_client.dart';
-import 'package:taxi1/services/stop_planner.dart';
+import 'package:taxi1/services/recorridos_service.dart';
 import 'package:taxi1/utils/polyline.dart';
 
-/// Tests del recomendador de paraderos y de las utilidades de ruteo.
+/// Tests del planificador de viajes en colectivo y de las utilidades de ruteo.
 ///
-/// Todo con datos inyectados: `StopPlanner.suggest` acepta las listas por
+/// Todo con datos inyectados: `LinePlanner.suggest` acepta las líneas por
 /// parámetro justamente para poder verificar el criterio sin Firestore ni red.
 void main() {
-  // Una malla simple sobre Quilpué. A esta latitud, 0.001° ≈ 111 m en latitud
-  // y ≈ 93 m en longitud, suficiente para razonar sobre las distancias.
-  BusStop stop(String id, double lat, double lng) =>
-      BusStop(id: id, name: id, address: id, location: LatLng(lat, lng));
+  // A esta latitud, 0.001° ≈ 111 m en latitud y ≈ 93 m en longitud.
+  const lng = -71.4425;
 
-  final cerca = stop('cerca', -33.0470, -71.4425);
-  final lejos = stop('lejos', -33.0700, -71.4425);
-  final juntoAlDestino = stop('junto-destino', -33.0800, -71.4425);
-  final aMedias = stop('a-medias', -33.0600, -71.4425);
-
-  const usuario = LatLng(-33.0472, -71.4425);
-  const destino = LatLng(-33.0805, -71.4425);
-
-  group('StopPlanner', () {
-    test('prefiere el paradero cuya línea deja más cerca del destino', () {
-      // Las dos subidas están a la misma distancia del usuario, pero sólo una
-      // pertenece a una línea que pasa junto al destino.
-      final sinSalida = stop('sin-salida', -33.0471, -71.4425);
-
-      final recorridos = [
-        Recorrido(
-          id: 'r-buena',
-          garitaId: 'g1',
-          nombre: 'Línea buena',
-          colorValue: 0xFF4A3F9E,
-          paraderoIds: [cerca.id, juntoAlDestino.id],
-        ),
-        Recorrido(
-          id: 'r-mala',
-          garitaId: 'g1',
-          nombre: 'Línea mala',
-          colorValue: 0xFF4A3F9E,
-          paraderoIds: [sinSalida.id, aMedias.id],
-        ),
-      ];
-
-      final result = StopPlanner.suggest(
-        user: usuario,
-        destino: destino,
-        stops: [cerca, sinSalida, aMedias, juntoAlDestino],
-        recorridos: recorridos,
-      );
-
-      expect(result.first.stop, cerca);
-      expect(result.first.recorrido?.id, 'r-buena');
-      expect(result.first.bajada, juntoAlDestino);
-    });
-
-    test('el promedio equilibra los dos tramos a pie', () {
-      // Una subida lejísimos que deja pegado al destino no debería ganarle a
-      // una razonable en ambos tramos: es el punto del promedio.
-      final recorridos = [
-        Recorrido(
-          id: 'r1',
-          garitaId: 'g1',
-          nombre: 'A',
-          colorValue: 0,
-          paraderoIds: [cerca.id, aMedias.id],
-        ),
-        Recorrido(
-          id: 'r2',
-          garitaId: 'g1',
-          nombre: 'B',
-          colorValue: 0,
-          paraderoIds: [lejos.id, juntoAlDestino.id],
-        ),
-      ];
-
-      final result = StopPlanner.suggest(
-        user: usuario,
-        destino: destino,
-        stops: [cerca, lejos, aMedias, juntoAlDestino],
-        recorridos: recorridos,
-      );
-
-      for (final s in result) {
-        expect(
-          s.score,
-          closeTo((s.metersToUser + s.metersToDestination) / 2, 0.001),
-        );
-      }
-      // Ordenado de mejor a peor, sin excepciones.
-      for (var i = 1; i < result.length; i++) {
-        expect(result[i - 1].score, lessThanOrEqualTo(result[i].score));
-      }
-    });
-
-    test('ignora los paraderos que ninguna línea sirve', () {
-      final huerfano = stop('huerfano', -33.0473, -71.4426);
-      final recorridos = [
-        Recorrido(
-          id: 'r1',
-          garitaId: 'g1',
-          nombre: 'A',
-          colorValue: 0,
-          paraderoIds: [cerca.id, juntoAlDestino.id],
-        ),
-      ];
-
-      final result = StopPlanner.suggest(
-        user: usuario,
-        destino: destino,
-        stops: [cerca, huerfano, juntoAlDestino],
-        recorridos: recorridos,
-      );
-
-      // `huerfano` está más cerca del usuario que nada, pero no lleva a ningún
-      // lado: proponerlo sería mentir.
-      expect(result.map((s) => s.stop.id), isNot(contains('huerfano')));
-    });
-
-    test(
-      'sin recorridos cargados degrada a cercanía en vez de no dar nada',
-      () {
-        final result = StopPlanner.suggest(
-          user: usuario,
-          destino: destino,
-          stops: [cerca, aMedias, juntoAlDestino],
-          recorridos: const [],
-        );
-
-        expect(result, isNotEmpty);
-        // Se marca como aproximación: sin línea no se puede prometer un viaje.
-        expect(result.every((s) => s.recorrido == null), isTrue);
-        expect(result.first.stop, juntoAlDestino);
-      },
+  /// Un trayecto recto por el meridiano [lon], de [desde] a [hasta] (latitudes).
+  Trayecto recto(double desde, double hasta, {double lon = lng}) {
+    final puntos = [
+      for (var i = 0; i <= 10; i++)
+        LatLng(desde + (hasta - desde) * i / 10, lon),
+    ];
+    return Trayecto(
+      puntos: [puntos.first, puntos.last],
+      geometria: encodePolyline(puntos),
+      trazado: puntos,
     );
+  }
 
-    test('un recorrido desactivado no se propone', () {
-      final recorridos = [
-        Recorrido(
-          id: 'r1',
-          garitaId: 'g1',
-          nombre: 'Suspendida',
-          colorValue: 0,
-          paraderoIds: [cerca.id, juntoAlDestino.id],
-          activo: false,
-        ),
+  /// Una línea que baja hacia el sur por [lon] (ida) y vuelve hacia el norte.
+  Recorrido linea(
+    String id, {
+    double lon = lng,
+    bool activo = true,
+    String garitaId = kGaritaPublica,
+    bool conVuelta = true,
+  }) => Recorrido(
+    id: id,
+    garitaId: garitaId,
+    nombre: 'Línea $id',
+    colorValue: kRecorridoColors.first,
+    ida: recto(-33.040, -33.090, lon: lon),
+    vuelta: conVuelta ? recto(-33.090, -33.040, lon: lon) : null,
+    activo: activo,
+  );
+
+  // El usuario, a unos 46 m al oeste de la línea; el destino, 3,7 km al sur.
+  const usuario = LatLng(-33.0472, -71.4430);
+  const destinoAlSur = LatLng(-33.0805, -71.4420);
+  const destinoAlNorte = LatLng(-33.0420, -71.4420);
+
+  group('nearestOnPolyline', () {
+    test('proyecta sobre el tramo, no sólo sobre los vértices', () {
+      const tramo = [LatLng(-33.04, -71.44), LatLng(-33.04, -71.43)];
+      // Un punto 111 m al norte de la mitad del tramo.
+      final cerca = nearestOnPolyline(tramo, const LatLng(-33.039, -71.435))!;
+      expect(cerca.punto.latitude, closeTo(-33.04, 1e-6));
+      expect(cerca.punto.longitude, closeTo(-71.435, 1e-6));
+      expect(cerca.metros, closeTo(111.2, 0.5));
+      // La mitad de un tramo de unos 933 m.
+      expect(cerca.desdeInicio, closeTo(466, 2));
+    });
+
+    test('mide lo recorrido a lo largo de la línea', () {
+      final t = recto(-33.040, -33.090);
+      final inicio = nearestOnPolyline(t.trazado, const LatLng(-33.040, lng))!;
+      final fin = nearestOnPolyline(t.trazado, const LatLng(-33.090, lng))!;
+      expect(inicio.desdeInicio, closeTo(0, 1e-6));
+      // 0.05° de latitud ≈ 5,56 km.
+      expect(fin.desdeInicio, closeTo(5560, 10));
+    });
+
+    test('una línea vacía no tiene punto cercano', () {
+      expect(nearestOnPolyline(const [], usuario), isNull);
+    });
+
+    test('si la línea pasa dos veces igual de cerca, gana la primera', () {
+      const vaivien = [
+        LatLng(-33.04, -71.44),
+        LatLng(-33.05, -71.44),
+        LatLng(-33.04, -71.44),
       ];
+      final cerca = nearestOnPolyline(vaivien, const LatLng(-33.045, -71.439))!;
+      expect(cerca.desdeInicio, lessThan(1200));
+    });
+  });
 
-      final result = StopPlanner.suggest(
+  group('LinePlanner', () {
+    test('se sube en la línea más cercana y en el sentido que lleva', () {
+      final s = LinePlanner.suggest(
         user: usuario,
-        destino: destino,
-        stops: [cerca, juntoAlDestino],
-        recorridos: recorridos,
+        destino: destinoAlSur,
+        recorridos: [linea('1')],
       );
+      expect(s, hasLength(1));
+      // Hacia el sur va la ida; la vuelta se aleja del destino.
+      expect(s.single.sentido, Sentido.ida);
+      expect(s.single.metrosHastaLinea, closeTo(46.6, 1));
+      expect(s.single.metrosDesdeLinea, closeTo(46.6, 1));
+      expect(s.single.metrosEnColectivo, closeTo(3700, 20));
+      expect(s.single.subida.longitude, closeTo(lng, 1e-9));
+    });
 
-      expect(result.every((s) => s.recorrido == null), isTrue);
+    test('hacia el otro lado toma la vuelta', () {
+      final s = LinePlanner.suggest(
+        user: usuario,
+        destino: destinoAlNorte,
+        recorridos: [linea('1')],
+      );
+      expect(s.single.sentido, Sentido.vuelta);
+    });
+
+    test('sin vuelta dibujada, no propone ir contra el sentido de la ida', () {
+      final s = LinePlanner.suggest(
+        user: usuario,
+        destino: destinoAlNorte,
+        recorridos: [linea('1', conVuelta: false)],
+      );
+      expect(s, isEmpty);
+    });
+
+    test('ordena por lo que hay que caminar en total', () {
+      final s = LinePlanner.suggest(
+        user: usuario,
+        destino: destinoAlSur,
+        recorridos: [linea('lejana', lon: -71.4500), linea('cercana')],
+      );
+      expect(s.map((x) => x.recorrido.id), ['cercana', 'lejana']);
+    });
+
+    test('una línea apagada no se propone', () {
+      final s = LinePlanner.suggest(
+        user: usuario,
+        destino: destinoAlSur,
+        recorridos: [linea('1', activo: false)],
+      );
+      expect(s, isEmpty);
+    });
+
+    test('una línea que pasa a más de 1,5 km no es una forma de llegar', () {
+      final s = LinePlanner.suggest(
+        user: usuario,
+        destino: destinoAlSur,
+        // ~1,86 km al oeste.
+        recorridos: [linea('1', lon: -71.4630)],
+      );
+      expect(s, isEmpty);
+    });
+
+    test('si el destino está a pasos, no manda a tomar colectivo', () {
+      final s = LinePlanner.suggest(
+        user: usuario,
+        destino: const LatLng(-33.0480, -71.4420),
+        recorridos: [linea('1')],
+      );
+      expect(s, isEmpty);
     });
 
     test('no devuelve más sugerencias de las que se pueden leer', () {
-      final muchos = [
-        for (var i = 0; i < 30; i++) stop('p$i', -33.05 - i * 0.001, -71.44),
-      ];
-      final result = StopPlanner.suggest(
+      final s = LinePlanner.suggest(
         user: usuario,
-        destino: destino,
-        stops: muchos,
-        recorridos: const [],
+        destino: destinoAlSur,
+        recorridos: [
+          for (var i = 0; i < 8; i++) linea('$i', lon: lng + i * 0.0005),
+        ],
       );
-      expect(result.length, StopPlanner.maxSuggestions);
+      expect(s, hasLength(LinePlanner.maxSuggestions));
     });
 
-    test('nunca propone bajarse donde uno se sube', () {
-      // El destino está junto a la subida: la parada de la línea más cercana
-      // al destino es la propia subida. Antes eso se proponía como "toma la
-      // línea y bájate en el mismo paradero".
-      final recorridos = [
-        Recorrido(
-          id: 'r1',
-          garitaId: 'g1',
-          nombre: 'A',
+    test('a cuánto pasa una línea, por cualquiera de sus sentidos', () {
+      expect(LinePlanner.metrosHasta(linea('1'), usuario), closeTo(46.6, 1));
+      const sinTrazado = Recorrido(
+        id: 'x',
+        garitaId: kGaritaPublica,
+        nombre: 'x',
+        colorValue: 0,
+      );
+      expect(LinePlanner.metrosHasta(sinTrazado, usuario), isNull);
+    });
+
+    test('el pasajero sólo ve las líneas activas de la garita pública', () {
+      final service = RecorridosService.instance;
+      service.debugSetRecorridos([
+        linea('b'),
+        linea('a'),
+        linea('apagada', activo: false),
+        linea('otra-garita', garitaId: 'otra'),
+        const Recorrido(
+          id: 'sin-trazado',
+          garitaId: kGaritaPublica,
+          nombre: 'Sin trazado',
           colorValue: 0,
-          paraderoIds: [cerca.id, lejos.id],
         ),
-      ];
+      ]);
+      addTearDown(() => service.debugSetRecorridos(const []));
 
-      final result = StopPlanner.suggest(
-        user: usuario,
-        destino: cerca.location,
-        stops: [cerca, lejos],
-        recorridos: recorridos,
-      );
-
-      for (final s in result) {
-        if (s.bajada != null) expect(s.bajada, isNot(s.stop));
-      }
-    });
-
-    test('sin paraderos no revienta', () {
-      expect(
-        StopPlanner.suggest(
-          user: usuario,
-          destino: destino,
-          stops: const [],
-          recorridos: const [],
-        ),
-        isEmpty,
-      );
+      expect(service.publicas.map((r) => r.id), ['a', 'b']);
+      // El administrador sí ve las de su garita, apagadas incluidas.
+      expect(service.porGarita(kGaritaPublica), hasLength(4));
     });
   });
 
@@ -339,64 +328,60 @@ void main() {
   });
 
   group('Recorrido', () {
-    test('necesita al menos dos paraderos para describir un trayecto', () {
-      const uno = Recorrido(
-        id: 'r',
-        garitaId: 'g',
-        nombre: 'A',
-        colorValue: 0,
-        paraderoIds: ['a'],
-      );
-      expect(uno.isValid, isFalse);
-      expect(uno.copyWith(paraderoIds: ['a', 'b']).isValid, isTrue);
+    Map<String, dynamic> trayectoMap(List<LatLng> puntos) => {
+      'puntos': [for (final p in puntos) GeoPoint(p.latitude, p.longitude)],
+      'geometria': encodePolyline(puntos),
+    };
+
+    test('sobrevive al viaje por Firestore, con ida y vuelta', () {
+      final original = linea('1');
+      final copia = Recorrido.fromMap('1', original.toMap());
+
+      expect(copia.nombre, original.nombre);
+      expect(copia.colorValue, original.colorValue);
+      expect(copia.garitaId, kGaritaPublica);
+      expect(copia.ida.trazado, hasLength(11));
+      expect(copia.ida.puntos, hasLength(2));
+      expect(copia.vuelta!.trazado.first.latitude, closeTo(-33.090, 1e-6));
+      expect(copia.trayectos.map((t) => t.$1), [Sentido.ida, Sentido.vuelta]);
     });
 
-    test('sin nombre no es válido aunque tenga paraderos', () {
-      const sinNombre = Recorrido(
-        id: 'r',
-        garitaId: 'g',
-        nombre: '   ',
-        colorValue: 0,
-        paraderoIds: ['a', 'b'],
-      );
-      expect(sinNombre.isValid, isFalse);
+    test('la vuelta es opcional', () {
+      final sinVuelta = linea('1', conVuelta: false);
+      expect(sinVuelta.toMap().containsKey('vuelta'), isFalse);
+      final copia = Recorrido.fromMap('1', sinVuelta.toMap());
+      expect(copia.vuelta, isNull);
+      expect(copia.trayectos.map((t) => t.$1), [Sentido.ida]);
     });
 
-    test('una geometría corrupta no se dibuja: se recalcula', () {
-      // Latitud 200 no existe. Antes esos puntos se dibujaban igual, fuera del
-      // mapa; ahora el recorrido queda sin trazado guardado y se recalcula.
-      final corrupta = encodePolyline(const [
-        LatLng(200, -71.44),
-        LatLng(201, -71.45),
-      ]);
+    test('sin nombre o sin ida dibujable no se le muestra al pasajero', () {
+      expect(linea('1').isValid, isTrue);
       expect(
-        Recorrido.fromMap('r', {'nombre': 'A', 'geometria': corrupta}).trazado,
-        isEmpty,
+        Recorrido.fromMap('x', {
+          'nombre': '  ',
+          'ida': trayectoMap(const [
+            LatLng(-33.04, -71.44),
+            LatLng(-33.05, -71.44),
+          ]),
+        }).isValid,
+        isFalse,
       );
-
-      final buena = encodePolyline(const [
-        LatLng(-33.04, -71.44),
-        LatLng(-33.05, -71.45),
-      ]);
       expect(
-        Recorrido.fromMap('r', {'nombre': 'A', 'geometria': buena}).trazado,
-        hasLength(2),
+        Recorrido.fromMap('x', {
+          'nombre': 'Línea',
+          'ida': trayectoMap(const [LatLng(-33.04, -71.44)]),
+        }).isValid,
+        isFalse,
       );
     });
 
-    test('sobrevive al viaje por Firestore', () {
-      const original = Recorrido(
-        id: 'r1',
-        garitaId: 'g1',
-        nombre: 'Línea 5',
-        colorValue: 0xFF4A3F9E,
-        paraderoIds: ['a', 'b', 'c'],
-      );
-      final restaurado = Recorrido.fromMap('r1', original.toMap());
-      expect(restaurado, original);
-      expect(restaurado.nombre, 'Línea 5');
-      expect(restaurado.paraderoIds, ['a', 'b', 'c']);
-      expect(restaurado.colorValue, 0xFF4A3F9E);
+    test('una geometría corrupta no se dibuja fuera del mapa', () {
+      final r = Recorrido.fromMap('x', {
+        'nombre': 'Línea',
+        'ida': {'puntos': const [], 'geometria': '???'},
+      });
+      expect(r.ida.trazado, isEmpty);
+      expect(r.isValid, isFalse);
     });
   });
 }

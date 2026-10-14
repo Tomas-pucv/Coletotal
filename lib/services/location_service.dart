@@ -13,6 +13,28 @@ import 'package:taxi1/services/preferences_service.dart';
 /// Motivo por el que no hay posición del usuario.
 enum LocationIssue { none, disabledByPreference, serviceDisabled, denied }
 
+/// Velocidad desde la que el rumbo del GPS vale algo, en m/s (5,4 km/h). Más
+/// lento, el GPS calcula el rumbo con el ruido de la posición y gira al azar.
+const double kVelocidadConRumbo = 1.5;
+
+/// El rumbo que hay que mostrar con un arreglo nuevo del GPS: el [heading] del
+/// arreglo si es confiable, si no el [anterior].
+///
+/// Un auto detenido no cambia de dirección: sin esto la flecha de navegación
+/// apuntaba al norte en cada semáforo. [headingAccuracy] menor o igual a cero
+/// es "no informada" (Android antes de la 8.0); mayor a 45° no sirve.
+double? rumboConfiable({
+  required double speed,
+  required double heading,
+  required double headingAccuracy,
+  double? anterior,
+}) {
+  if (!speed.isFinite || speed < kVelocidadConRumbo) return anterior;
+  if (!heading.isFinite || heading < 0 || heading > 360) return anterior;
+  if (headingAccuracy.isFinite && headingAccuracy > 45) return anterior;
+  return heading % 360;
+}
+
 /// Dueño único del GPS del teléfono.
 ///
 /// Antes tres sitios abrían el GPS por su cuenta: `MapScreen`, `RoutesScreen`
@@ -43,6 +65,8 @@ class LocationService extends ChangeNotifier with WidgetsBindingObserver {
 
   LatLng? _position;
   double? _accuracy;
+  double? _speed;
+  double? _heading;
   LocationIssue _issue = LocationIssue.none;
   bool _driverMode = false;
   bool _started = false;
@@ -62,6 +86,17 @@ class LocationService extends ChangeNotifier with WidgetsBindingObserver {
 
   /// Precisión de [position], en metros.
   double? get accuracy => _accuracy;
+
+  /// Velocidad del último arreglo, en m/s.
+  double? get speed => _speed;
+
+  /// Hacia dónde se mueve el usuario, en grados desde el norte: el último rumbo
+  /// confiable ([rumboConfiable]), que se mantiene mientras está detenido.
+  double? get heading => _heading;
+
+  /// Hora del último arreglo.
+  DateTime? get timestamp => _timestamp;
+  DateTime? _timestamp;
 
   LocationIssue get issue => _issue;
 
@@ -151,6 +186,9 @@ class LocationService extends ChangeNotifier with WidgetsBindingObserver {
       // fuera la actual.
       _position = null;
       _accuracy = null;
+      _speed = null;
+      _heading = null;
+      _timestamp = null;
       _issue = LocationIssue.disabledByPreference;
       notifyListeners();
       return;
@@ -211,8 +249,11 @@ class LocationService extends ChangeNotifier with WidgetsBindingObserver {
       final l10n = lookupAppLocalizations(const Locale('es'));
       return AndroidSettings(
         accuracy: LocationAccuracy.high,
-        distanceFilter: 5,
-        intervalDuration: _driverMode ? const Duration(seconds: 3) : null,
+        // En turno, un arreglo por segundo aunque el auto esté detenido: la
+        // flecha de navegación se mueve con cada uno. La telemetría igual
+        // publica uno cada tres segundos (ver FirebaseTelemetriaService).
+        distanceFilter: _driverMode ? 0 : 5,
+        intervalDuration: _driverMode ? const Duration(seconds: 1) : null,
         // Servicio en primer plano sólo durante el turno: es lo que mantiene
         // vivo el GPS con la pantalla bloqueada y protege al proceso del
         // "low memory killer" en teléfonos de gama de entrada.
@@ -255,6 +296,14 @@ class LocationService extends ChangeNotifier with WidgetsBindingObserver {
 
     _position = LatLng(lat, lng);
     _accuracy = p.accuracy;
+    _speed = p.speed.isFinite && p.speed >= 0 ? p.speed : null;
+    _heading = rumboConfiable(
+      speed: p.speed,
+      heading: p.heading,
+      headingAccuracy: p.headingAccuracy,
+      anterior: _heading,
+    );
+    _timestamp = p.timestamp;
     _issue = LocationIssue.none;
     if (fresh) _positions.add(p);
     notifyListeners();
@@ -277,8 +326,20 @@ class LocationService extends ChangeNotifier with WidgetsBindingObserver {
     _driverMode = false;
     _position = null;
     _accuracy = null;
+    _speed = null;
+    _heading = null;
+    _timestamp = null;
     _issue = LocationIssue.none;
     _permissionInFlight = null;
     _restartChain = Future<void>.value();
+  }
+
+  /// Fija la posición sin GPS. Sólo para tests de pantallas que la usan.
+  @visibleForTesting
+  void debugSetPosition(LatLng? position, {double? speed, double? heading}) {
+    _position = position;
+    _speed = speed;
+    _heading = heading;
+    notifyListeners();
   }
 }

@@ -48,7 +48,13 @@ async function getAccessToken() {
   if (!account) {
     throw new Error('No hay una sesión de Firebase CLI: ejecuta `firebase login`.');
   }
-  const tokenObj = await auth.getAccessToken(account.tokens.refresh_token, account.tokens.scopes);
+  // firebase-tools 15 guarda los permisos como texto (`scope`) y no como
+  // lista (`scopes`); sin lista, `getAccessToken` revienta al ordenarla.
+  const { scopes, scope } = account.tokens;
+  const tokenObj = await auth.getAccessToken(
+    account.tokens.refresh_token,
+    scopes || (scope ? scope.split(' ') : []),
+  );
   return tokenObj.access_token;
 }
 
@@ -94,6 +100,10 @@ function fromFirestoreValue(v) {
   if (v.doubleValue !== undefined) return v.doubleValue;
   if (v.timestampValue !== undefined) return v.timestampValue;
   if (v.nullValue !== undefined) return null;
+  // La REST API omite los campos en cero: el ecuador o Greenwich no vienen.
+  if (v.geoPointValue !== undefined) {
+    return { lat: v.geoPointValue.latitude || 0, lng: v.geoPointValue.longitude || 0 };
+  }
   if (v.arrayValue !== undefined) return (v.arrayValue.values || []).map(fromFirestoreValue);
   if (v.mapValue !== undefined) return fromFirestoreFields(v.mapValue.fields);
   return v;

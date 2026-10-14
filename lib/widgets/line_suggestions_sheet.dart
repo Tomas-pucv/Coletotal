@@ -1,23 +1,29 @@
 import 'package:flutter/material.dart';
 
 import 'package:taxi1/l10n/app_localizations.dart';
-import 'package:taxi1/services/stop_planner.dart';
+import 'package:taxi1/models/recorrido.dart';
+import 'package:taxi1/services/line_planner.dart';
 import 'package:taxi1/theme/app_spacing.dart';
 import 'package:taxi1/utils/distance_format.dart';
-import 'package:taxi1/widgets/state_views.dart';
 
-/// Muestra qué paradero conviene tomar para llegar al destino buscado.
+/// Nombre del sentido, para mostrar.
+String sentidoLabel(Sentido sentido, AppLocalizations l10n) =>
+    switch (sentido) {
+      Sentido.ida => l10n.sentidoIda,
+      Sentido.vuelta => l10n.sentidoVuelta,
+    };
+
+/// Muestra qué colectivo conviene tomar para llegar al destino buscado.
 ///
-/// Cada fila enseña **los dos tramos** que se promedian para elegirlo —lo que
-/// caminas hasta el paradero y lo que caminas desde la bajada—, en vez de un
-/// número de ranking opaco: así se ve por qué el primero es el primero, y se
-/// puede discrepar con criterio.
-Future<StopSuggestion?> showStopSuggestionsSheet(
+/// Cada tarjeta enseña los tramos del viaje —lo que se camina hasta la línea,
+/// lo que se va arriba y lo que se camina desde la bajada—, en vez de un
+/// número de ranking opaco: así se ve por qué la primera es la primera.
+Future<LineSuggestion?> showLineSuggestionsSheet(
   BuildContext context, {
   required String destino,
-  required List<StopSuggestion> suggestions,
+  required List<LineSuggestion> suggestions,
 }) {
-  return showModalBottomSheet<StopSuggestion>(
+  return showModalBottomSheet<LineSuggestion>(
     context: context,
     isScrollControlled: true,
     builder: (_) =>
@@ -29,18 +35,13 @@ class _SuggestionsSheet extends StatelessWidget {
   const _SuggestionsSheet({required this.destino, required this.suggestions});
 
   final String destino;
-  final List<StopSuggestion> suggestions;
+  final List<LineSuggestion> suggestions;
 
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
-
-    // Cuando la garita no ha cargado recorridos, el planificador cae a ordenar
-    // por cercanía y ninguna sugerencia trae línea. Hay que decirlo.
-    final sinRecorridos =
-        suggestions.isNotEmpty && suggestions.every((s) => s.recorrido == null);
 
     return SafeArea(
       child: Padding(
@@ -80,23 +81,14 @@ class _SuggestionsSheet extends StatelessWidget {
               ],
             ),
             const SizedBox(height: AppSpacing.sm),
-            Text(
-              l10n.suggestSubtitle,
-              style: theme.textTheme.labelSmall?.copyWith(
-                color: scheme.onSurfaceVariant,
+            if (suggestions.isNotEmpty)
+              Text(
+                l10n.suggestSubtitle,
+                style: theme.textTheme.labelSmall?.copyWith(
+                  color: scheme.onSurfaceVariant,
+                ),
               ),
-            ),
-
-            if (sinRecorridos) ...[
-              const SizedBox(height: AppSpacing.md),
-              InlineNotice(
-                icon: Icons.info_outline,
-                message: l10n.suggestNoRoutes,
-              ),
-            ],
-
             const SizedBox(height: AppSpacing.md),
-
             if (suggestions.isEmpty)
               Padding(
                 padding: const EdgeInsets.symmetric(vertical: AppSpacing.xl),
@@ -120,7 +112,7 @@ class _SuggestionsSheet extends StatelessWidget {
                       const SizedBox(height: AppSpacing.sm),
                   itemBuilder: (context, index) => _SuggestionCard(
                     suggestion: suggestions[index],
-                    // El primero es la recomendación; los demás, alternativas.
+                    // La primera es la recomendación; las demás, alternativas.
                     destacado: index == 0,
                     onTap: () => Navigator.of(context).pop(suggestions[index]),
                   ),
@@ -140,7 +132,7 @@ class _SuggestionCard extends StatelessWidget {
     required this.onTap,
   });
 
-  final StopSuggestion suggestion;
+  final LineSuggestion suggestion;
   final bool destacado;
   final VoidCallback onTap;
 
@@ -149,7 +141,8 @@ class _SuggestionCard extends StatelessWidget {
     final l10n = AppLocalizations.of(context)!;
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
-    final recorrido = suggestion.recorrido;
+    final linea = suggestion.recorrido;
+    final fg = destacado ? scheme.onPrimaryContainer : null;
 
     return Card(
       color: destacado ? scheme.primaryContainer : null,
@@ -163,63 +156,55 @@ class _SuggestionCard extends StatelessWidget {
             children: [
               Row(
                 children: [
-                  Icon(
-                    Icons.pin_drop,
-                    color: destacado
-                        ? scheme.onPrimaryContainer
-                        : scheme.primary,
+                  CircleAvatar(
+                    radius: 12,
+                    backgroundColor: Color(linea.colorValue),
+                    child: const Icon(
+                      Icons.directions_car,
+                      size: 14,
+                      color: Colors.white,
+                    ),
                   ),
                   const SizedBox(width: AppSpacing.sm),
                   Expanded(
                     child: Text(
-                      suggestion.stop.name,
-                      style: theme.textTheme.titleSmall?.copyWith(
-                        color: destacado ? scheme.onPrimaryContainer : null,
-                      ),
+                      linea.nombre,
+                      style: theme.textTheme.titleSmall?.copyWith(color: fg),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
                   ),
                   Text(
                     l10n.suggestTotal(
-                      formatDistance(suggestion.metersTotales, l10n),
+                      formatDistance(suggestion.metrosAPie, l10n),
                     ),
                     style: theme.textTheme.labelSmall?.copyWith(
-                      color: destacado
-                          ? scheme.onPrimaryContainer
-                          : scheme.onSurfaceVariant,
+                      color: fg ?? scheme.onSurfaceVariant,
                       fontWeight: FontWeight.w700,
                     ),
                   ),
                 ],
               ),
               const SizedBox(height: AppSpacing.sm),
-
               _Leg(
                 icon: Icons.directions_walk,
-                text: l10n.suggestWalkToStop(
-                  formatDistance(suggestion.metersToUser, l10n),
+                text: l10n.suggestWalkToLine(
+                  formatDistance(suggestion.metrosHastaLinea, l10n),
                 ),
                 destacado: destacado,
               ),
-              if (recorrido != null) ...[
-                _Leg(
-                  icon: Icons.directions_car,
-                  text: l10n.suggestTakeLine(recorrido.nombre),
-                  destacado: destacado,
-                  color: Color(recorrido.colorValue),
-                ),
-                if (suggestion.bajada case final bajada?)
-                  _Leg(
-                    icon: Icons.logout,
-                    text: l10n.suggestGetOff(bajada.name),
-                    destacado: destacado,
-                  ),
-              ],
+              _Leg(
+                icon: Icons.directions_car,
+                color: Color(linea.colorValue),
+                text:
+                    '${l10n.suggestTakeLine(linea.nombre, sentidoLabel(suggestion.sentido, l10n).toLowerCase())}'
+                    ' · ${l10n.suggestRide(formatDistance(suggestion.metrosEnColectivo, l10n))}',
+                destacado: destacado,
+              ),
               _Leg(
                 icon: Icons.flag_outlined,
-                text: l10n.suggestWalkFromStop(
-                  formatDistance(suggestion.metersToDestination, l10n),
+                text: l10n.suggestWalkFromLine(
+                  formatDistance(suggestion.metrosDesdeLinea, l10n),
                 ),
                 destacado: destacado,
               ),
@@ -260,7 +245,7 @@ class _Leg extends StatelessWidget {
             child: Text(
               text,
               style: theme.textTheme.bodySmall?.copyWith(color: fg),
-              maxLines: 1,
+              maxLines: 2,
               overflow: TextOverflow.ellipsis,
             ),
           ),

@@ -59,7 +59,7 @@ mindmap
     Consultas Firestore
       200 lecturas concurrentes
       Límites de cuotas y reglas NoSQL
-      Carga inicial de paraderos
+      Carga inicial de las líneas
     Cliente Móvil Flutter
       Consumo de RAM con 50 marcadores
       Frame rate continuo 60 fps
@@ -75,8 +75,8 @@ mindmap
 | Código | Prueba | Carga Simulada | Métrica de Éxito | Herramienta |
 | :--- | :--- | :--- | :--- | :--- |
 | **ST-01** | Estrés de Telemetría RTDB | 50 choferes transmitiendo GPS cada 3 s durante 30 min. | Latencia < 500 ms; 0 errores de escritura; costo RTDB < \$0.05. | Script Node.js con emulador de socket RTDB. |
-| **ST-02** | Concurrencia de Pasajeros | 200 clientes solicitando paraderos y recorridos en 5 segundos. | 100% respuestas exitosas; tiempo de carga < 1.2 s. | Firebase Load Runner / K6. |
-| **ST-03** | Consumo de RAM y Render Móvil | Mapa abierto con 50 colectivos animados + 9 polilíneas + 20 paraderos. | Consumo RAM < 180 MB en Android; FPS > 50 sostenido. | Flutter DevTools (Memory Profiler & Performance). |
+| **ST-02** | Concurrencia de Pasajeros | 200 clientes solicitando las líneas (ida y vuelta) en 5 segundos. | 100% respuestas exitosas; tiempo de carga < 1.2 s. | Firebase Load Runner / K6. |
+| **ST-03** | Consumo de RAM y Render Móvil | Mapa abierto con 50 colectivos animados + una línea con ida y vuelta + ruta a pie. | Consumo RAM < 180 MB en Android; FPS > 50 sostenido. | Flutter DevTools (Memory Profiler & Performance). |
 | **ST-04** | Simulación de Caída de Cobertura | Teléfono del chofer alternando 15 s conectado / 45 s sin señal por 1 hora. | Ningún crash; reconexión automática; el turno persiste activo. | Modo avión programado con ADB. |
 
 ---
@@ -130,13 +130,13 @@ flowchart TD
 ### 4.3. Pruebas
 * **Automatizadas:** `test/basemap_test.dart` lee las cabeceras reales de los PMTiles (zooms y límites contra `map_config.dart`) y revisa que cada estilo apunte a íconos, tipografías y fuentes que vienen en el APK; `test/basemap_service_test.dart` cubre la copia única al teléfono, las rutas `file://` de los estilos y el borrado de las cachés viejas; `test/app_map_test.dart`, los íconos de los marcadores y el halo del GPS en metros. Además `build.js` valida cada estilo contra la especificación de MapLibre y dibuja las miniaturas con MapLibre Native, el mismo motor de Android.
 * **Manuales en un teléfono:**
-  1. Modo avión, cerrar la app y volver a abrirla: los tres mapas (pasajero, flota, editor de paraderos) se dibujan y el buscador encuentra "Los Carrera" y "Líder".
+  1. Modo avión, cerrar la app y volver a abrirla: los tres mapas (pasajero, flota, editor de líneas) se dibujan y el buscador encuentra "Los Carrera" y "Líder".
   2. Alejarse hasta ver Chile entero y acercarse a Santiago y a Punta Arenas: hay mapa en todo el país, con menos detalle fuera de la región.
   3. Cambiar entre tema claro y oscuro con el mapa a la vista: se redibuja con el otro estilo.
   4. Vista satelital con y sin red: foto aérea con nombres de calles en blanco; sin red, sólo los nombres.
   5. Primer arranque tras instalar en el teléfono más lento disponible: medir cuánto tarda en aparecer el mapa (la copia de unos 60 MB) y comprobar que el segundo arranque es inmediato.
   6. Paneo y zoom continuos en Quilpué durante 5 minutos en ese mismo teléfono: sin tirones ni cierre por memoria.
-  7. Tocar un colectivo, un paradero y la bandera del destino: abren su ficha (o el nombre del destino). Con TalkBack, cada marcador se anuncia con su descripción.
+  7. Tocar un colectivo, las marcas de subida y bajada de un viaje y la bandera del destino: abren su ficha (o su nombre). Con TalkBack, cada marcador se anuncia con su descripción.
   8. Seguir al usuario (botón de centrar) mientras se camina: la cámara lo acompaña y deja de hacerlo al arrastrar el mapa.
 
 ---
@@ -171,7 +171,7 @@ flowchart LR
 
 Transportes Serrano opera con múltiples terminales en la comuna (Garita Cumming, Las Rosas, Belloto 2000). El sistema debe reflejar esta estructura organizativa sin mezclar los datos operativos entre garitas, pero ofreciendo una consola unificada para la gerencia.
 
-> **Estado:** lo implementado es una colección plana `garitas` y el campo `garitaId` en usuarios, paraderos y recorridos, con dos roles (`colectivero`, `administrador`). La jerarquía `empresas/…`, los roles `admin_garita` y `super_admin` y las llaves de acceso simplificadas de §6.3 son **(propuesto, pendiente)**. La consola de flota ya filtra por garita (§3.7 de la arquitectura).
+> **Estado:** lo implementado es una colección plana `garitas` y el campo `garitaId` en usuarios y recorridos (los paraderos se eliminaron el 10 de octubre de 2026), con dos roles (`colectivero`, `administrador`). La jerarquía `empresas/…`, los roles `admin_garita` y `super_admin` y las llaves de acceso simplificadas de §6.3 son **(propuesto, pendiente)**. La consola de flota ya filtra por garita (§3.7 de la arquitectura).
 
 ### 6.1. Modelo de Jerarquía en Firestore **(propuesto, pendiente)**
 
@@ -219,6 +219,16 @@ Para no abrumar al pasajero con decenas de marcadores en comunas lejanas:
 - El cliente móvil aplica un filtro espacial: con más de 4 unidades en servicio, sólo se dibujan las que están a **6 km** o menos de la posición del usuario (o del centro de Quilpué si no hay posición). El filtro por cuadrante visible: **(propuesto, pendiente)**.
 - Al tocar un colectivo se despliega una tarjeta de detalle y **se ilumina en el mapa el trazado del recorrido que está cubriendo**, si el chofer lo eligió en su pantalla de turno.
 
+### 7.1.1. Pantalla de Turno como Navegador (10 de octubre de 2026)
+- **Fuera de turno:** la flecha en la posición del chofer, con el norte arriba; su línea resaltada, las demás tenues y los demás colectivos a la vista; abajo, "Iniciar turno".
+- **Iniciar turno:** la cámara se inclina y gira con el sentido de marcha, con la flecha en la parte de abajo. Caminando o en auto, la flecha avanza sin saltos y no apunta al norte al detenerse.
+- **Volver a centrar:** al arrastrar el mapa deja de seguir al chofer y aparece el botón; al tocarlo vuelve a la navegación.
+- **2D/3D:** en turno, "2D" deja el mapa plano con el norte arriba, siguiendo al chofer; "3D" vuelve a la navegación inclinada.
+- **Segundo plano:** al primer "Iniciar turno" se piden las notificaciones y la exención de batería; con la pantalla bloqueada o en otra app, el colectivo sigue moviéndose en el mapa de un pasajero.
+- **Zoom según la velocidad:** se aleja sobre 25 km/h y más sobre 50 km/h, y vuelve a acercarse al bajar. Si al cambiar el zoom la cámara da un salto visible, se fija el zoom en 16,5.
+- **Pantalla encendida** durante el turno con la pestaña Turno a la vista; se apaga normalmente fuera de turno o en otra pestaña.
+- **Telemetría:** el colectivo sigue actualizándose cada 3 s en el mapa de un pasajero (o en el nodo de Realtime Database), aunque el GPS del chofer dé una posición por segundo.
+
 ### 7.2. Persistencia Ininterrumpida del Turno
 - **Eliminación del borrado abrupto en `onDisconnect`:** en vez de `onDisconnect().remove()`, el servidor marca el nodo con `conectado: false` cuando detecta la desconexión, y la unidad sigue visible durante un periodo de gracia de **3 minutos**.
 - Si el colectivo cruza un túnel o una zona de sombra, el vehículo **no desaparece del mapa**: con `conectado: false` o tras 45 s sin posición, el marcador se muestra atenuado y la tarjeta indica *"Última señal hace X"*.
@@ -229,8 +239,9 @@ Los choferes de la locomoción colectiva suelen utilizar smartphones de gama de 
 **Estrategia de Blindaje:**
 1. **Foreground Service con Notificación Continua (implementado):**
    - Durante el turno el GPS corre en un servicio en primer plano con notificación fija ("ColeTotal — en servicio") y wake lock. La auditoría de octubre encontró que esta configuración no se aplicaba (el mapa abría antes su propio stream y el plugin ignoraba la del turno); se corrigió con un único dueño del GPS (`LocationService`).
-2. **Exención de Optimización de Batería** **(propuesto, pendiente)**:
-   - Solicitar al conductor la exención de ahorro de batería (`ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS`) para que el fabricante (Xiaomi MIUI, Samsung OneUI) no congele el GPS.
+2. **Exención de Optimización de Batería (implementado el 10 de octubre de 2026):**
+   - Al primer "Iniciar turno" la app pide el permiso de notificaciones (Android 13+; antes no estaba declarado y la notificación del turno nunca se veía) y la exención de ahorro de batería (`ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS`), con los diálogos del sistema (`lib/services/segundo_plano.dart`, `MainActivity.kt`).
+   - En Xiaomi, que corta la red de las apps en segundo plano con la pantalla bloqueada, muestra una vez un aviso que abre los ajustes de la app para dejarla "Sin restricciones" y con inicio automático. Esos dos ajustes no se pueden conceder desde la app.
 3. **Frecuencia Adaptativa** **(propuesto, pendiente)**:
    - Con el vehículo detenido (velocidad < 2 km/h), subir el intervalo de 3 a 10 segundos para ahorrar batería.
 

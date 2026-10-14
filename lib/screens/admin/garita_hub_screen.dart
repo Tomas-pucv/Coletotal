@@ -3,14 +3,12 @@ import 'package:flutter/material.dart';
 import 'package:taxi1/l10n/app_localizations.dart';
 import 'package:taxi1/navigation/app_destination.dart';
 import 'package:taxi1/screens/admin/choferes_admin_screen.dart';
-import 'package:taxi1/screens/admin/paraderos_admin_screen.dart';
 import 'package:taxi1/screens/admin/recorridos_admin_screen.dart';
 import 'package:taxi1/screens/main_screen.dart';
 import 'package:taxi1/services/auth_service.dart';
 import 'package:taxi1/services/firebase_telemetria_service.dart';
 import 'package:taxi1/services/garita_service.dart';
 import 'package:taxi1/services/recorridos_service.dart';
-import 'package:taxi1/services/stops_service.dart';
 import 'package:taxi1/theme/app_spacing.dart';
 import 'package:taxi1/theme/breakpoints.dart';
 import 'package:taxi1/widgets/settings_section.dart';
@@ -33,7 +31,6 @@ class _GaritaHubScreenState extends State<GaritaHubScreen> {
   final _auth = AuthService.instance;
   final _garita = GaritaService.instance;
   final _recorridos = RecorridosService.instance;
-  final _stops = StopsService.instance;
   final _telemetria = FirebaseTelemetriaService.instance;
 
   @override
@@ -42,7 +39,6 @@ class _GaritaHubScreenState extends State<GaritaHubScreen> {
     _auth.addListener(_onChanged);
     _garita.addListener(_onChanged);
     _recorridos.addListener(_onChanged);
-    _stops.addListener(_onChanged);
     // La flota la lee una sola suscripción compartida por toda la app; acá
     // sólo se cuenta.
     _telemetria.state.addListener(_onChanged);
@@ -53,7 +49,6 @@ class _GaritaHubScreenState extends State<GaritaHubScreen> {
     _auth.removeListener(_onChanged);
     _garita.removeListener(_onChanged);
     _recorridos.removeListener(_onChanged);
-    _stops.removeListener(_onChanged);
     _telemetria.state.removeListener(_onChanged);
     super.dispose();
   }
@@ -67,11 +62,9 @@ class _GaritaHubScreenState extends State<GaritaHubScreen> {
         : todas.where((c) => c.garitaId == gid).length;
   }
 
-  /// Paraderos activos de esta garita. Antes contaba los de todas las
-  /// garitas, mientras que los recorridos sí se filtraban por la propia.
-  int get _paraderos => _stops.garitaStopsLoaded
-      ? _stops.garitaStops.where((s) => s.activo).length
-      : _stops.stops.length;
+  /// Líneas encendidas de esta garita: las que ven los pasajeros.
+  int get _lineasActivas =>
+      _recorridos.porGarita(_auth.garitaId ?? '').where((r) => r.activo).length;
 
   void _onChanged() {
     if (mounted) setState(() {});
@@ -115,12 +108,6 @@ class _GaritaHubScreenState extends State<GaritaHubScreen> {
                       icon: Icons.edit_location_alt_outlined,
                       title: l10n.adminSectionData,
                       children: [
-                        _tile(
-                          icon: AppDestination.paraderos.icon,
-                          title: AppDestination.paraderos.label(l10n),
-                          subtitle: l10n.adminStopsDesc,
-                          onTap: () => _push(const ParaderosAdminScreen()),
-                        ),
                         _tile(
                           icon: AppDestination.recorridos.icon,
                           title: AppDestination.recorridos.label(l10n),
@@ -173,17 +160,17 @@ class _GaritaHubScreenState extends State<GaritaHubScreen> {
           const SizedBox(width: AppSpacing.md),
           Expanded(
             child: _MetricTile(
-              icon: Icons.pin_drop_outlined,
-              value: '$_paraderos',
-              label: l10n.adminMetricStops,
+              icon: Icons.timeline_outlined,
+              value: '$_lineasActivas',
+              label: l10n.adminMetricRoutes,
             ),
           ),
           const SizedBox(width: AppSpacing.md),
           Expanded(
             child: _MetricTile(
-              icon: Icons.timeline_outlined,
-              value: '${_recorridos.porGarita(_auth.garitaId ?? '').length}',
-              label: l10n.adminMetricRoutes,
+              icon: Icons.badge_outlined,
+              value: '${_garita.choferes.length}',
+              label: AppDestination.choferes.label(l10n),
             ),
           ),
         ],

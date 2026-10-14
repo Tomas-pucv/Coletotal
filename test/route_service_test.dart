@@ -7,7 +7,6 @@ import 'package:http/testing.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'package:taxi1/models/bus_stop.dart';
 import 'package:taxi1/services/osrm_client.dart';
 import 'package:taxi1/services/route_service.dart';
 import 'package:taxi1/services/routing.dart';
@@ -44,18 +43,8 @@ final _caido = MockClient((_) async => http.Response('caído', 503));
 
 void main() {
   const origen = LatLng(-33.0472, -71.4425);
-  const a = BusStop(
-    id: 'a',
-    name: 'A',
-    address: 'A',
-    location: LatLng(-33.0438, -71.4390),
-  );
-  const b = BusStop(
-    id: 'b',
-    name: 'B',
-    address: 'B',
-    location: LatLng(-33.0510, -71.4480),
-  );
+  const a = WalkTarget(location: LatLng(-33.0438, -71.4390), label: 'A');
+  const b = WalkTarget(location: LatLng(-33.0510, -71.4480), label: 'B');
 
   final service = RouteService.instance;
 

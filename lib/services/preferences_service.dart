@@ -9,7 +9,6 @@ class PreferencesService extends ChangeNotifier {
   static const _keyMapType = 'map_type';
   static const _keyTheme = 'theme_mode';
   static const _keyLocationTracking = 'location_tracking';
-  static const _keyHistoryEnabled = 'history_enabled';
   static const _keyFontSize = 'font_size';
   static const _keyDensity = 'compact_mode';
   static const _keyAnimations = 'animations_enabled';
@@ -25,7 +24,6 @@ class PreferencesService extends ChangeNotifier {
 
   // Notificaciones y privacidad
   bool _locationTracking = true;
-  bool _historyEnabled = true;
 
   // El rol del usuario ya no vive acá.
   //
@@ -57,7 +55,6 @@ class PreferencesService extends ChangeNotifier {
 
   // Getters - Notificaciones y privacidad
   bool get locationTracking => _locationTracking;
-  bool get historyEnabled => _historyEnabled;
 
   bool get isInitialized => _initialized;
 
@@ -68,7 +65,6 @@ class PreferencesService extends ChangeNotifier {
     _mapType = prefs.getString(_keyMapType) ?? 'normal';
     _theme = prefs.getString(_keyTheme) ?? 'system';
     _locationTracking = prefs.getBool(_keyLocationTracking) ?? true;
-    _historyEnabled = prefs.getBool(_keyHistoryEnabled) ?? true;
     _fontSizeMultiplier = prefs.getDouble(_keyFontSize) ?? 1.0;
     _compactMode = prefs.getBool(_keyDensity) ?? false;
     _animationsEnabled = prefs.getBool(_keyAnimations) ?? true;
@@ -137,14 +133,6 @@ class PreferencesService extends ChangeNotifier {
     _locationTracking = value;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_keyLocationTracking, value);
-    notifyListeners();
-  }
-
-  Future<void> setHistoryEnabled(bool value) async {
-    if (value == _historyEnabled) return;
-    _historyEnabled = value;
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(_keyHistoryEnabled, value);
     notifyListeners();
   }
 }

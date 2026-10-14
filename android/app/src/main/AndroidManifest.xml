@@ -6,6 +6,12 @@
 <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
 <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION"/>
 <uses-permission android:name="android.permission.WAKE_LOCK"/>
+<!-- La notificación "ColeTotal — en servicio" del turno: desde Android 13 sin
+     este permiso no se muestra, y el servicio del GPS queda invisible. -->
+<uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+<!-- Para pedir, al iniciar el turno, que Android no frene la app por ahorro
+     de batería (ver MainActivity). -->
+<uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"/>
     <application
         android:label="ColeTotal"
         android:name="${applicationName}"

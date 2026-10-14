@@ -117,4 +117,136 @@ List<LatLng> joinLegs(Iterable<List<LatLng>> legs) {
   return joined;
 }
 
+/// El punto de una línea más cercano a otro: dónde queda, a cuántos metros
+/// está y en qué punto de la línea cae, medido desde su inicio.
+class PuntoEnLinea {
+  const PuntoEnLinea({
+    required this.punto,
+    required this.metros,
+    required this.desdeInicio,
+  });
+
+  final LatLng punto;
+
+  /// Distancia en línea recta desde el punto consultado.
+  final double metros;
+
+  /// Metros recorridos sobre la línea, desde su primer punto hasta [punto].
+  /// Es lo que dice si un lugar viene antes o después que otro en el sentido
+  /// de marcha.
+  final double desdeInicio;
+}
+
+const double _radioTierra = 6371008.8;
+
+/// Largo de [linea] en metros (aproximación equirectangular por tramo, de
+/// sobra precisa para mostrar "4,3 km").
+double polylineLength(List<LatLng> linea) {
+  var total = 0.0;
+  for (var i = 1; i < linea.length; i++) {
+    final a = linea[i - 1];
+    final b = linea[i];
+    final lat = (a.latitude + b.latitude) / 2 * math.pi / 180;
+    final dx = (b.longitude - a.longitude) * math.cos(lat);
+    final dy = b.latitude - a.latitude;
+    total += math.sqrt(dx * dx + dy * dy) * math.pi / 180 * _radioTierra;
+  }
+  return total;
+}
+
+/// El punto de [linea] más cercano a [p], o `null` si la línea está vacía.
+///
+/// Proyecta [p] sobre cada tramo en un plano local centrado en él: a la escala
+/// de una ciudad el error es de centímetros, y evita la trigonometría esférica
+/// en cada uno de los cientos de tramos de un recorrido. Si la línea pasa dos
+/// veces igual de cerca, gana la primera pasada.
+PuntoEnLinea? nearestOnPolyline(List<LatLng> linea, LatLng p) {
+  if (linea.isEmpty) return null;
+  final cosLat = math.cos(p.latitude * math.pi / 180);
+  const grado = math.pi / 180 * _radioTierra;
+  (double, double) plano(LatLng q) => (
+    (q.longitude - p.longitude) * grado * cosLat,
+    (q.latitude - p.latitude) * grado,
+  );
+  LatLng esfera(double x, double y) =>
+      LatLng(p.latitude + y / grado, p.longitude + x / (grado * cosLat));
+
+  var (ax, ay) = plano(linea.first);
+  var mejor = PuntoEnLinea(
+    punto: linea.first,
+    metros: math.sqrt(ax * ax + ay * ay),
+    desdeInicio: 0,
+  );
+  var acumulado = 0.0;
+  for (var i = 1; i < linea.length; i++) {
+    final (bx, by) = plano(linea[i]);
+    final dx = bx - ax;
+    final dy = by - ay;
+    final largo2 = dx * dx + dy * dy;
+    final largo = math.sqrt(largo2);
+    // Dónde cae la perpendicular desde p (el origen) sobre el tramo, acotado
+    // a sus extremos.
+    final t = largo2 == 0 ? 0.0 : (-(ax * dx + ay * dy) / largo2).clamp(0, 1);
+    final px = ax + t * dx;
+    final py = ay + t * dy;
+    final metros = math.sqrt(px * px + py * py);
+    if (metros < mejor.metros) {
+      mejor = PuntoEnLinea(
+        punto: esfera(px, py),
+        metros: metros,
+        desdeInicio: acumulado + t * largo,
+      );
+    }
+    acumulado += largo;
+    ax = bx;
+    ay = by;
+  }
+  return mejor;
+}
+
+/// Un punto de una línea y hacia dónde va la línea ahí.
+typedef PuntoConRumbo = ({LatLng punto, double rumbo});
+
+/// Puntos de [linea] cada [metros], desde [desde] metros del inicio, con el
+/// rumbo del tramo en que caen: grados desde el norte en sentido horario, el
+/// ángulo con que se ve el tramo en un mapa con el norte arriba. Son las
+/// flechas que muestran hacia dónde va una línea.
+///
+/// Usa la misma aproximación por tramo que [polylineLength]. Los tramos de
+/// largo cero no tienen rumbo y se saltan.
+List<PuntoConRumbo> puntosCada(
+  List<LatLng> linea,
+  double metros, {
+  double desde = 0,
+}) {
+  if (!(metros > 0) || linea.length < 2) return const [];
+  const grado = math.pi / 180 * _radioTierra;
+  final puntos = <PuntoConRumbo>[];
+  var siguiente = math.max(0.0, desde);
+  var recorrido = 0.0;
+  for (var i = 1; i < linea.length; i++) {
+    final a = linea[i - 1];
+    final b = linea[i];
+    final cosLat = math.cos((a.latitude + b.latitude) / 2 * math.pi / 180);
+    final este = (b.longitude - a.longitude) * cosLat * grado;
+    final norte = (b.latitude - a.latitude) * grado;
+    final largo = math.sqrt(este * este + norte * norte);
+    if (largo == 0) continue;
+    final rumbo = (math.atan2(este, norte) * 180 / math.pi + 360) % 360;
+    while (siguiente <= recorrido + largo) {
+      final t = (siguiente - recorrido) / largo;
+      puntos.add((
+        punto: LatLng(
+          a.latitude + (b.latitude - a.latitude) * t,
+          a.longitude + (b.longitude - a.longitude) * t,
+        ),
+        rumbo: rumbo,
+      ));
+      siguiente += metros;
+    }
+    recorrido += largo;
+  }
+  return puntos;
+}
+
 double _pow10(int n) => math.pow(10, n).toDouble();

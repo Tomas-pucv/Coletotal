@@ -280,4 +280,11 @@ class TurnoService extends ChangeNotifier {
     });
     await _telemetria.setEstado(estado);
   }
+
+  /// Fija si hay turno sin GPS ni Firebase. Sólo para tests de pantallas.
+  @visibleForTesting
+  void debugSetEnTurno(bool enTurno) {
+    _enTurno = enTurno;
+    notifyListeners();
+  }
 }

@@ -42,25 +42,24 @@ service cloud.firestore {
       return get(/databases/$(database)/documents/codigos_acceso/$(c)).data;
     }
 
-    // Forma de un paradero. Antes sólo se validaban las coordenadas al crear;
-    // un `update` podía dejar cualquier cosa.
-    function paraderoValido() {
-      let d = request.resource.data;
-      return d.lat is number && d.lat >= -90 && d.lat <= 90
-        && d.lng is number && d.lng >= -180 && d.lng <= 180
-        && d.nombre is string && d.nombre.size() > 0 && d.nombre.size() <= 60
-        && d.direccion is string && d.direccion.size() <= 120
-        && d.activo is bool;
+    // Un sentido de un recorrido (ida o vuelta): los puntos que marcó la
+    // garita en el editor y el trazado por calle calculado a partir de ellos.
+    function trayectoValido(t) {
+      return t is map
+        && t.puntos is list && t.puntos.size() <= 200
+        && t.geometria is string && t.geometria.size() <= 300000;
     }
 
+    // Una línea: nombre, color, si está activa, su ida y, cuando ya se dibujó,
+    // su vuelta. No tiene paraderos: los colectivos paran donde se les hace la
+    // seña (los paraderos se eliminaron el 10 de octubre de 2026).
     function recorridoValido() {
       let d = request.resource.data;
       return d.nombre is string && d.nombre.size() > 0 && d.nombre.size() <= 80
-        && d.paraderoIds is list && d.paraderoIds.size() <= 200
         && d.color is int
         && d.activo is bool
-        && (!('geometria' in d)
-            || (d.geometria is string && d.geometria.size() <= 300000));
+        && trayectoValido(d.ida)
+        && (!('vuelta' in d) || trayectoValido(d.vuelta));
     }
 
     // Códigos de enrolamiento. El id del documento ES el código.
@@ -147,24 +146,15 @@ service cloud.firestore {
       allow delete: if false;
     }
 
-    // Paraderos y recorridos van al nivel raíz, con un campo `garitaId`, y no
-    // como subcolecciones de `garitas`: el invitado no tiene garita, y como
-    // subcolección necesitaría conocer un id para poder leer los paraderos.
-    match /paraderos/{id} {
-      allow read: if true;
-      allow create: if isAdminOf(request.resource.data.garitaId)
-        && paraderoValido();
-      // Un paradero no puede cambiar de garita por la vía de un update.
-      allow update: if isAdminOf(resource.data.garitaId)
-        && request.resource.data.garitaId == resource.data.garitaId
-        && paraderoValido();
-      allow delete: if isAdminOf(resource.data.garitaId);
-    }
-
+    // Los recorridos van al nivel raíz, con un campo `garitaId`, y no como
+    // subcolección de `garitas`: el invitado no tiene garita, y como
+    // subcolección necesitaría conocer un id para poder leerlos.
+    // (`paraderos` ya no existe: cae en la regla final, que lo cierra.)
     match /recorridos/{id} {
       allow read: if true;
       allow create: if isAdminOf(request.resource.data.garitaId)
         && recorridoValido();
+      // Una línea no puede cambiar de garita por la vía de un update.
       allow update: if isAdminOf(resource.data.garitaId)
         && request.resource.data.garitaId == resource.data.garitaId
         && recorridoValido();

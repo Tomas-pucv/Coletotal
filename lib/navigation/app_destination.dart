@@ -12,6 +12,8 @@ import 'package:taxi1/models/app_user.dart';
 /// desalinear.
 enum AppDestination {
   mapa,
+
+  /// La pestaña Líneas: las líneas de colectivo de la garita pública.
   rutas,
   preferencias,
 
@@ -21,7 +23,6 @@ enum AppDestination {
   // Administrador de garita
   flota,
   garita,
-  paraderos,
   recorridos,
   choferes;
 
@@ -32,7 +33,6 @@ enum AppDestination {
     AppDestination.turno => Icons.local_taxi_outlined,
     AppDestination.flota => Icons.travel_explore_outlined,
     AppDestination.garita => Icons.apartment_outlined,
-    AppDestination.paraderos => Icons.pin_drop_outlined,
     AppDestination.recorridos => Icons.timeline_outlined,
     AppDestination.choferes => Icons.badge_outlined,
   };
@@ -44,7 +44,6 @@ enum AppDestination {
     AppDestination.turno => Icons.local_taxi,
     AppDestination.flota => Icons.travel_explore,
     AppDestination.garita => Icons.apartment,
-    AppDestination.paraderos => Icons.pin_drop,
     AppDestination.recorridos => Icons.timeline,
     AppDestination.choferes => Icons.badge,
   };
@@ -56,7 +55,6 @@ enum AppDestination {
     AppDestination.turno => l10n.navTurno,
     AppDestination.flota => l10n.navFlota,
     AppDestination.garita => l10n.navGarita,
-    AppDestination.paraderos => l10n.navStops,
     AppDestination.recorridos => l10n.navRecorridos,
     AppDestination.choferes => l10n.navDrivers,
   };
@@ -82,10 +80,13 @@ abstract final class Destinations {
       AppDestination.rutas,
       AppDestination.preferencias,
     ],
+    // El chofer no tiene el mapa del pasajero: su pestaña Turno ya es un mapa
+    // (el de navegación), y dos mapas vivos a la vez pesan en un teléfono de
+    // gama de entrada.
     UserRole.colectivero => const [
-      AppDestination.mapa,
-      AppDestination.rutas,
       AppDestination.turno,
+      AppDestination.rutas,
+      AppDestination.preferencias,
     ],
     UserRole.administrador => const [
       AppDestination.mapa,
@@ -98,13 +99,12 @@ abstract final class Destinations {
   /// (`Navigator.push`), no como pestaña.
   ///
   /// Son pantallas de detalle a las que se entra y de las que se vuelve, no
-  /// lugares donde uno se queda: el administrador edita paraderos y regresa a
+  /// lugares donde uno se queda: el administrador dibuja una línea y regresa a
   /// supervisar la flota.
   static List<AppDestination> extrasFor(UserRole role) => switch (role) {
     UserRole.invitado => const [],
-    UserRole.colectivero => const [AppDestination.preferencias],
+    UserRole.colectivero => const [],
     UserRole.administrador => const [
-      AppDestination.paraderos,
       AppDestination.recorridos,
       AppDestination.choferes,
       AppDestination.preferencias,
@@ -116,6 +116,13 @@ abstract final class Destinations {
   static List<AppDestination> roleSectionFor(UserRole role) => extrasFor(
     role,
   ).where((d) => d != AppDestination.preferencias).toList(growable: false);
+
+  /// La pestaña con el mapa de [role]: a donde lleva "ver en el mapa" (por
+  /// ejemplo, al tocar una línea en la pestaña Líneas).
+  static AppDestination mapFor(UserRole role) => switch (role) {
+    UserRole.colectivero => AppDestination.turno,
+    UserRole.invitado || UserRole.administrador => AppDestination.mapa,
+  };
 
   /// Si [destination] es una de las pestañas de [role].
   static bool isTab(AppDestination destination, UserRole role) =>

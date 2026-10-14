@@ -47,6 +47,8 @@ void main() {
   ) async {
     await _abrirMenu(tester, null);
 
+    // "Invitado" ya lo dice: no hace falta explicarlo debajo.
+    expect(find.text('Estás usando ColeTotal sin cuenta'), findsNothing);
     // Antes "Iniciar sesión" estaba en la cabecera y otra vez al final.
     expect(find.text('Iniciar sesión'), findsOneWidget);
     expect(find.text('Crear cuenta'), findsOneWidget);
@@ -93,6 +95,8 @@ void main() {
     expect(decoracion.color, Colors.white);
     expect(decoracion.border, isNotNull);
 
+    // Los roles con cuenta conservan la línea que explica qué hacen.
+    expect(find.text('Transmites tu posición a la garita'), findsOneWidget);
     expect(find.text('Cerrar sesión'), findsOneWidget);
     expect(find.text('Iniciar sesión'), findsNothing);
   });

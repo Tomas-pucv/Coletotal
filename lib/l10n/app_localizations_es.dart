@@ -12,7 +12,7 @@ class AppLocalizationsEs extends AppLocalizations {
   String get navMap => 'Mapa';
 
   @override
-  String get navRoutes => 'Paraderos';
+  String get navRoutes => 'Líneas';
 
   @override
   String get navPreferences => 'Preferencias';
@@ -21,18 +21,7 @@ class AppLocalizationsEs extends AppLocalizations {
   String get calculatingRoute => 'Calculando ruta…';
 
   @override
-  String get searchingLocation => 'Buscando ubicación…';
-
-  @override
   String get closeRoute => 'Cerrar ruta';
-
-  @override
-  String get tapToGoStop => 'Tocar para ir al paradero';
-
-  @override
-  String coordsLabel(String lat, String lng) {
-    return 'Lat: $lat, Lng: $lng';
-  }
 
   @override
   String get routeErrorDefault =>
@@ -48,11 +37,6 @@ class AppLocalizationsEs extends AppLocalizations {
   String get recenterInactive => 'Centrar en mi ubicación';
 
   @override
-  String stopSemanticLabel(String name, String address) {
-    return 'Paradero $name, $address';
-  }
-
-  @override
   String get telemetryUnavailable =>
       'No se pudo cargar la posición de los colectivos.';
 
@@ -61,33 +45,6 @@ class AppLocalizationsEs extends AppLocalizations {
 
   @override
   String get moreSettings => 'Más ajustes';
-
-  @override
-  String get calculateRouteTitle => 'Calcular Ruta';
-
-  @override
-  String get originLabel => 'Origen (Mi ubicación actual)';
-
-  @override
-  String get searchStopHint => 'Buscar paradero por nombre o dirección…';
-
-  @override
-  String get whereToGo => '¿A dónde quieres ir?';
-
-  @override
-  String noResults(String query) {
-    return 'Sin resultados para \"$query\"';
-  }
-
-  @override
-  String get noResultsHint => 'Prueba con otro nombre o revisa la ortografía.';
-
-  @override
-  String get goToNearestStop => 'Ir al paradero más cercano';
-
-  @override
-  String get locationUnavailable =>
-      'Tu ubicación aún no está disponible. Activa el GPS o espera unos segundos.';
 
   @override
   String get veryClose => 'Muy cerca';
@@ -102,17 +59,7 @@ class AppLocalizationsEs extends AppLocalizations {
   String get far => 'Lejos';
 
   @override
-  String get distanceUnavailable => 'Distancia no disponible';
-
-  @override
-  String get enableLocationForSorting =>
-      'Activa la ubicación para ordenar los paraderos por cercanía.';
-
-  @override
   String get recentStops => 'Consultados recientemente';
-
-  @override
-  String get allStops => 'Todos los paraderos';
 
   @override
   String get locationOffMessage =>
@@ -205,20 +152,6 @@ class AppLocalizationsEs extends AppLocalizations {
   @override
   String get disableTrackingMessage =>
       '¿Estás seguro? El mapa necesita tu ubicación para funcionar correctamente.';
-
-  @override
-  String get saveHistory => 'Guardar historial';
-
-  @override
-  String saveHistoryDesc(String count) {
-    return 'Recuerda los últimos $count paraderos consultados';
-  }
-
-  @override
-  String get clearHistory => 'Borrar';
-
-  @override
-  String get historyCleared => 'Historial borrado.';
 
   @override
   String get cancel => 'Cancelar';
@@ -323,9 +256,6 @@ class AppLocalizationsEs extends AppLocalizations {
   String get navGarita => 'Garita';
 
   @override
-  String get navStops => 'Gestión de paraderos';
-
-  @override
   String get navRecorridos => 'Recorridos';
 
   @override
@@ -339,9 +269,6 @@ class AppLocalizationsEs extends AppLocalizations {
 
   @override
   String get roleAdmin => 'Administrador';
-
-  @override
-  String get roleGuestSubtitle => 'Estás usando ColeTotal sin cuenta';
 
   @override
   String get roleColectiveroSubtitle => 'Transmites tu posición a la garita';
@@ -366,6 +293,9 @@ class AppLocalizationsEs extends AppLocalizations {
 
   @override
   String get signOut => 'Cerrar sesión';
+
+  @override
+  String get signOutShort => 'Salir';
 
   @override
   String get signOutMessage =>
@@ -511,23 +441,10 @@ class AppLocalizationsEs extends AppLocalizations {
   String get turnoOff => 'Fuera de servicio';
 
   @override
-  String get turnoOnDesc => 'Los pasajeros ven tu posición en el mapa.';
-
-  @override
-  String get turnoOffDesc => 'No se transmite nada. Nadie ve dónde estás.';
-
-  @override
   String get turnoStart => 'Iniciar turno';
 
   @override
   String get turnoEnd => 'Terminar turno';
-
-  @override
-  String get turnoCapacity => 'Capacidad';
-
-  @override
-  String get turnoCapacityHelp =>
-      'Cambia el color de tu marcador para los pasajeros y la garita.';
 
   @override
   String get capacityAvailable => 'Disponible';
@@ -569,17 +486,6 @@ class AppLocalizationsEs extends AppLocalizations {
   }
 
   @override
-  String get turnoVehicle => 'Mi vehículo';
-
-  @override
-  String turnoLastSent(String tiempo) {
-    return 'Última posición enviada hace $tiempo';
-  }
-
-  @override
-  String get turnoNoSignal => 'Aún no se ha enviado ninguna posición.';
-
-  @override
   String get turnoIssueTracking =>
       'Tienes el rastreo de ubicación desactivado en Preferencias. Actívalo para poder iniciar tu turno.';
 
@@ -611,21 +517,46 @@ class AppLocalizationsEs extends AppLocalizations {
       'Sin señal: tu posición se enviará apenas vuelva la conexión.';
 
   @override
-  String get turnoRoute => 'Recorrido';
-
-  @override
   String get turnoRouteNone => 'Sin recorrido asignado';
 
   @override
   String get turnoRoutePick => 'Elegir recorrido';
 
   @override
-  String get turnoRouteHelp =>
-      'Los pasajeros ven tu línea al tocar tu colectivo en el mapa.';
-
-  @override
   String get turnoRouteEmpty =>
       'Tu garita todavía no tiene recorridos activos.';
+
+  @override
+  String get turnoRecenter => 'Volver a centrar';
+
+  @override
+  String get turnoEndConfirmTitle => '¿Terminar el turno?';
+
+  @override
+  String get turnoEndConfirmBody =>
+      'Los pasajeros dejarán de ver tu colectivo en el mapa.';
+
+  @override
+  String get turnoConsentTitle => 'Tu ubicación durante el turno';
+
+  @override
+  String get turnoView2d => 'Vista plana, con el norte arriba';
+
+  @override
+  String get turnoView3d => 'Vista de navegación';
+
+  @override
+  String get turnoXiaomiTitle => 'Para que tu turno no se corte';
+
+  @override
+  String get turnoXiaomiBody =>
+      'En los teléfonos Xiaomi, abre los ajustes de ColeTotal, deja «Ahorro de batería» en «Sin restricciones» y activa el «Inicio automático». Si no, el teléfono corta la conexión al bloquear la pantalla y los pasajeros dejan de ver tu colectivo.';
+
+  @override
+  String get turnoXiaomiOpen => 'Abrir ajustes';
+
+  @override
+  String get turnoXiaomiLater => 'Ahora no';
 
   @override
   String agoSeconds(String n) {
@@ -650,16 +581,10 @@ class AppLocalizationsEs extends AppLocalizations {
   String get adminMetricUnits => 'En servicio';
 
   @override
-  String get adminMetricStops => 'Paraderos';
+  String get adminMetricRoutes => 'Líneas activas';
 
   @override
-  String get adminMetricRoutes => 'Recorridos';
-
-  @override
-  String get adminStopsDesc => 'Agrega, mueve o da de baja paraderos';
-
-  @override
-  String get adminRoutesDesc => 'Define los recorridos de la línea';
+  String get adminRoutesDesc => 'Dibuja la ida y la vuelta de cada línea';
 
   @override
   String get adminDriversDesc => 'Habilita o deshabilita a tus choferes';
@@ -674,75 +599,8 @@ class AppLocalizationsEs extends AppLocalizations {
   String get adminSectionOps => 'Operación';
 
   @override
-  String get stopAdd => 'Añadir paradero';
-
-  @override
-  String get stopEdit => 'Editar paradero';
-
-  @override
-  String get stopName => 'Nombre';
-
-  @override
-  String get stopAddress => 'Dirección';
-
-  @override
-  String get stopActive => 'Visible para los pasajeros';
-
-  @override
-  String get stopDeleteTitle => 'Dar de baja el paradero';
-
-  @override
-  String stopDeleteMessage(String nombre) {
-    return '$nombre dejará de aparecer en el mapa y en las búsquedas. No se borra: los recorridos y el historial que lo referencian siguen funcionando.';
-  }
-
-  @override
-  String get stopDeactivate => 'Dar de baja';
-
-  @override
-  String get stopSaved => 'Paradero guardado.';
-
-  @override
-  String get stopDeleted => 'Paradero dado de baja.';
-
-  @override
-  String get stopPickOnMap => 'Mantén pulsado el mapa para mover el paradero';
-
-  @override
-  String get stopSearchHint => 'Buscar paradero…';
-
-  @override
-  String get stopsEmpty => 'Todavía no hay paraderos cargados.';
-
-  @override
-  String get stopsImportSeed => 'Importar paraderos de ejemplo';
-
-  @override
-  String stopsImported(String count) {
-    return 'Se importaron $count paraderos.';
-  }
-
-  @override
-  String get stopsSeedNotice =>
-      'Estos son paraderos de referencia, todavía no están en la base de datos de tu garita. Impórtalos una vez para poder editarlos.';
-
-  @override
-  String get stopInactive => 'Dado de baja';
-
-  @override
-  String get stopReactivate => 'Reactivar';
-
-  @override
-  String get stopReactivated => 'Paradero reactivado.';
-
-  @override
   String get savedOffline =>
       'Guardado sin conexión: se sincronizará al recuperar la señal.';
-
-  @override
-  String routeGeometryUpdated(String count) {
-    return 'Se actualizó el trazado de $count recorridos.';
-  }
 
   @override
   String get fleetEmpty => 'Ninguna unidad en servicio ahora mismo.';
@@ -768,58 +626,37 @@ class AppLocalizationsEs extends AppLocalizations {
   String get fleetAllGaritas => 'Todas las garitas';
 
   @override
-  String get routeAdd => 'Nuevo recorrido';
+  String get routeAdd => 'Nueva línea';
 
   @override
-  String get routeEdit => 'Editar recorrido';
+  String get routeEdit => 'Editar línea';
 
   @override
-  String get routeName => 'Nombre del recorrido';
+  String get routeName => 'Nombre de la línea';
 
   @override
-  String get routeColor => 'Color en el mapa';
+  String get routeActive => 'Línea activa';
 
   @override
-  String get routeStops => 'Paraderos del recorrido';
+  String get routeSaved => 'Línea guardada.';
 
   @override
-  String get routeStopsHelp =>
-      'Arrastra para reordenar: el trazado sigue este orden.';
+  String get routeDeleted => 'Línea eliminada.';
 
   @override
-  String get routeAddStop => 'Agregar paradero';
+  String get routesEmpty => 'Todavía no hay líneas.';
 
   @override
-  String get routeActive => 'Recorrido activo';
-
-  @override
-  String get routeSaved => 'Recorrido guardado.';
-
-  @override
-  String get routeDeleted => 'Recorrido eliminado.';
-
-  @override
-  String get routesEmpty => 'Todavía no hay recorridos definidos.';
-
-  @override
-  String routeStopCount(String count) {
-    return '$count paraderos';
-  }
-
-  @override
-  String get routeNeedsStops => 'Un recorrido necesita al menos dos paraderos.';
-
-  @override
-  String get routeDeleteTitle => 'Eliminar recorrido';
+  String get routeDeleteTitle => 'Eliminar línea';
 
   @override
   String routeDeleteMessage(String nombre) {
-    return 'Se eliminará $nombre. Los paraderos no se tocan.';
+    return 'Se eliminará $nombre, con su ida y su vuelta.';
   }
 
   @override
   String get routeTraceHint =>
-      'El trazado se calcula siguiendo las calles entre los paraderos, en el orden de la lista.';
+      'Mantén presionado el mapa para marcar el recorrido punto por punto. La app lo ajusta a las calles y a sus sentidos de tránsito.';
 
   @override
   String get driversEmpty =>
@@ -844,38 +681,12 @@ class AppLocalizationsEs extends AppLocalizations {
   String get driverSaved => 'Cambios guardados.';
 
   @override
-  String get sortNearest => 'Cercanos';
-
-  @override
-  String get sortRecent => 'Recientes';
-
-  @override
-  String get sortRecentEmpty => 'Todavía no has consultado ningún paradero.';
-
-  @override
-  String get stopLinesTitle => 'Colectivos que pasan por aquí';
-
-  @override
-  String get stopLinesEmpty =>
-      'Todavía no hay colectivos asignados a este paradero.';
-
-  @override
-  String get stopLinesEmptyHint =>
-      'La garita aún no ha cargado sus recorridos.';
-
-  @override
-  String get stopWalkHere => 'Cómo llegar';
-
-  @override
   String lineOnMap(String nombre) {
     return 'Recorrido de $nombre';
   }
 
   @override
   String get clearLine => 'Quitar recorrido';
-
-  @override
-  String get loadingLine => 'Trazando el recorrido…';
 
   @override
   String get searchAddressHint => '¿A qué dirección vas?';
@@ -890,29 +701,14 @@ class AppLocalizationsEs extends AppLocalizations {
   String get searchClear => 'Limpiar';
 
   @override
-  String get suggestTitle => 'Mejores paraderos para tu destino';
+  String get suggestTitle => 'Cómo llegar en colectivo';
 
   @override
-  String get suggestSubtitle => 'Ordenados por lo que caminas en total';
+  String get suggestSubtitle => 'Ordenadas por lo que caminas en total';
 
   @override
-  String suggestWalkToStop(String d) {
-    return '$d hasta el paradero';
-  }
-
-  @override
-  String suggestWalkFromStop(String d) {
-    return '$d desde la bajada';
-  }
-
-  @override
-  String suggestTakeLine(String linea) {
-    return 'Toma $linea';
-  }
-
-  @override
-  String suggestGetOff(String paradero) {
-    return 'Bájate en $paradero';
+  String suggestTakeLine(String linea, String sentido) {
+    return 'Toma $linea ($sentido)';
   }
 
   @override
@@ -921,13 +717,127 @@ class AppLocalizationsEs extends AppLocalizations {
   }
 
   @override
-  String get suggestNoRoutes =>
-      'La garita todavía no ha cargado sus recorridos, así que estos paraderos se ordenan sólo por cercanía.';
-
-  @override
-  String get suggestEmpty => 'No hay paraderos que sirvan para ese destino.';
+  String get suggestEmpty =>
+      'Ninguna línea pasa cerca de ti y de tu destino a la vez.';
 
   @override
   String get suggestLocationNeeded =>
-      'Necesitamos tu ubicación para recomendarte un paradero.';
+      'Necesitamos tu ubicación para recomendarte una línea.';
+
+  @override
+  String get sentidoIda => 'Ida';
+
+  @override
+  String get sentidoVuelta => 'Vuelta';
+
+  @override
+  String get routeActiveDesc =>
+      'La ven los pasajeros y la pueden elegir los choferes';
+
+  @override
+  String get routeInactive => 'Apagada';
+
+  @override
+  String routeSummaryBoth(String ida, String vuelta) {
+    return 'Ida $ida · vuelta $vuelta';
+  }
+
+  @override
+  String routeSummaryIdaOnly(String ida) {
+    return 'Sólo ida · $ida';
+  }
+
+  @override
+  String get routeSummaryEmpty => 'Sin recorrido dibujado';
+
+  @override
+  String get routeAddPointHint =>
+      'Mantén presionado el mapa para agregar el siguiente punto';
+
+  @override
+  String get routeUndoPoint => 'Deshacer el último punto';
+
+  @override
+  String get routeClearPoints => 'Borrar los puntos de este sentido';
+
+  @override
+  String get routeVueltaFromIda => 'Empezar la vuelta desde la ida';
+
+  @override
+  String routePointsButton(String count) {
+    return 'Puntos ($count)';
+  }
+
+  @override
+  String routePointLabel(String n) {
+    return 'Punto $n';
+  }
+
+  @override
+  String routeTrayectoSummary(String count, String distancia) {
+    return '$count puntos · $distancia';
+  }
+
+  @override
+  String get routeSnapping => 'Ajustando a las calles…';
+
+  @override
+  String get routeSnapFailed =>
+      'No se pudo ajustar a las calles. Revisa que los puntos estén sobre calles.';
+
+  @override
+  String get routeNeedsIda => 'Marca al menos dos puntos en la ida.';
+
+  @override
+  String get linesSearchHint => 'Buscar línea…';
+
+  @override
+  String get linesEmpty => 'La garita todavía no ha publicado sus líneas.';
+
+  @override
+  String get linesNoMatch => 'Ninguna línea coincide con tu búsqueda.';
+
+  @override
+  String linesPassesAt(String d) {
+    return 'Pasa a $d de ti';
+  }
+
+  @override
+  String get linesOnlyIda => 'Sólo ida';
+
+  @override
+  String get lineShowOnMap => 'Ver en el mapa';
+
+  @override
+  String suggestWalkToLine(String d) {
+    return 'Camina $d hasta la línea';
+  }
+
+  @override
+  String suggestRide(String d) {
+    return 'Viaja $d en colectivo';
+  }
+
+  @override
+  String suggestWalkFromLine(String d) {
+    return 'Bájate a $d de tu destino';
+  }
+
+  @override
+  String get boardHere => 'Súbete aquí';
+
+  @override
+  String get alightHere => 'Bájate aquí';
+
+  @override
+  String get tripBoardHint => 'Hazle la seña al colectivo en el punto marcado';
+
+  @override
+  String get tapToSeeBoarding => 'Tocar para ver dónde subir';
+
+  @override
+  String get routePointRemoved => 'Punto eliminado';
+
+  @override
+  String get undo => 'Deshacer';
 }

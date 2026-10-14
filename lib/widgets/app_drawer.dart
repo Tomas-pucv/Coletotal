@@ -4,7 +4,6 @@ import 'package:taxi1/l10n/app_localizations.dart';
 import 'package:taxi1/models/app_user.dart';
 import 'package:taxi1/navigation/app_destination.dart';
 import 'package:taxi1/screens/admin/choferes_admin_screen.dart';
-import 'package:taxi1/screens/admin/paraderos_admin_screen.dart';
 import 'package:taxi1/screens/admin/recorridos_admin_screen.dart';
 import 'package:taxi1/screens/auth/login_screen.dart';
 import 'package:taxi1/screens/auth/register_screen.dart';
@@ -81,7 +80,6 @@ class _AppDrawerState extends State<AppDrawer> {
   /// camino, así que el caso por defecto no debería ocurrir y devuelve
   /// Preferencias en vez de reventar.
   Widget _screenFor(AppDestination destination) => switch (destination) {
-    AppDestination.paraderos => const ParaderosAdminScreen(),
     AppDestination.recorridos => const RecorridosAdminScreen(),
     AppDestination.choferes => const ChoferesAdminScreen(),
     _ => const PreferencesScreen(showBackButton: true),
@@ -213,11 +211,8 @@ class _AccountHeader extends StatelessWidget {
     final l10n = AppLocalizations.of(context)!;
     final badge = roleBadgeColors(role, scheme);
     final isGuest = role == UserRole.invitado;
-    // El amarillo del letrero en ambos temas: de noche `primaryContainer` es
-    // oliva oscuro y el amarillo es `primary`.
-    final (avatarFondo, avatarTinta) = scheme.brightness == Brightness.light
-        ? (scheme.primaryContainer, scheme.onPrimaryContainer)
-        : (scheme.primary, scheme.onPrimary);
+    final avatar = accountAvatarColors(scheme);
+    final subtitle = roleSubtitle(role, l10n);
 
     return Container(
       margin: const EdgeInsets.fromLTRB(
@@ -238,14 +233,14 @@ class _AccountHeader extends StatelessWidget {
             children: [
               CircleAvatar(
                 radius: 24,
-                backgroundColor: avatarFondo,
-                foregroundColor: avatarTinta,
+                backgroundColor: avatar.background,
+                foregroundColor: avatar.foreground,
                 child: isGuest
                     ? Icon(roleIcon(role), size: 26)
                     : Text(
                         profile!.initials,
                         style: theme.textTheme.titleMedium?.copyWith(
-                          color: avatarTinta,
+                          color: avatar.foreground,
                           fontWeight: FontWeight.w700,
                         ),
                       ),
@@ -293,13 +288,15 @@ class _AccountHeader extends StatelessWidget {
           ),
           // A todo el ancho y no al lado del avatar: ahí no cabía y la última
           // palabra quedaba sola en una segunda línea.
-          const SizedBox(height: AppSpacing.md),
-          Text(
-            roleSubtitle(role, l10n),
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: scheme.onSurfaceVariant,
+          if (subtitle != null) ...[
+            const SizedBox(height: AppSpacing.md),
+            Text(
+              subtitle,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: scheme.onSurfaceVariant,
+              ),
             ),
-          ),
+          ],
 
           // El invitado no tiene nada que gestionar en el menú, así que la
           // cabecera es justamente el lugar donde ofrecerle entrar: es lo
