@@ -5,14 +5,17 @@ import 'package:latlong2/latlong.dart';
 
 import 'package:taxi1/config/map_config.dart';
 import 'package:taxi1/l10n/app_localizations.dart';
+import 'package:taxi1/models/place_result.dart';
 import 'package:taxi1/models/recorrido.dart';
 import 'package:taxi1/navigation/app_destination.dart';
 import 'package:taxi1/services/auth_service.dart';
 import 'package:taxi1/services/firestore_writes.dart';
 import 'package:taxi1/services/garita_service.dart';
+import 'package:taxi1/services/geocoding_service.dart';
 import 'package:taxi1/services/preferences_service.dart';
 import 'package:taxi1/services/recorridos_service.dart';
 import 'package:taxi1/services/routing.dart';
+import 'package:taxi1/services/street_index.dart';
 import 'package:taxi1/theme/app_colors.dart';
 import 'package:taxi1/theme/app_spacing.dart';
 import 'package:taxi1/theme/breakpoints.dart';
@@ -91,11 +94,29 @@ class _RecorridosAdminScreenState extends State<RecorridosAdminScreen> {
   String _resumen(Recorrido r, AppLocalizations l10n) {
     String largo(Trayecto t) => formatDistance(polylineLength(t.trazado), l10n);
     final vuelta = r.vuelta;
-    if (!r.ida.dibujable) return l10n.routeSummaryEmpty;
-    if (vuelta == null || !vuelta.dibujable) {
-      return l10n.routeSummaryIdaOnly(largo(r.ida));
+    final infoVariante = [
+      if (r.codigoVariante.isNotEmpty) '[${r.codigoVariante}]',
+      if (r.nombreVariante.isNotEmpty) r.nombreVariante,
+    ].join(' ');
+
+    final cantCalles = r.callesIda.length + r.callesVuelta.length;
+    final callesTxt = cantCalles > 0 ? ' · $cantCalles calles' : '';
+
+    if (!r.ida.dibujable) {
+      return infoVariante.isNotEmpty
+          ? '$infoVariante$callesTxt · ${l10n.routeSummaryEmpty}'
+          : l10n.routeSummaryEmpty;
     }
-    return l10n.routeSummaryBoth(largo(r.ida), largo(vuelta));
+    if (vuelta == null || !vuelta.dibujable) {
+      final idaTxt = l10n.routeSummaryIdaOnly(largo(r.ida));
+      return infoVariante.isNotEmpty
+          ? '$infoVariante$callesTxt · $idaTxt'
+          : '$idaTxt$callesTxt';
+    }
+    final ambosTxt = l10n.routeSummaryBoth(largo(r.ida), largo(vuelta));
+    return infoVariante.isNotEmpty
+        ? '$infoVariante$callesTxt · $ambosTxt'
+        : '$ambosTxt$callesTxt';
   }
 
   @override
@@ -215,10 +236,18 @@ class _RecorridoEditorScreenState extends State<RecorridoEditorScreen> {
   final _formKey = GlobalKey<FormState>();
   final _mapController = AppMapController();
   late final TextEditingController _nombre;
+  late final TextEditingController _linea;
+  late final TextEditingController _codigoVariante;
+  late final TextEditingController _nombreVariante;
+  final TextEditingController _calleInputController = TextEditingController();
+  bool _nombreAutogenerado = false;
 
   late int _color;
   late bool _activo;
   Sentido _sentido = Sentido.ida;
+
+  /// Por sentido: las calles oficiales de la cartola (D.S. 212).
+  final Map<Sentido, List<String>> _calles = {};
 
   /// Por sentido: los puntos marcados y el trazado por calle calculado con
   /// ellos. [_ajustado] dice si el trazado corresponde a los puntos actuales.
@@ -236,7 +265,23 @@ class _RecorridoEditorScreenState extends State<RecorridoEditorScreen> {
   void initState() {
     super.initState();
     final r = widget.recorrido;
+    _linea = TextEditingController(text: r?.linea ?? '');
+    _codigoVariante = TextEditingController(text: r?.codigoVariante ?? '');
+    _nombreVariante = TextEditingController(text: r?.nombreVariante ?? '');
     _nombre = TextEditingController(text: r?.nombre ?? '');
+
+    if (_nombre.text.isEmpty) {
+      final sugerido = _nombreSugerido();
+      if (sugerido.isNotEmpty) {
+        _nombre.text = sugerido;
+        _nombreAutogenerado = true;
+      }
+    }
+
+    _linea.addListener(_onCartolaCamposCambiaron);
+    _codigoVariante.addListener(_onCartolaCamposCambiaron);
+    _nombreVariante.addListener(_onCartolaCamposCambiaron);
+
     _color = r?.colorValue ?? kRecorridoColors.first;
     _activo = r?.activo ?? true;
     for (final sentido in Sentido.values) {
@@ -245,14 +290,41 @@ class _RecorridoEditorScreenState extends State<RecorridoEditorScreen> {
       _trazados[sentido] = t?.trazado ?? const [];
       _ajustado[sentido] = true;
       _fallo[sentido] = false;
+      _calles[sentido] = List.of(r?.calles(sentido) ?? const <String>[]);
     }
   }
 
   @override
   void dispose() {
     _espera?.cancel();
+    _linea.removeListener(_onCartolaCamposCambiaron);
+    _codigoVariante.removeListener(_onCartolaCamposCambiaron);
+    _nombreVariante.removeListener(_onCartolaCamposCambiaron);
+    _linea.dispose();
+    _codigoVariante.dispose();
+    _nombreVariante.dispose();
+    _calleInputController.dispose();
     _nombre.dispose();
     super.dispose();
+  }
+
+  String _nombreSugerido() {
+    final lin = _linea.text.trim();
+    final cod = _codigoVariante.text.trim();
+    final varNom = _nombreVariante.text.trim();
+    final partes = <String>[];
+    if (lin.isNotEmpty) partes.add(lin);
+    if (cod.isNotEmpty) partes.add('[$cod]');
+    if (varNom.isNotEmpty) partes.add(varNom);
+    return partes.join(' ');
+  }
+
+  void _onCartolaCamposCambiaron() {
+    final sugerido = _nombreSugerido();
+    if (sugerido.isNotEmpty && (_nombre.text.isEmpty || _nombreAutogenerado)) {
+      _nombreAutogenerado = true;
+      _nombre.text = sugerido;
+    }
   }
 
   List<LatLng> get _actuales => _puntos[_sentido]!;
@@ -303,12 +375,183 @@ class _RecorridoEditorScreenState extends State<RecorridoEditorScreen> {
   }
 
   void _vueltaDesdeIda() {
-    setState(() => _sentido = Sentido.vuelta);
+    setState(() {
+      _sentido = Sentido.vuelta;
+      _calles[Sentido.vuelta] = List.of(_calles[Sentido.ida]!.reversed);
+    });
     _cambiarPuntos((p) {
       p
         ..clear()
         ..addAll(RecorridoEditorScreen.vueltaDesdeIda(_puntos[Sentido.ida]!));
     });
+  }
+
+  Future<LatLng?> _geocodificarCalle(String nombreCalle, {LatLng? cercaDe}) async {
+    final query = nombreCalle.trim();
+    if (query.isEmpty) return null;
+
+    final pois = GeocodingService.searchLocal(query);
+    if (pois.isNotEmpty) {
+      return pois.first.location;
+    }
+
+    final centro = cercaDe ?? (_actuales.isNotEmpty ? _actuales.last : kQuilpueCenter);
+    final resultados = await StreetIndex.search(query, near: centro, limit: 5);
+    if (resultados.isNotEmpty) {
+      return resultados.first.location;
+    }
+
+    final limpia = query
+        .replaceAll(
+          RegExp(
+            r'^(AV\.|AVDA\.|AVENIDA|CALLE|PJE\.|PASAJE|CAMINO)\s+',
+            caseSensitive: false,
+          ),
+          '',
+        )
+        .trim();
+    if (limpia.isNotEmpty && limpia != query) {
+      final resLimpia = await StreetIndex.search(limpia, near: centro, limit: 3);
+      if (resLimpia.isNotEmpty) {
+        return resLimpia.first.location;
+      }
+    }
+
+    return null;
+  }
+
+  Future<void> _agregarCalle(String nombre, {LatLng? coordenada}) async {
+    final calleLimpia = nombre.trim();
+    if (calleLimpia.isEmpty) return;
+
+    final sentido = _sentido;
+    setState(() {
+      _calles[sentido]!.add(calleLimpia);
+    });
+
+    LatLng? punto = coordenada;
+    punto ??= await _geocodificarCalle(
+      calleLimpia,
+      cercaDe: _actuales.isNotEmpty ? _actuales.last : kQuilpueCenter,
+    );
+
+    if (punto != null) {
+      _agregar(punto);
+      unawaited(_mapController.moveTo(punto, zoom: 15));
+    } else {
+      if (mounted) {
+        _toast(
+          'Calle "$calleLimpia" agregada a la lista. Mantén presionado el mapa si deseas marcar su coordenada.',
+        );
+      }
+    }
+  }
+
+  void _quitarCalle(int indice) {
+    final sentido = _sentido;
+    if (indice < 0 || indice >= _calles[sentido]!.length) return;
+    setState(() {
+      _calles[sentido]!.removeAt(indice);
+      if (indice < _puntos[sentido]!.length) {
+        _puntos[sentido]!.removeAt(indice);
+        _ajustado[sentido] = false;
+        _fallo[sentido] = false;
+        if (_puntos[sentido]!.length < 2) {
+          _trazados[sentido] = const [];
+        }
+      }
+    });
+    _programarAjuste();
+  }
+
+  Future<void> _procesarTextoCartola(String texto) async {
+    final separadas = texto
+        .split(RegExp(r'[;\n\r]+'))
+        .map((s) => s.trim())
+        .where((s) => s.isNotEmpty)
+        .toList();
+    if (separadas.isEmpty) return;
+
+    final sentido = _sentido;
+    final nuevosPuntos = <LatLng>[];
+
+    for (final calle in separadas) {
+      _calles[sentido]!.add(calle);
+      final ref = nuevosPuntos.isNotEmpty
+          ? nuevosPuntos.last
+          : (_puntos[sentido]!.isNotEmpty ? _puntos[sentido]!.last : kQuilpueCenter);
+      final coord = await _geocodificarCalle(calle, cercaDe: ref);
+      if (coord != null) {
+        nuevosPuntos.add(coord);
+      }
+    }
+
+    if (nuevosPuntos.isNotEmpty) {
+      _cambiarPuntos((p) => p.addAll(nuevosPuntos));
+      final todo = _puntos[sentido]!;
+      if (todo.length >= 2 && mounted) {
+        final size = MediaQuery.sizeOf(context);
+        final vista = encuadre(todo, ancho: size.width, alto: size.height * 0.45);
+        unawaited(_mapController.moveTo(vista.centro, zoom: vista.zoom));
+      } else {
+        unawaited(_mapController.moveTo(nuevosPuntos.last, zoom: 15));
+      }
+    } else {
+      setState(() {});
+    }
+
+    if (mounted) {
+      _toast('${separadas.length} calles agregadas (${nuevosPuntos.length} trazadas en el mapa)');
+    }
+  }
+
+  Future<void> _mostrarDialogoPegarCartola() async {
+    final textCtrl = TextEditingController();
+    final sentido = _sentido;
+    final l10n = AppLocalizations.of(context)!;
+    final confirmado = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        icon: const Icon(Icons.content_paste_go),
+        title: Text('Pegar Trazado Cartola (${sentidoLabel(sentido, l10n)})'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Pega la lista de calles de la cartola oficial MTT (separadas por ";" o saltos de línea):',
+              style: TextStyle(fontSize: 13),
+            ),
+            const SizedBox(height: AppSpacing.sm),
+            TextField(
+              controller: textCtrl,
+              maxLines: 6,
+              autofocus: true,
+              textCapitalization: TextCapitalization.characters,
+              decoration: const InputDecoration(
+                hintText: 'SERRANO; COVADONGA; SAN MARTIN; BAQUEDANO; ...',
+                border: OutlineInputBorder(),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: Text(l10n.cancel),
+          ),
+          FilledButton.icon(
+            icon: const Icon(Icons.map_outlined),
+            onPressed: () => Navigator.pop(context, true),
+            label: const Text('Procesar y Trazar'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmado == true && textCtrl.text.trim().isNotEmpty) {
+      await _procesarTextoCartola(textCtrl.text.trim());
+    }
   }
 
   /// Ajusta a las calles un rato después del último cambio: marcar varios
@@ -452,15 +695,34 @@ class _RecorridoEditorScreenState extends State<RecorridoEditorScreen> {
     try {
       final ida = await _trayectoParaGuardar(Sentido.ida);
       final vuelta = await _trayectoParaGuardar(Sentido.vuelta);
+      final linea = _linea.text.trim();
+      final codigoVariante = _codigoVariante.text.trim();
+      final nombreVariante = _nombreVariante.text.trim();
+      final callesIda = List<String>.unmodifiable(_calles[Sentido.ida]!);
+      final callesVuelta = List<String>.unmodifiable(_calles[Sentido.vuelta]!);
+
+      String nombreFinal = _nombre.text.trim();
+      if (nombreFinal.isEmpty) {
+        nombreFinal = _nombreSugerido();
+      }
+      if (nombreFinal.isEmpty) {
+        nombreFinal = 'Recorrido sin nombre';
+      }
+
       final (_, outcome) = await GaritaService.instance.upsertRecorrido(
         Recorrido(
           id: widget.recorrido?.id ?? '',
           garitaId: widget.garitaId,
-          nombre: _nombre.text.trim(),
+          nombre: nombreFinal,
           colorValue: _color,
           activo: _activo,
           ida: ida!,
           vuelta: vuelta,
+          linea: linea,
+          codigoVariante: codigoVariante,
+          nombreVariante: nombreVariante,
+          callesIda: callesIda,
+          callesVuelta: callesVuelta,
         ),
       );
       if (mounted) Navigator.of(context).pop(_EditorResult(outcome));
@@ -555,7 +817,7 @@ class _RecorridoEditorScreenState extends State<RecorridoEditorScreen> {
           // desborda.
           ConstrainedBox(
             constraints: BoxConstraints(
-              maxHeight: MediaQuery.sizeOf(context).height * 0.42,
+              maxHeight: MediaQuery.sizeOf(context).height * 0.46,
             ),
             child: SingleChildScrollView(
               padding: const EdgeInsets.fromLTRB(
@@ -569,16 +831,64 @@ class _RecorridoEditorScreenState extends State<RecorridoEditorScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(
+                          flex: 2,
+                          child: TextFormField(
+                            controller: _linea,
+                            textCapitalization: TextCapitalization.words,
+                            decoration: const InputDecoration(
+                              labelText: 'Línea',
+                              hintText: 'Ej: Línea 10',
+                              prefixIcon: Icon(Icons.directions_bus_outlined),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: AppSpacing.sm),
+                        Expanded(
+                          flex: 1,
+                          child: TextFormField(
+                            controller: _codigoVariante,
+                            textCapitalization: TextCapitalization.characters,
+                            decoration: const InputDecoration(
+                              labelText: 'Variante',
+                              hintText: 'Ej: T, V-1',
+                              prefixIcon: Icon(Icons.tag),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: AppSpacing.sm),
+                    TextFormField(
+                      controller: _nombreVariante,
+                      textCapitalization: TextCapitalization.words,
+                      maxLength: 80,
+                      decoration: const InputDecoration(
+                        labelText: 'Nombre de la Variante / Trazado',
+                        hintText: 'Ej: Belloto 2000 - Las Rosas, Troncos Viejos...',
+                        prefixIcon: Icon(Icons.alt_route),
+                      ),
+                    ),
                     TextFormField(
                       controller: _nombre,
                       textCapitalization: TextCapitalization.sentences,
                       maxLength: 80,
                       decoration: InputDecoration(
                         labelText: l10n.routeName,
+                        hintText: 'Ej: Línea 10 [T] Belloto 2000',
                         prefixIcon: const Icon(Icons.timeline_outlined),
                       ),
-                      validator: (v) =>
-                          (v ?? '').trim().isEmpty ? l10n.authRequired : null,
+                      validator: (v) {
+                        if ((v ?? '').trim().isEmpty &&
+                            _linea.text.trim().isEmpty &&
+                            _nombreVariante.text.trim().isEmpty) {
+                          return l10n.authRequired;
+                        }
+                        return null;
+                      },
                     ),
                     _ColorPicker(
                       value: _color,
@@ -596,7 +906,9 @@ class _RecorridoEditorScreenState extends State<RecorridoEditorScreen> {
                         for (final s in Sentido.values)
                           ButtonSegment(
                             value: s,
-                            label: Text(sentidoLabel(s, l10n)),
+                            label: Text(
+                              '${sentidoLabel(s, l10n)} (${_calles[s]?.length ?? 0})',
+                            ),
                             icon: Icon(
                               s == Sentido.ida
                                   ? Icons.arrow_forward
@@ -609,6 +921,142 @@ class _RecorridoEditorScreenState extends State<RecorridoEditorScreen> {
                           setState(() => _sentido = sel.first),
                     ),
                     const SizedBox(height: AppSpacing.sm),
+                    // Tarjeta de Calles de la Cartola Oficial MTT
+                    Card(
+                      margin: EdgeInsets.zero,
+                      color: theme.colorScheme.surfaceContainerLow,
+                      elevation: 0,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        side: BorderSide(
+                          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.5),
+                        ),
+                      ),
+                      child: Padding(
+                        padding: const EdgeInsets.all(AppSpacing.sm),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            Row(
+                              children: [
+                                Icon(
+                                  Icons.route_outlined,
+                                  size: 18,
+                                  color: theme.colorScheme.primary,
+                                ),
+                                const SizedBox(width: AppSpacing.xs),
+                                Text(
+                                  'Calles ${sentidoLabel(_sentido, l10n)} (${_calles[_sentido]?.length ?? 0})',
+                                  style: theme.textTheme.labelLarge?.copyWith(
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                                const Spacer(),
+                                IconButton.filledTonal(
+                                  icon: const Icon(Icons.paste, size: 16),
+                                  visualDensity: VisualDensity.compact,
+                                  tooltip: 'Pegar Cartola Completa',
+                                  onPressed: _mostrarDialogoPegarCartola,
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: AppSpacing.xs),
+                            Autocomplete<PlaceResult>(
+                              displayStringForOption: (opt) => opt.name,
+                              optionsBuilder: (textVal) async {
+                                final q = textVal.text.trim();
+                                if (q.length < 2) {
+                                  return const Iterable<PlaceResult>.empty();
+                                }
+                                final pois = GeocodingService.searchLocal(q);
+                                final calles = await StreetIndex.search(
+                                  q,
+                                  near: _actuales.isNotEmpty
+                                      ? _actuales.last
+                                      : kQuilpueCenter,
+                                  limit: 6,
+                                );
+                                return [...pois, ...calles];
+                              },
+                              onSelected: (opt) {
+                                _agregarCalle(opt.name, coordenada: opt.location);
+                                _calleInputController.clear();
+                              },
+                              fieldViewBuilder: (ctx, controller, focusNode, onDone) {
+                                return TextField(
+                                  controller: controller,
+                                  focusNode: focusNode,
+                                  textCapitalization: TextCapitalization.characters,
+                                  decoration: InputDecoration(
+                                    hintText: 'Agregar calle o pegar trazado (;)',
+                                    isDense: true,
+                                    prefixIcon: const Icon(Icons.add_road, size: 18),
+                                    suffixIcon: IconButton(
+                                      icon: const Icon(Icons.add_circle, size: 20),
+                                      onPressed: () {
+                                        final txt = controller.text.trim();
+                                        if (txt.contains(';')) {
+                                          _procesarTextoCartola(txt);
+                                          controller.clear();
+                                        } else if (txt.isNotEmpty) {
+                                          _agregarCalle(txt);
+                                          controller.clear();
+                                        }
+                                      },
+                                    ),
+                                  ),
+                                  onSubmitted: (txt) {
+                                    if (txt.contains(';')) {
+                                      _procesarTextoCartola(txt);
+                                      controller.clear();
+                                    } else if (txt.trim().isNotEmpty) {
+                                      _agregarCalle(txt.trim());
+                                      controller.clear();
+                                    }
+                                  },
+                                );
+                              },
+                            ),
+                            if ((_calles[_sentido] ?? const []).isNotEmpty) ...[
+                              const SizedBox(height: AppSpacing.xs),
+                              ConstrainedBox(
+                                constraints: const BoxConstraints(maxHeight: 110),
+                                child: SingleChildScrollView(
+                                  child: Wrap(
+                                    spacing: 4,
+                                    runSpacing: 4,
+                                    children: [
+                                      for (var i = 0; i < _calles[_sentido]!.length; i++)
+                                        Chip(
+                                          visualDensity: VisualDensity.compact,
+                                          avatar: CircleAvatar(
+                                            radius: 10,
+                                            backgroundColor: color,
+                                            child: Text(
+                                              '${i + 1}',
+                                              style: const TextStyle(
+                                                color: Colors.white,
+                                                fontSize: 10,
+                                              ),
+                                            ),
+                                          ),
+                                          label: Text(
+                                            _calles[_sentido]![i],
+                                            style: const TextStyle(fontSize: 11),
+                                          ),
+                                          onDeleted: () => _quitarCalle(i),
+                                          deleteIconColor: theme.colorScheme.error,
+                                        ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: AppSpacing.xs),
                     Wrap(
                       spacing: AppSpacing.xs,
                       crossAxisAlignment: WrapCrossAlignment.center,
@@ -625,7 +1073,12 @@ class _RecorridoEditorScreenState extends State<RecorridoEditorScreen> {
                           tooltip: l10n.routeClearPoints,
                           onPressed: puntos.isEmpty
                               ? null
-                              : () => _cambiarPuntos((p) => p.clear()),
+                              : () {
+                                  setState(() {
+                                    _calles[_sentido]!.clear();
+                                  });
+                                  _cambiarPuntos((p) => p.clear());
+                                },
                         ),
                         TextButton.icon(
                           icon: const Icon(Icons.format_list_numbered),

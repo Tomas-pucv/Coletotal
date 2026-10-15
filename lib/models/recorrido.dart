@@ -92,6 +92,11 @@ class Recorrido {
     this.ida = const Trayecto(),
     this.vuelta,
     this.activo = true,
+    this.linea = '',
+    this.codigoVariante = '',
+    this.nombreVariante = '',
+    this.callesIda = const [],
+    this.callesVuelta = const [],
   });
 
   final String id;
@@ -108,15 +113,26 @@ class Recorrido {
 
   final bool activo;
 
+  /// Metadatos oficiales de la Cartola MTT (D.S. 212)
+  final String linea; // Ej: "Línea 10"
+  final String codigoVariante; // Ej: "T", "V-1", "V-2"
+  final String nombreVariante; // Ej: "Belloto 2000 - Las Rosas", "Troncos Viejos", "Cumming"
+  final List<String> callesIda; // Secuencia de calles oficiales de Ida
+  final List<String> callesVuelta; // Secuencia de calles oficiales de Vuelta
+
   /// Lo mínimo para mostrársela a un pasajero: un nombre y una ida dibujable.
   bool get isValid => nombre.trim().isNotEmpty && ida.dibujable;
 
   /// Rótulo corto para la insignia de la línea en el mapa.
   ///
-  /// Es la primera palabra del nombre que lleve un número ("PRUEBA 1: Centro"
-  /// → "1", "Línea 12A" → "12A"). Si no hay, las iniciales de las primeras
-  /// palabras, sin artículos ("El Belloto – Centro" → "BC").
+  /// Si tiene [codigoVariante] asignado (ej: "T", "V-1", "V-2"), lo prefiere.
+  /// En caso contrario, es la primera palabra del nombre que lleve un número
+  /// ("PRUEBA 1: Centro" → "1", "Línea 12A" → "12A"). Si no hay, las iniciales
+  /// de las primeras palabras, sin artículos ("El Belloto – Centro" → "BC").
   String get sigla {
+    if (codigoVariante.isNotEmpty) {
+      return codigoVariante;
+    }
     final palabras = nombre
         .split(RegExp(r'[\s:;,.·/()–—-]+'))
         .where((p) => p.isNotEmpty)
@@ -136,6 +152,12 @@ class Recorrido {
         .join();
     return iniciales.isNotEmpty ? iniciales : '?';
   }
+
+  /// Retorna la lista de calles oficiales según el [sentido].
+  List<String> calles(Sentido sentido) => switch (sentido) {
+    Sentido.ida => callesIda,
+    Sentido.vuelta => callesVuelta,
+  };
 
   Trayecto? trayecto(Sentido sentido) => switch (sentido) {
     Sentido.ida => ida,
@@ -159,6 +181,17 @@ class Recorrido {
       ida: Trayecto.fromMap(data['ida'] as Map<String, dynamic>?),
       vuelta: vuelta is Map<String, dynamic> ? Trayecto.fromMap(vuelta) : null,
       activo: (data['activo'] as bool?) ?? true,
+      linea: (data['linea'] as String?) ?? '',
+      codigoVariante: (data['codigoVariante'] as String?) ?? '',
+      nombreVariante: (data['nombreVariante'] as String?) ?? '',
+      callesIda: [
+        for (final c in (data['callesIda'] as List?) ?? const [])
+          if (c is String) c.trim(),
+      ],
+      callesVuelta: [
+        for (final c in (data['callesVuelta'] as List?) ?? const [])
+          if (c is String) c.trim(),
+      ],
     );
   }
 
@@ -169,6 +202,11 @@ class Recorrido {
     'activo': activo,
     'ida': ida.toMap(),
     if (vuelta case final v?) 'vuelta': v.toMap(),
+    if (linea.isNotEmpty) 'linea': linea,
+    if (codigoVariante.isNotEmpty) 'codigoVariante': codigoVariante,
+    if (nombreVariante.isNotEmpty) 'nombreVariante': nombreVariante,
+    if (callesIda.isNotEmpty) 'callesIda': callesIda,
+    if (callesVuelta.isNotEmpty) 'callesVuelta': callesVuelta,
   };
 
   Recorrido copyWith({
@@ -177,6 +215,11 @@ class Recorrido {
     Trayecto? ida,
     Trayecto? vuelta,
     bool? activo,
+    String? linea,
+    String? codigoVariante,
+    String? nombreVariante,
+    List<String>? callesIda,
+    List<String>? callesVuelta,
   }) => Recorrido(
     id: id,
     garitaId: garitaId,
@@ -185,6 +228,11 @@ class Recorrido {
     ida: ida ?? this.ida,
     vuelta: vuelta ?? this.vuelta,
     activo: activo ?? this.activo,
+    linea: linea ?? this.linea,
+    codigoVariante: codigoVariante ?? this.codigoVariante,
+    nombreVariante: nombreVariante ?? this.nombreVariante,
+    callesIda: callesIda ?? this.callesIda,
+    callesVuelta: callesVuelta ?? this.callesVuelta,
   );
 
   @override

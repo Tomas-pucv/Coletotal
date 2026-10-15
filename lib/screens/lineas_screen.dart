@@ -69,7 +69,14 @@ class _LineasScreenState extends State<LineasScreen> {
     final colectivos = _telemetria.state.value.colectivos;
     final filas = [
       for (final linea in _recorridos.publicas)
-        if (matchesAllTokens(query, [linea.nombre]))
+        if (matchesAllTokens(query, [
+          linea.nombre,
+          linea.linea,
+          linea.codigoVariante,
+          linea.nombreVariante,
+          ...linea.callesIda,
+          ...linea.callesVuelta,
+        ]))
           (
             linea: linea,
             metros: posicion == null
