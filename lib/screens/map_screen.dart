@@ -8,13 +8,13 @@ import 'package:taxi1/l10n/app_localizations.dart';
 import 'package:taxi1/models/colectivo_activo.dart';
 import 'package:taxi1/models/place_result.dart';
 import 'package:taxi1/models/recorrido.dart';
-import 'package:taxi1/navigation/app_destination.dart';
 import 'package:taxi1/screens/main_screen.dart';
 import 'package:taxi1/services/auth_service.dart';
 import 'package:taxi1/services/firebase_telemetria_service.dart';
 import 'package:taxi1/services/line_planner.dart';
 import 'package:taxi1/services/location_service.dart';
 import 'package:taxi1/services/preferences_service.dart';
+import 'package:taxi1/services/puntos_de_sena.dart';
 import 'package:taxi1/services/recorridos_service.dart';
 import 'package:taxi1/services/route_service.dart';
 import 'package:taxi1/services/turno_service.dart';
@@ -64,6 +64,25 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
   /// El viaje elegido para llegar a [_destino]: qué línea, en qué sentido,
   /// dónde subirse y dónde bajarse.
   LineSuggestion? _viaje;
+
+  /// El centro del mapa la última vez que la cámara se detuvo: el foco de los
+  /// puntos de seña cuando el pasajero mira otra parte de la ciudad.
+  LatLng? _centroMapa;
+
+  /// Dónde va el ícono de cada variante (ver [PuntosDeSena.lugaresDeIconos]),
+  /// y de qué líneas se calculó: cambia sólo si cambian ellas.
+  List<Recorrido> _lineasDeIconos = const [];
+  Map<String, LatLng> _lugaresDeIconos = const {};
+
+  /// Con una línea elegida (sin viaje): dónde hacerle seña en cada sentido, y
+  /// cuál se eligió (el más cercano, salvo que el pasajero toque el otro).
+  List<PuntoDeSena> _senas = const [];
+  Sentido? _sentidoSena;
+  String? _senasDe;
+
+  /// Al tocar un colectivo se dibuja su línea, pero sin llevar al pasajero
+  /// caminando hasta ella: sólo quería ver la ficha.
+  String? _sinCaminata;
 
   late final AnimationController _centerBtnController;
   late final Animation<double> _centerScale;
@@ -123,7 +142,116 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
         _encuadrar([for (final (_, t) in linea.trayectos) ...t.trazado]),
       );
     }
+    _prepararSena();
     if (mounted) setState(() {});
+  }
+
+  LatLng _foco() => PuntosDeSena.foco(
+    posicion: location.position,
+    centroMapa: _centroMapa,
+    siguiendo: _followUser,
+  );
+
+  /// La cámara se detuvo. El centro se guarda sólo si se movió bastante:
+  /// seguir al usuario mueve la cámara con cada arreglo del GPS, y no hace
+  /// falta reconstruir la pantalla por cada uno.
+  void _onCameraIdle(LatLng centro) {
+    final antes = _centroMapa;
+    if (antes != null &&
+        const Distance().as(LengthUnit.Meter, antes, centro) < 100) {
+      return;
+    }
+    if (mounted) setState(() => _centroMapa = centro);
+  }
+
+  /// Los lugares de los íconos de [lineas]: se calculan de nuevo sólo si
+  /// cambiaron las líneas (llegan otras de Firestore), no en cada cuadro.
+  Map<String, LatLng> _lugares(List<Recorrido> lineas) {
+    final iguales =
+        lineas.length == _lineasDeIconos.length &&
+        lineas.indexed.every((e) => identical(e.$2, _lineasDeIconos[e.$1]));
+    if (!iguales) {
+      _lineasDeIconos = lineas;
+      _lugaresDeIconos = PuntosDeSena.lugaresDeIconos(lineas);
+    }
+    return _lugaresDeIconos;
+  }
+
+  /// Cambió la línea elegida: sus puntos de seña, y la caminata hasta el más
+  /// cercano. Con un viaje armado no: el viaje lleva su propia caminata.
+  void _prepararSena() {
+    final linea = recorridos.selected;
+    if (_viaje != null || linea == null) {
+      if (_senasDe != null && _viaje == null) routeService.clearDestination();
+      _senas = const [];
+      _senasDe = null;
+      _sentidoSena = null;
+      return;
+    }
+    if (_senasDe == linea.id) return;
+    _senasDe = linea.id;
+    _senas = PuntosDeSena.deVariante(linea, _foco());
+    if (_senas.isEmpty) {
+      _sentidoSena = null;
+      return;
+    }
+    final cercana = _senas.reduce((a, b) => a.metros <= b.metros ? a : b);
+    _sentidoSena = cercana.sentido;
+    if (_sinCaminata == linea.id) {
+      routeService.clearDestination();
+      return;
+    }
+    unawaited(_caminarA(cercana));
+  }
+
+  /// A cuántos metros del pasajero queda [punto], o `null` sin GPS.
+  double? _metrosDesdeUsuario(LatLng punto) {
+    final yo = location.position;
+    return yo == null ? null : const Distance().as(LengthUnit.Meter, yo, punto);
+  }
+
+  /// Si [sena] está a una caminata razonable del pasajero. Mirando la línea
+  /// desde lejos (otra ciudad), una ruta a pie de 20 km no sirve de nada.
+  bool _aMano(PuntoDeSena sena) {
+    final metros = _metrosDesdeUsuario(sena.punto);
+    return metros != null && metros <= PuntosDeSena.radio;
+  }
+
+  Future<void> _caminarA(PuntoDeSena sena) async {
+    final desde = location.position;
+    if (desde == null || !_aMano(sena)) {
+      routeService.clearDestination();
+      return;
+    }
+    final l10n = AppLocalizations.of(context)!;
+    final destino = WalkTarget(location: sena.punto, label: l10n.hailHere);
+    routeService.setDestination(destino);
+    await routeService.fetchRoute(desde, destino);
+  }
+
+  /// El pasajero tocó el punto de seña del otro sentido.
+  void _cambiarSentidoSena(Sentido sentido) {
+    if (sentido == _sentidoSena) return;
+    final sena = _senas.where((s) => s.sentido == sentido).firstOrNull;
+    if (sena == null) return;
+    setState(() => _sentidoSena = sentido);
+    unawaited(_caminarA(sena));
+  }
+
+  /// Tocaron el ícono de una variante (o el de otra, con una ya elegida): se
+  /// dibuja entera, con su punto de seña, y el mapa la muestra completa. Si el
+  /// punto de seña le queda a mano, también al pasajero.
+  void _onTapVariante(Recorrido elegida) {
+    setState(() => _followUser = false);
+    recorridos.select(elegida);
+    final sena = _senas.where((s) => s.sentido == _sentidoSena).firstOrNull;
+    final desde = location.position;
+    unawaited(
+      _encuadrar([
+        for (final (_, t) in elegida.trayectos) ...t.trazado,
+        if (desde != null && sena != null && _aMano(sena)) desde,
+      ]),
+    );
   }
 
   /// Mueve la cámara para que [puntos] quepan en la parte del mapa que no
@@ -257,7 +385,11 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     if (_viaje == null) {
       if (colectivo.recorridoId case final id?) {
         final linea = recorridos.byId(id);
-        if (linea != null) recorridos.select(linea);
+        if (linea != null) {
+          _sinCaminata = linea.id;
+          recorridos.select(linea);
+          _sinCaminata = null;
+        }
       }
     }
     if (!mounted) return;
@@ -269,19 +401,6 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     );
   }
 
-  /// Tocaron una línea o su insignia en el mapa: se elige, sin mover la
-  /// cámara (ya está a la vista). Con un viaje armado sólo se dice cuál es:
-  /// elegir otra cerraría el viaje.
-  void _onTapLinea(Recorrido linea) {
-    if (_viaje != null) {
-      ScaffoldMessenger.of(context)
-        ..hideCurrentSnackBar()
-        ..showSnackBar(SnackBar(content: Text(linea.nombre)));
-      return;
-    }
-    recorridos.select(linea);
-  }
-
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
@@ -289,6 +408,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     final linea = recorridos.selected;
     final viaje = _viaje;
     final mapStyle = MapStyle.fromPref(prefs.mapType);
+    final lineas = recorridos.publicas;
 
     return Scaffold(
       body: Stack(
@@ -296,18 +416,23 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
           _MapaPasajero(
             controller: _mapController,
             style: mapStyle,
-            lineas: recorridos.publicas,
+            lineas: lineas,
+            lugares: _lugares(lineas),
             linea: linea,
             sentido: recorridos.selectedSentido,
             viaje: viaje,
             destino: _destino,
+            senas: _senas,
+            sentidoSena: _sentidoSena,
             onMapReady: _onMapReady,
+            onCameraIdle: _onCameraIdle,
             onBearingChanged: (rumbo) => _rumbo.value = rumbo,
             onUserGesture: () {
               if (_followUser) setState(() => _followUser = false);
             },
             onTapColectivo: _onTapColectivo,
-            onTapLinea: _onTapLinea,
+            onTapVariante: _onTapVariante,
+            onTapSentido: _cambiarSentidoSena,
           ),
 
           // Todos los controles flotantes viven en un solo Column que ocupa la
@@ -439,31 +564,30 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
   /// al alcance del pulgar, y dejan la parte de arriba sólo para buscar.
   List<Widget> _routeCards(AppLocalizations l10n) {
     return [
-      // Qué línea se está viendo dibujada, con su color y una X. Con un viaje
-      // armado no hace falta: la tarjeta del viaje ya dice qué línea es.
+      // La línea elegida: dónde hacerle seña y cuánto caminar, con una X. Con
+      // un viaje armado no hace falta: la tarjeta del viaje ya dice todo.
       if (_viaje == null)
         if (recorridos.selected case final linea?) ...[
           const SizedBox(height: AppSpacing.md),
-          MapOverlayCard(
-            child: Row(
-              children: [
-                Icon(Icons.directions_car, color: Color(linea.colorValue)),
-                const SizedBox(width: AppSpacing.md),
-                Expanded(
-                  child: Text(
-                    l10n.lineOnMap(linea.nombre),
-                    style: Theme.of(context).textTheme.bodyMedium,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-                IconButton(
-                  icon: const Icon(Icons.close),
-                  tooltip: l10n.clearLine,
-                  onPressed: recorridos.clearSelection,
-                ),
-              ],
-            ),
+          _SenaCard(
+            linea: linea,
+            senas: _senas,
+            sentido: _sentidoSena,
+            metrosDesdeTi: _senas
+                .where((s) => s.sentido == _sentidoSena)
+                .map((s) => _metrosDesdeUsuario(s.punto))
+                .firstOrNull,
+            routeInfo: routeService.routeInfo,
+            onClose: recorridos.clearSelection,
+            onSwitch: _cambiarSentidoSena,
+            onTap: () {
+              final sena = _senas
+                  .where((s) => s.sentido == _sentidoSena)
+                  .firstOrNull;
+              if (sena == null) return;
+              setState(() => _followUser = false);
+              _centerOn(sena.punto, zoom: kStreetZoom);
+            },
           ),
         ],
       if (routeService.loadingRoute) ...[
@@ -555,35 +679,52 @@ class _MapaPasajero extends StatelessWidget {
     required this.controller,
     required this.style,
     required this.lineas,
+    required this.lugares,
     required this.linea,
     required this.sentido,
     required this.viaje,
     required this.destino,
+    required this.senas,
+    required this.sentidoSena,
     required this.onMapReady,
+    required this.onCameraIdle,
     required this.onBearingChanged,
     required this.onUserGesture,
     required this.onTapColectivo,
-    required this.onTapLinea,
+    required this.onTapVariante,
+    required this.onTapSentido,
   });
 
   final AppMapController controller;
   final MapStyle style;
 
-  /// Las líneas que ve el pasajero, dibujadas siempre.
+  /// Las líneas que ve el pasajero. No se dibujan: cada variante es un ícono
+  /// fijo, y sólo la que se toca se dibuja.
   final List<Recorrido> lineas;
 
-  /// La elegida, resaltada sobre las demás.
+  /// Dónde va el ícono de cada una, por id (ver
+  /// [PuntosDeSena.lugaresDeIconos]).
+  final Map<String, LatLng> lugares;
+
+  /// La elegida, la única que se dibuja.
   final Recorrido? linea;
 
   /// Sentido de [linea] a dibujar, o `null` para los dos.
   final Sentido? sentido;
   final LineSuggestion? viaje;
   final PlaceResult? destino;
+
+  /// Los puntos de seña de [linea] y el sentido elegido.
+  final List<PuntoDeSena> senas;
+  final Sentido? sentidoSena;
+
   final VoidCallback onMapReady;
+  final ValueChanged<LatLng> onCameraIdle;
   final ValueChanged<double> onBearingChanged;
   final VoidCallback onUserGesture;
   final ValueChanged<ColectivoActivo> onTapColectivo;
-  final ValueChanged<Recorrido> onTapLinea;
+  final ValueChanged<Recorrido> onTapVariante;
+  final ValueChanged<Sentido> onTapSentido;
 
   @override
   Widget build(BuildContext context) {
@@ -593,7 +734,6 @@ class _MapaPasajero extends StatelessWidget {
     final telemetria = FirebaseTelemetriaService.instance;
     final route = RouteService.instance;
     final prefs = PreferencesService.instance;
-    final nav = MainNavigationController.instance;
 
     return ListenableBuilder(
       listenable: Listenable.merge([
@@ -603,7 +743,6 @@ class _MapaPasajero extends StatelessWidget {
         telemetria.state,
         route,
         prefs,
-        nav,
       ]),
       builder: (context, _) {
         final l10n = AppLocalizations.of(context)!;
@@ -627,6 +766,9 @@ class _MapaPasajero extends StatelessWidget {
         final linea = this.linea;
         final viaje = this.viaje;
         final destino = this.destino;
+        final senaElegida = senas
+            .where((s) => s.sentido == sentidoSena)
+            .firstOrNull;
         void avisar(String texto) => ScaffoldMessenger.of(context)
           ..hideCurrentSnackBar()
           ..showSnackBar(SnackBar(content: Text(texto)));
@@ -635,23 +777,21 @@ class _MapaPasajero extends StatelessWidget {
           initialCenter: position ?? kQuilpueCenter,
           style: style,
           onMapReady: onMapReady,
+          onCameraIdle: onCameraIdle,
           onUserGesture: onUserGesture,
           onBearingChanged: onBearingChanged,
-          // Las flechas avanzan sólo con el mapa a la vista: la pestaña sigue
-          // viva detrás de las otras.
-          animateArrows:
-              prefs.animationsEnabled && nav.destination == AppDestination.mapa,
           lines: [
-            // Las líneas de colectivos, con la elegida encima. Van debajo de la
-            // ruta a pie: son contexto ("por aquí pasa la 1"), no la
-            // indicación que el usuario tiene que seguir ahora.
-            ...lineasDelMapa(
-              lineas,
-              status,
-              elegida: linea,
-              sentido: sentido,
-              onTap: onTapLinea,
-            ),
+            // Sólo la línea elegida (o el sentido del viaje). Va debajo de la
+            // ruta a pie: es contexto, no la indicación que el usuario tiene
+            // que seguir ahora.
+            if (linea != null)
+              ...recorridoLines(
+                linea,
+                status,
+                sentido: sentido,
+                badge: true,
+                arrows: true,
+              ),
             // La ruta a pie hasta la línea, punteada: se distingue de un
             // vistazo de la línea continua del colectivo.
             if (destination != null && route.routePoints.isNotEmpty)
@@ -679,12 +819,21 @@ class _MapaPasajero extends StatelessWidget {
           ],
           // El pulso tipo radar marca dónde hacerle la seña al colectivo, y
           // respeta la preferencia "Animaciones".
-          pulse: viaje != null && prefs.animationsEnabled
+          pulse: !prefs.animationsEnabled
+              ? null
+              : viaje != null
               ? MapPulse(
                   point: viaje.subida,
                   color: Color(viaje.recorrido.colorValue),
                   fromRadius: 20,
                   toRadius: 44,
+                )
+              : senaElegida != null
+              ? MapPulse(
+                  point: senaElegida.punto,
+                  color: Color(senaElegida.recorrido.colorValue),
+                  fromRadius: 16,
+                  toRadius: 38,
                 )
               : null,
           markers: [
@@ -728,6 +877,24 @@ class _MapaPasajero extends StatelessWidget {
                 onTap: () => avisar(l10n.alightHere),
               ),
             ],
+            // Un ícono fijo por variante, donde va más sola, en vez de todos
+            // los recorridos encimados: tocarlo la dibuja. Sin el de la
+            // elegida, que ya muestra sus puntos de seña, y sin ninguno con un
+            // viaje armado.
+            if (viaje == null)
+              for (final r in lineas)
+                if (r.id != linea?.id)
+                  if (lugares[r.id] case final lugar?)
+                    _iconoVariante(r, lugar, l10n),
+            // La línea elegida: el punto de seña de cada sentido (uno solo si
+            // los dos pasan por el mismo lugar).
+            for (final (sena, ambos) in _senasAMostrar(senas, sentidoSena))
+              _iconoSentido(
+                sena,
+                ambos: ambos,
+                elegido: ambos || sena.sentido == sentidoSena,
+                l10n: l10n,
+              ),
             for (final colectivo in colectivos)
               colectivoMarker(
                 colectivo,
@@ -736,6 +903,7 @@ class _MapaPasajero extends StatelessWidget {
                 status: status,
                 primary: scheme.primary,
                 l10n: l10n,
+                linea: lineaDeColectivo(colectivo),
                 onTap: () => onTapColectivo(colectivo),
               ),
             if (verPosicion)
@@ -757,6 +925,52 @@ class _MapaPasajero extends StatelessWidget {
           ],
         );
       },
+    );
+  }
+
+  /// El ícono de una variante: "10 T" en su color. Si otro ya ocupa su lugar
+  /// (con el mapa muy alejado), MapLibre lo esconde hasta que se acerque.
+  MapMarker _iconoVariante(Recorrido r, LatLng lugar, AppLocalizations l10n) {
+    final color = Color(r.colorValue).withValues(alpha: 1);
+    final etiqueta = PuntosDeSena.etiqueta(r);
+    return MapMarker(
+      id: 'variante_${r.id}',
+      point: lugar,
+      icon: HailBadge(
+        label: etiqueta,
+        detail: '',
+        color: color,
+        textColor: AppStatusColors.onColorFor(color),
+      ),
+      collides: true,
+      semanticLabel: l10n.hailLineTitle(etiqueta),
+      onTap: () => onTapVariante(r),
+    );
+  }
+
+  MapMarker _iconoSentido(
+    PuntoDeSena sena, {
+    required bool ambos,
+    required bool elegido,
+    required AppLocalizations l10n,
+  }) {
+    final color = Color(sena.recorrido.colorValue).withValues(alpha: 1);
+    final hacia = ambos ? l10n.hailBothWays : _destinoTexto(sena, l10n);
+    return MapMarker(
+      id: 'sena_${sena.sentido.name}',
+      point: sena.punto,
+      // El sentido elegido dice hacia dónde va; el otro, compacto y más
+      // tenue, para que dos íconos cerca no se tapen (el detalle está en la
+      // tarjeta). Se puede tocar para cambiar.
+      icon: HailBadge(
+        label: PuntosDeSena.etiqueta(sena.recorrido),
+        detail: elegido ? hacia : '',
+        color: color,
+        textColor: AppStatusColors.onColorFor(color),
+      ),
+      opacity: elegido ? 1 : 0.75,
+      semanticLabel: '${l10n.hailHere}: $hacia',
+      onTap: () => onTapSentido(sena.sentido),
     );
   }
 
@@ -895,6 +1109,182 @@ class _ColectivoSheet extends StatelessWidget {
             const SizedBox(height: AppSpacing.lg),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// Hacia dónde va un punto de seña: "Hacia Alto el Yugo", "Hacia el centro"
+/// o, sin cartola, "Ida" / "Vuelta".
+String _destinoTexto(PuntoDeSena sena, AppLocalizations l10n) {
+  final destino = sena.destino;
+  if (destino == null) return sentidoLabel(sena.sentido, l10n);
+  if (destino.esCentro) return l10n.hailTowardCenter;
+  return l10n.hailToward(destino.lugar!);
+}
+
+/// Los puntos de seña a marcar, con un booleano que dice si ese punto sirve
+/// para los dos sentidos:
+/// - a menos de 30 m uno del otro (la misma calle), uno solo, "ida y regreso";
+/// - a menos de 150 m (veredas opuestas de una avenida), sólo el del
+///   [sentido] elegido: los dos íconos se taparían, y el otro sentido sigue a
+///   un toque en la tarjeta;
+/// - más lejos, los dos.
+List<(PuntoDeSena, bool)> _senasAMostrar(
+  List<PuntoDeSena> senas,
+  Sentido? sentido,
+) {
+  if (senas.length == 2) {
+    final metros = const Distance().as(
+      LengthUnit.Meter,
+      senas[0].punto,
+      senas[1].punto,
+    );
+    if (metros < 30) {
+      final cercana = senas[0].metros <= senas[1].metros ? senas[0] : senas[1];
+      return [(cercana, true)];
+    }
+    if (metros < 150) {
+      return [
+        for (final s in senas)
+          if (s.sentido == sentido) (s, false),
+      ];
+    }
+  }
+  return [for (final s in senas) (s, false)];
+}
+
+/// La línea elegida (sin viaje): dónde hacerle seña, cuánto caminar hasta ahí
+/// y, si el otro sentido pasa por otra calle, el botón para tomarlo en ese.
+class _SenaCard extends StatelessWidget {
+  const _SenaCard({
+    required this.linea,
+    required this.senas,
+    required this.sentido,
+    required this.metrosDesdeTi,
+    required this.routeInfo,
+    required this.onClose,
+    required this.onSwitch,
+    required this.onTap,
+  });
+
+  final Recorrido linea;
+  final List<PuntoDeSena> senas;
+  final Sentido? sentido;
+
+  /// A cuánto queda del pasajero el punto de seña elegido (`null` sin GPS).
+  final double? metrosDesdeTi;
+  final RouteResult? routeInfo;
+  final VoidCallback onClose;
+  final ValueChanged<Sentido> onSwitch;
+
+  /// Al tocar la tarjeta, el mapa se centra en el punto de seña.
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final l10n = AppLocalizations.of(context)!;
+    final color = Color(linea.colorValue).withValues(alpha: 1);
+    final elegida = senas.where((s) => s.sentido == sentido).firstOrNull;
+    final mostrar = _senasAMostrar(senas, sentido);
+    final ambos = mostrar.length == 1 && mostrar.first.$2;
+    final otra = ambos
+        ? null
+        : senas.where((s) => s.sentido != sentido).firstOrNull;
+
+    return MapOverlayCard(
+      onTap: onTap,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            children: [
+              CircleAvatar(
+                radius: 16,
+                backgroundColor: color,
+                child: Text(
+                  linea.sigla,
+                  style: theme.textTheme.labelMedium?.copyWith(
+                    fontWeight: FontWeight.w800,
+                    color: AppStatusColors.onColorFor(color),
+                  ),
+                ),
+              ),
+              const SizedBox(width: AppSpacing.sm),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      linea.nombre,
+                      style: theme.textTheme.titleSmall,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    if (elegida != null)
+                      Text(
+                        '${l10n.hailHere} · '
+                        '${ambos ? l10n.hailBothWays : _destinoTexto(elegida, l10n)}',
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: scheme.onSurfaceVariant,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                  ],
+                ),
+              ),
+              IconButton(
+                icon: const Icon(Icons.close),
+                tooltip: l10n.clearLine,
+                onPressed: onClose,
+              ),
+            ],
+          ),
+          if (elegida != null) ...[
+            const SizedBox(height: AppSpacing.sm),
+            // Wrap y no Row: con la fuente grande pasan a otra línea.
+            Wrap(
+              spacing: AppSpacing.sm,
+              runSpacing: AppSpacing.xs,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                // Cerca, lo que se camina; lejos (o sin GPS), a cuánto pasa.
+                if (routeInfo case final info?)
+                  MetricChip(
+                    icon: Icons.straighten,
+                    label: formatDistance(info.distanceMeters, l10n),
+                    color: scheme.primary,
+                  )
+                else if (metrosDesdeTi case final metros?)
+                  MetricChip(
+                    icon: Icons.straighten,
+                    label: l10n.linesPassesAt(
+                      formatDistanciaCorta(metros, l10n),
+                    ),
+                    color: scheme.primary,
+                  ),
+                if (routeInfo case final info?)
+                  MetricChip(
+                    icon: Icons.directions_walk,
+                    label: formatDurationSeconds(info.durationSeconds, l10n),
+                    color: scheme.tertiary,
+                  ),
+                if (otra != null)
+                  ActionChip(
+                    avatar: const Icon(Icons.swap_horiz, size: 18),
+                    label: Text(_destinoTexto(otra, l10n)),
+                    tooltip: l10n.hailSwitch,
+                    visualDensity: VisualDensity.compact,
+                    onPressed: () => onSwitch(otra.sentido),
+                  ),
+              ],
+            ),
+          ],
+        ],
       ),
     );
   }

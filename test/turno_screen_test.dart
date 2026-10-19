@@ -221,20 +221,50 @@ void main() {
     expect(ids, isNot(contains('colectivo_yo')));
   });
 
-  testWidgets('las líneas están a la vista, y la elegida en Líneas tiene su '
-      'tarjeta para volver', (tester) async {
+  testWidgets('el chofer ve sólo su línea: sin línea, nada dibujado; la '
+      'elegida en Líneas, sola y con su tarjeta para volver', (tester) async {
     await tester.pumpWidget(_app());
     await tester.pump();
-    expect(_mapa(tester).lines, isNotEmpty);
+    expect(_mapa(tester).lines, isEmpty);
     expect(find.text('Recorrido de Línea 1'), findsNothing);
 
     RecorridosService.instance.select(_linea());
     await tester.pump();
+    expect(_mapa(tester).lines, isNotEmpty);
+    expect(_mapa(tester).lines.every((l) => l.arrows), isTrue);
     expect(find.text('Recorrido de Línea 1'), findsOneWidget);
 
     await tester.tap(find.byTooltip('Quitar recorrido'));
     await tester.pump();
     expect(RecorridosService.instance.selected, isNull);
+    expect(_mapa(tester).lines, isEmpty);
+  });
+
+  testWidgets('los demás colectivos llevan la etiqueta de su línea', (
+    tester,
+  ) async {
+    FirebaseTelemetriaService.instance.debugSetColectivos(const [
+      ColectivoActivo(
+        uid: 'con-linea',
+        idVehiculo: 'EFGH34',
+        latitud: -33.050,
+        longitud: -71.4425,
+        recorridoId: 'l1',
+      ),
+      ColectivoActivo(
+        uid: 'sin-linea',
+        idVehiculo: 'IJKL56',
+        latitud: -33.052,
+        longitud: -71.4425,
+      ),
+    ]);
+    await tester.pumpWidget(_app());
+    await tester.pump();
+
+    final marcadores = {for (final m in _mapa(tester).markers) m.id: m.icon};
+    expect(marcadores['colectivo_con-linea'], isA<TaggedIcon>());
+    expect((marcadores['colectivo_con-linea']! as TaggedIcon).tag, '1');
+    expect(marcadores['colectivo_sin-linea'], isA<MarkerIcon>());
   });
 
   testWidgets('sin perfil de chofer, el mensaje de siempre y sin mapa', (

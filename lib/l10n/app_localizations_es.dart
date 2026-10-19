@@ -833,6 +833,28 @@ class AppLocalizationsEs extends AppLocalizations {
   String get tripBoardHint => 'Hazle la seña al colectivo en el punto marcado';
 
   @override
+  String get hailHere => 'Hazle seña aquí';
+
+  @override
+  String hailToward(String lugar) {
+    return 'Hacia $lugar';
+  }
+
+  @override
+  String get hailTowardCenter => 'Hacia el centro';
+
+  @override
+  String get hailBothWays => 'Ida y regreso';
+
+  @override
+  String hailLineTitle(String linea) {
+    return 'Línea $linea';
+  }
+
+  @override
+  String get hailSwitch => 'Tomarlo en el otro sentido';
+
+  @override
   String get tapToSeeBoarding => 'Tocar para ver dónde subir';
 
   @override

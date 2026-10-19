@@ -324,13 +324,9 @@ class _TurnoScreenState extends State<TurnoScreen> {
                     : MapFollow.position,
                 insets: EdgeInsets.only(top: arriba, bottom: abajo),
                 zoomPara: _zoomPara,
-                animarFlechas:
-                    _prefs.animationsEnabled &&
-                    _nav.destination == AppDestination.turno,
                 onUserGesture: () {
                   if (_siguiendo) setState(() => _siguiendo = false);
                 },
-                onTapLinea: (linea) => _recorridos.select(linea),
               ),
               Positioned.fill(
                 child: SafeArea(
@@ -906,9 +902,7 @@ class _MapaTurno extends StatelessWidget {
     required this.follow,
     required this.insets,
     required this.zoomPara,
-    required this.animarFlechas,
     required this.onUserGesture,
-    required this.onTapLinea,
   });
 
   final AppMapController controller;
@@ -918,9 +912,7 @@ class _MapaTurno extends StatelessWidget {
 
   /// El zoom de navegación para una velocidad en m/s.
   final double Function(double? metrosPorSegundo) zoomPara;
-  final bool animarFlechas;
   final VoidCallback onUserGesture;
-  final ValueChanged<Recorrido> onTapLinea;
 
   static final _sinHora = DateTime.fromMillisecondsSinceEpoch(0);
 
@@ -954,7 +946,6 @@ class _MapaTurno extends StatelessWidget {
           initialZoom: position == null ? kInitialZoom : kStreetZoom,
           style: style,
           onUserGesture: onUserGesture,
-          animateArrows: animarFlechas,
           navigation: MapNavigation(
             fix: position == null
                 ? null
@@ -969,16 +960,22 @@ class _MapaTurno extends StatelessWidget {
             zoom: turno.enTurno ? zoomPara(location.speed) : kStreetZoom,
             insets: insets,
           ),
-          lines: lineasDelMapa(
-            recorridos.publicas,
-            status,
-            elegida: elegida,
-            sentido: recorridos.selected != null
-                ? recorridos.selectedSentido
-                : null,
-            onTap: onTapLinea,
-          ),
+          // Sólo su línea: las demás, o sus puntos de seña, son ruido para
+          // quien maneja.
+          lines: [
+            if (elegida != null)
+              ...recorridoLines(
+                elegida,
+                status,
+                sentido: recorridos.selected != null
+                    ? recorridos.selectedSentido
+                    : null,
+                badge: true,
+                arrows: true,
+              ),
+          ],
           // Sin toque: manejando, una ficha que se abre es una distracción.
+          // La etiqueta dice qué línea cubre cada uno.
           markers: [
             for (final c in otros)
               colectivoMarker(
@@ -988,6 +985,7 @@ class _MapaTurno extends StatelessWidget {
                 status: status,
                 primary: scheme.primary,
                 l10n: l10n,
+                linea: lineaDeColectivo(c),
               ),
           ],
         );

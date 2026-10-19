@@ -3,6 +3,8 @@ import 'package:latlong2/latlong.dart';
 
 import 'package:taxi1/l10n/app_localizations.dart';
 import 'package:taxi1/models/colectivo_activo.dart';
+import 'package:taxi1/services/puntos_de_sena.dart';
+import 'package:taxi1/services/recorridos_service.dart';
 import 'package:taxi1/theme/app_colors.dart';
 import 'package:taxi1/utils/estado_format.dart';
 import 'package:taxi1/utils/patente.dart';
@@ -37,8 +39,19 @@ List<ColectivoActivo> colectivosVisibles(
   return cerca.isEmpty ? validos : cerca;
 }
 
+/// La línea que cubre [colectivo], para su etiqueta: "10 T" y el color de la
+/// línea. `null` si el chofer no eligió línea o la línea ya no existe.
+({String texto, Color color})? lineaDeColectivo(ColectivoActivo colectivo) {
+  final id = colectivo.recorridoId;
+  if (id == null) return null;
+  final r = RecorridosService.instance.byId(id);
+  if (r == null) return null;
+  return (texto: PuntosDeSena.etiqueta(r), color: Color(r.colorValue));
+}
+
 /// El marcador de un colectivo en servicio, para el mapa del pasajero y el del
-/// chofer.
+/// chofer. Con [linea], una etiqueta debajo dice qué línea es ("10 T"), sin
+/// tener que dibujar los recorridos.
 MapMarker colectivoMarker(
   ColectivoActivo colectivo, {
   required bool isMe,
@@ -46,28 +59,37 @@ MapMarker colectivoMarker(
   required AppStatusColors status,
   required Color primary,
   required AppLocalizations l10n,
+  ({String texto, Color color})? linea,
   VoidCallback? onTap,
 }) {
   // Semaforización de capacidad (informe §7.3.1-C): el color lo reporta el
   // chofer desde su pantalla de turno.
   final color = isMe ? primary : status.forEstado(colectivo.estado);
+  final circulo = MarkerIcon.circle(
+    diameter: isMe ? 46 : 40,
+    color: color,
+    borderColor: status.markerBorder,
+    borderWidth: isMe ? 3 : 2,
+    glyph: Icons.directions_car,
+    glyphColor: AppStatusColors.onColorFor(color),
+    glyphSize: isMe ? 24 : 20,
+    shadow: const BoxShadow(
+      color: Color(0x59000000),
+      blurRadius: 6,
+      offset: Offset(0, 2),
+    ),
+  );
   return MapMarker(
     id: 'colectivo_${colectivo.uid}',
     point: LatLng(colectivo.latitud, colectivo.longitud),
-    icon: MarkerIcon.circle(
-      diameter: isMe ? 46 : 40,
-      color: color,
-      borderColor: status.markerBorder,
-      borderWidth: isMe ? 3 : 2,
-      glyph: Icons.directions_car,
-      glyphColor: AppStatusColors.onColorFor(color),
-      glyphSize: isMe ? 24 : 20,
-      shadow: const BoxShadow(
-        color: Color(0x59000000),
-        blurRadius: 6,
-        offset: Offset(0, 2),
-      ),
-    ),
+    icon: linea == null
+        ? circulo
+        : TaggedIcon(
+            base: circulo,
+            tag: linea.texto,
+            tagColor: linea.color,
+            tagTextColor: AppStatusColors.onColorFor(linea.color),
+          ),
     // Sin señal se atenúa en vez de desaparecer: la unidad existe, pero su
     // posición puede estar desfasada (túnel, cerro sin cobertura).
     opacity: offline ? 0.45 : 1,

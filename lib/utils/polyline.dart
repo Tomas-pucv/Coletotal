@@ -204,49 +204,4 @@ PuntoEnLinea? nearestOnPolyline(List<LatLng> linea, LatLng p) {
   return mejor;
 }
 
-/// Un punto de una línea y hacia dónde va la línea ahí.
-typedef PuntoConRumbo = ({LatLng punto, double rumbo});
-
-/// Puntos de [linea] cada [metros], desde [desde] metros del inicio, con el
-/// rumbo del tramo en que caen: grados desde el norte en sentido horario, el
-/// ángulo con que se ve el tramo en un mapa con el norte arriba. Son las
-/// flechas que muestran hacia dónde va una línea.
-///
-/// Usa la misma aproximación por tramo que [polylineLength]. Los tramos de
-/// largo cero no tienen rumbo y se saltan.
-List<PuntoConRumbo> puntosCada(
-  List<LatLng> linea,
-  double metros, {
-  double desde = 0,
-}) {
-  if (!(metros > 0) || linea.length < 2) return const [];
-  const grado = math.pi / 180 * _radioTierra;
-  final puntos = <PuntoConRumbo>[];
-  var siguiente = math.max(0.0, desde);
-  var recorrido = 0.0;
-  for (var i = 1; i < linea.length; i++) {
-    final a = linea[i - 1];
-    final b = linea[i];
-    final cosLat = math.cos((a.latitude + b.latitude) / 2 * math.pi / 180);
-    final este = (b.longitude - a.longitude) * cosLat * grado;
-    final norte = (b.latitude - a.latitude) * grado;
-    final largo = math.sqrt(este * este + norte * norte);
-    if (largo == 0) continue;
-    final rumbo = (math.atan2(este, norte) * 180 / math.pi + 360) % 360;
-    while (siguiente <= recorrido + largo) {
-      final t = (siguiente - recorrido) / largo;
-      puntos.add((
-        punto: LatLng(
-          a.latitude + (b.latitude - a.latitude) * t,
-          a.longitude + (b.longitude - a.longitude) * t,
-        ),
-        rumbo: rumbo,
-      ));
-      siguiente += metros;
-    }
-    recorrido += largo;
-  }
-  return puntos;
-}
-
 double _pow10(int n) => math.pow(10, n).toDouble();

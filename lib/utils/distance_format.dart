@@ -72,6 +72,29 @@ String formatDistance(double? meters, AppLocalizations l10n) {
   return l10n.distanceM(meters.toStringAsFixed(0));
 }
 
+/// Metros redondeados para un ícono del mapa: de a 10 m bajo 100 m, de a
+/// 50 m bajo 1 km, de a 100 m bajo 10 km y de a 1 km después. Así el ícono no
+/// se redibuja con cada arreglo del GPS.
+double redondearMetros(double metros) {
+  if (!metros.isFinite || metros < 0) return 0;
+  final paso = metros < 100
+      ? 10
+      : metros < 1000
+      ? 50
+      : metros < 10000
+      ? 100
+      : 1000;
+  return (metros / paso).round() * paso.toDouble();
+}
+
+/// Distancia corta para un ícono del mapa: "180 m", "1.2 km", "15 km".
+String formatDistanciaCorta(double metros, AppLocalizations l10n) {
+  final m = redondearMetros(metros);
+  if (m >= 10000) return l10n.distanceKm((m / 1000).toStringAsFixed(0));
+  if (m >= 1000) return l10n.distanceKm((m / 1000).toStringAsFixed(1));
+  return l10n.distanceM(m.toStringAsFixed(0));
+}
+
 /// Duración legible a partir de segundos.
 String formatDurationSeconds(double? seconds, AppLocalizations l10n) {
   if (seconds == null || !seconds.isFinite || seconds <= 0) return '—';

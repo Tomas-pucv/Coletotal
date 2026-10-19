@@ -1534,6 +1534,42 @@ abstract class AppLocalizations {
   /// **'Hazle la seña al colectivo en el punto marcado'**
   String get tripBoardHint;
 
+  /// No description provided for @hailHere.
+  ///
+  /// In es, this message translates to:
+  /// **'Hazle seña aquí'**
+  String get hailHere;
+
+  /// No description provided for @hailToward.
+  ///
+  /// In es, this message translates to:
+  /// **'Hacia {lugar}'**
+  String hailToward(String lugar);
+
+  /// No description provided for @hailTowardCenter.
+  ///
+  /// In es, this message translates to:
+  /// **'Hacia el centro'**
+  String get hailTowardCenter;
+
+  /// No description provided for @hailBothWays.
+  ///
+  /// In es, this message translates to:
+  /// **'Ida y regreso'**
+  String get hailBothWays;
+
+  /// No description provided for @hailLineTitle.
+  ///
+  /// In es, this message translates to:
+  /// **'Línea {linea}'**
+  String hailLineTitle(String linea);
+
+  /// No description provided for @hailSwitch.
+  ///
+  /// In es, this message translates to:
+  /// **'Tomarlo en el otro sentido'**
+  String get hailSwitch;
+
   /// No description provided for @tapToSeeBoarding.
   ///
   /// In es, this message translates to:
