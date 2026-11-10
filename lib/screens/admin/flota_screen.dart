@@ -10,11 +10,13 @@ import 'package:taxi1/screens/main_screen.dart';
 import 'package:taxi1/services/auth_service.dart';
 import 'package:taxi1/services/firebase_telemetria_service.dart';
 import 'package:taxi1/services/garita_service.dart';
+import 'package:taxi1/services/preferences_service.dart';
 import 'package:taxi1/services/recorridos_service.dart';
 import 'package:taxi1/theme/app_colors.dart';
 import 'package:taxi1/theme/app_spacing.dart';
 import 'package:taxi1/utils/patente.dart';
 import 'package:taxi1/widgets/app_map.dart';
+import 'package:taxi1/widgets/colectivo_marker.dart';
 import 'package:taxi1/widgets/map_overlay_card.dart';
 import 'package:taxi1/widgets/recorrido_lines.dart';
 import 'package:taxi1/widgets/state_views.dart';
@@ -190,17 +192,29 @@ class _FlotaScreenState extends State<FlotaScreen> {
                   controller: _mapController,
                   initialCenter: kQuilpueCenter,
                   // Al elegir una unidad se ilumina la línea que informa estar
-                  // cubriendo.
-                  lines: [if (linea != null) ...recorridoLines(linea, status)],
-                  markers: [
+                  // cubriendo: sus dos sentidos, cada uno con sus flechas.
+                  lines: [
+                    if (linea != null)
+                      ...recorridoLines(linea, status, arrows: true),
+                  ],
+                  // Los mismos autos que ve el pasajero: el anillo y la
+                  // etiqueta dicen qué variante cubre cada unidad, y la
+                  // elegida va más grande. Sin señal reciente se atenúan.
+                  vehicles: [
                     for (final unidad in unidades)
-                      _marcador(
+                      colectivoMarker(
                         unidad,
-                        status: status,
-                        selected: _selected == unidad.uid,
+                        isMe: false,
                         offline: unidad.seemsOffline(ahora),
+                        primary: theme.colorScheme.primary,
+                        l10n: l10n,
+                        linea: lineaDeColectivo(unidad),
+                        selected: _selected == unidad.uid,
+                        onTap: () => _focus(unidad),
                       ),
                   ],
+                  animateVehicles:
+                      _visible && PreferencesService.instance.animationsEnabled,
                 ),
                 if (_estado.failed)
                   Positioned(
@@ -338,38 +352,6 @@ class _FlotaScreenState extends State<FlotaScreen> {
           );
         },
       ),
-    );
-  }
-
-  /// Una unidad en el mapa. Sin señal reciente se atenúa, igual que en el mapa
-  /// del pasajero.
-  MapMarker _marcador(
-    ColectivoActivo unidad, {
-    required AppStatusColors status,
-    required bool selected,
-    required bool offline,
-  }) {
-    final color = _colorUnidad(unidad, status);
-    return MapMarker(
-      id: unidad.uid,
-      point: LatLng(unidad.latitud, unidad.longitud),
-      icon: MarkerIcon.circle(
-        diameter: selected ? 40 : 32,
-        color: color,
-        borderColor: status.markerBorder,
-        borderWidth: selected ? 4 : 2,
-        glyph: Icons.directions_car,
-        glyphColor: AppStatusColors.onColorFor(color),
-        glyphSize: selected ? 22 : 18,
-        shadow: const BoxShadow(
-          color: Color(0x59000000),
-          blurRadius: 6,
-          offset: Offset(0, 2),
-        ),
-        tapTarget: 44,
-      ),
-      opacity: offline ? 0.45 : 1,
-      onTap: () => _focus(unidad),
     );
   }
 

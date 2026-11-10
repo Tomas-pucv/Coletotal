@@ -16,6 +16,7 @@ import 'package:taxi1/services/preferences_service.dart';
 import 'package:taxi1/services/recorridos_service.dart';
 import 'package:taxi1/services/route_service.dart';
 import 'package:taxi1/services/simulacion_flota_service.dart';
+import 'package:taxi1/theme/app_colors.dart';
 import 'package:taxi1/theme/app_theme.dart';
 import 'package:taxi1/utils/polyline.dart';
 import 'package:taxi1/widgets/app_map.dart';
@@ -26,6 +27,9 @@ import 'package:taxi1/widgets/app_map.dart';
 /// - Modo Foco (2 km): al hacer clic en un vehículo muestra sólo su línea,
 ///   incluye otros vehículos de esa misma línea hasta 2 km y oculta otras líneas.
 /// - Simulación de 3 vehículos en movimiento (`SimulacionFlotaService`).
+///
+/// Y de cómo se ve cada cosa: los colectivos como autos, la línea en foco con
+/// sus dos sentidos lado a lado y sus terminales.
 void main() {
   final centro = kQuilpueCenter;
 
@@ -97,6 +101,17 @@ void main() {
   MapMarker marcador(WidgetTester tester, String id) =>
       mapa(tester).markers.firstWhere((m) => m.id == id);
 
+  /// Los colectivos son autos (`AppMap.vehicles`), no marcadores.
+  MapVehicle auto(WidgetTester tester, String id) =>
+      mapa(tester).vehicles.firstWhere((v) => v.id == id);
+  Set<String> autos(WidgetTester tester) =>
+      mapa(tester).vehicles.map((v) => v.id).toSet();
+
+  /// Las líneas dibujadas, por su insignia. De los dos sentidos de una línea
+  /// sólo uno la lleva.
+  Set<String> insignias(WidgetTester tester) =>
+      mapa(tester).lines.map((l) => l.badge?.text).nonNulls.toSet();
+
   setUpAll(() async {
     SharedPreferences.setMockInitialValues({});
     await PreferencesService.instance.load();
@@ -134,10 +149,7 @@ void main() {
     await tester.pump();
 
     expect(mapa(tester).lines, isEmpty);
-    expect(
-      mapa(tester).markers.where((m) => m.id.startsWith('colectivo_')),
-      isEmpty,
-    );
+    expect(mapa(tester).vehicles, isEmpty);
   });
 
   testWidgets('con 2 colectivos cercanos (<= 1 km) aparecen sus rutas; si '
@@ -162,11 +174,10 @@ void main() {
     await tester.pump();
 
     // `t` tiene ida y vuelta (2 líneas) y `v1` sólo ida (1 línea) = 3 trazos.
-    final insigniasIniciales = mapa(tester)
-        .lines
-        .map((l) => l.badge?.text)
-        .toSet();
-    expect(insigniasIniciales, unorderedEquals(['10 T', '10 V-1']));
+    expect(mapa(tester).lines, hasLength(3));
+    expect(insignias(tester), unorderedEquals(['10 T', '10 V-1']));
+    // En Modo Radar van sin flechas: son contexto.
+    expect(mapa(tester).lines.any((l) => l.arrows), isFalse);
 
     // Entra un tercer vehículo de la variante V-2 al radio de 1 km (~450 m).
     final c3 = ColectivoActivo(
@@ -179,20 +190,14 @@ void main() {
     FirebaseTelemetriaService.instance.debugSetColectivos([c1, c2, c3]);
     await tester.pump();
 
-    expect(
-      mapa(tester).lines.map((l) => l.badge?.text).toSet(),
-      unorderedEquals(['10 T', '10 V-1', '10 V-2']),
-    );
+    expect(insignias(tester), unorderedEquals(['10 T', '10 V-1', '10 V-2']));
 
     // Sale c2 del radio (se aleja a ~1,6 km): desaparece la línea 10 V-1.
     final c2Lejos = c2.copyWith(latitud: centro.latitude - 0.015);
     FirebaseTelemetriaService.instance.debugSetColectivos([c1, c2Lejos, c3]);
     await tester.pump();
 
-    expect(
-      mapa(tester).lines.map((l) => l.badge?.text).toSet(),
-      unorderedEquals(['10 T', '10 V-2']),
-    );
+    expect(insignias(tester), unorderedEquals(['10 T', '10 V-2']));
   });
 
   testWidgets('al hacer clic en un vehículo: muestra sólo su línea, expande '
@@ -236,42 +241,34 @@ void main() {
 
     // En Modo Radar (1 km): se ven c1 y cOtra (y sus dos rutas), pero no
     // c1_2km que está a 1,5 km.
-    expect(
-      mapa(tester).markers.map((m) => m.id),
-      containsAll(['colectivo_c1', 'colectivo_c_otra']),
-    );
-    expect(
-      mapa(tester).markers.map((m) => m.id),
-      isNot(contains('colectivo_c1_2km')),
-    );
+    expect(autos(tester), containsAll(['colectivo_c1', 'colectivo_c_otra']));
+    expect(autos(tester), isNot(contains('colectivo_c1_2km')));
 
     // El pasajero toca el vehículo c1.
-    marcador(tester, 'colectivo_c1').onTap!();
+    auto(tester, 'colectivo_c1').onTap!();
     await tester.pump();
 
     // Ahora sólo se dibuja la línea 10 T, con flechas de sentido y puntos de
     // seña; se oculta el colectivo de la otra línea (c_otra) y aparece el
     // compañero de la misma línea en el radio de 2 km (c1_2km).
     expect(RecorridosService.instance.selected?.id, 't');
+    expect(insignias(tester), equals({'10 T'}));
+    // Las flechas van en el sentido del punto de seña elegido; el otro
+    // queda tenue.
+    expect(mapa(tester).lines.last.arrows, isTrue);
+    expect(autos(tester), containsAll(['colectivo_c1', 'colectivo_c1_2km']));
+    expect(autos(tester), isNot(contains('colectivo_c_otra')));
     expect(
-      mapa(tester).lines.map((l) => l.badge?.text).toSet(),
-      equals({'10 T'}),
+      mapa(tester).markers.map((m) => m.id),
+      containsAll(['sena_ida', 'sena_vuelta']),
     );
-    expect(mapa(tester).lines.every((l) => l.arrows), isTrue);
-    final idsEnFoco = mapa(tester).markers.map((m) => m.id).toSet();
-    expect(idsEnFoco, containsAll(['colectivo_c1', 'colectivo_c1_2km']));
-    expect(idsEnFoco, isNot(contains('colectivo_c_otra')));
-    expect(idsEnFoco, containsAll(['sena_ida', 'sena_vuelta']));
     expect(find.textContaining('BBCC·10'), findsOneWidget);
 
     // Al cerrar la tarjeta con la X vuelve al Modo Radar (1 km).
     await tester.tap(find.byTooltip('Quitar recorrido'));
     await tester.pump();
     expect(RecorridosService.instance.selected, isNull);
-    expect(
-      mapa(tester).lines.map((l) => l.badge?.text).toSet(),
-      unorderedEquals(['10 T', '10 V-1']),
-    );
+    expect(insignias(tester), unorderedEquals(['10 T', '10 V-1']));
   });
 
   testWidgets('los 3 vehículos de prueba de SimulacionFlotaService se mueven '
@@ -282,11 +279,8 @@ void main() {
 
     // En el paso 0, los 3 vehículos están dentro de 1 km (~200 m a ~500 m),
     // por lo que aparecen las 3 rutas de prueba en el mapa.
-    expect(
-      mapa(tester).lines.map((l) => l.badge?.text).toSet(),
-      unorderedEquals(['10 T', '10 V-1', '10 V-2']),
-    );
-    final posInicial1 = marcador(tester, 'colectivo_sim_vehiculo_1').point;
+    expect(insignias(tester), unorderedEquals(['10 T', '10 V-1', '10 V-2']));
+    final posInicial1 = auto(tester, 'colectivo_sim_vehiculo_1').point;
 
     // Al avanzar 9 pasos, los vehículos se desplazan y el vehículo 3 supera
     // el radio de 1 km (~1,3 km), haciendo que su ruta 10 V-2 desaparezca en
@@ -296,12 +290,12 @@ void main() {
     }
     await tester.pump();
 
-    final posMovida1 = marcador(tester, 'colectivo_sim_vehiculo_1').point;
-    expect(posMovida1, isNot(equals(posInicial1)));
-    expect(
-      mapa(tester).lines.map((l) => l.badge?.text).toSet(),
-      unorderedEquals(['10 T', '10 V-1']),
-    );
+    final movido = auto(tester, 'colectivo_sim_vehiculo_1');
+    expect(movido.point, isNot(equals(posInicial1)));
+    // Ya se movió: apunta hacia donde va, a lo largo de su línea (al sur o,
+    // de vuelta, al norte).
+    expect(movido.heading % 180, closeTo(0, 1));
+    expect(insignias(tester), unorderedEquals(['10 T', '10 V-1']));
   });
 
   testWidgets('elegida desde lejos, no propone caminar 15 km: dice a cuánto '
@@ -315,5 +309,112 @@ void main() {
     expect(mapa(tester).lines, isNotEmpty);
     expect(RouteService.instance.destination, isNull);
     expect(find.textContaining('km de ti'), findsOneWidget);
+  });
+
+  testWidgets('los colectivos son autos con el anillo del color de su línea '
+      'y su etiqueta', (tester) async {
+    FirebaseTelemetriaService.instance.debugSetColectivos([
+      ColectivoActivo(
+        uid: 'c1',
+        idVehiculo: 'BBCC12',
+        latitud: centro.latitude,
+        longitud: centro.longitude,
+        recorridoId: 't',
+        rumbo: 135,
+      ),
+      ColectivoActivo(
+        uid: 'sin_linea',
+        idVehiculo: 'DDEE34',
+        latitud: centro.latitude - 0.001,
+        longitud: centro.longitude,
+      ),
+    ]);
+    await tester.pumpWidget(app());
+    await tester.pump();
+
+    final conLinea = auto(tester, 'colectivo_c1');
+    expect(conLinea.heading, 135);
+    expect(conLinea.icon.ringColor, Color(t.colorValue));
+    expect(conLinea.tag?.text, '10 T');
+    expect(conLinea.onTap, isNotNull);
+    // Sin línea: el verde de "en servicio", sin etiqueta y hacia el norte.
+    final sinLinea = auto(tester, 'colectivo_sin_linea');
+    expect(sinLinea.icon.ringColor, AppStatusColors.light.disponible);
+    expect(sinLinea.tag, isNull);
+    expect(sinLinea.heading, 0);
+    // Ya no son un marcador más.
+    expect(
+      mapa(tester).markers.where((m) => m.id.startsWith('colectivo_')),
+      isEmpty,
+    );
+    // Se deslizan: "Animaciones" está encendida y el mapa es la pestaña a la
+    // vista.
+    expect(mapa(tester).animateVehicles, isTrue);
+  });
+
+  testWidgets('la línea en foco va con sus dos sentidos lado a lado, y '
+      'resalta el del punto de seña elegido', (tester) async {
+    // Sin GPS: el foco es el centro de Quilpué, y no se pide ninguna ruta a
+    // pie por la red.
+    LocationService.instance.debugSetPosition(null);
+    await tester.pumpWidget(app());
+    await tester.pump();
+    RecorridosService.instance.select(t);
+    await tester.pump();
+
+    var lineas = mapa(tester).lines;
+    expect(lineas, hasLength(2));
+    expect(lineas.every((l) => l.lane), isTrue);
+    // El punto de seña más cercano es el de la ida: va entera y encima, con
+    // las flechas; el regreso, tenue.
+    expect(lineas.last.points.first, t.ida.trazado.first);
+    expect(lineas.last.color.a, 1);
+    expect(lineas.last.arrows, isTrue);
+    expect(lineas.first.color.a, lessThan(1));
+    expect(lineas.first.arrows, isFalse);
+
+    // Al cambiar de sentido en la tarjeta, cambia el que se resalta.
+    await tester.tap(find.byTooltip('Tomarlo en el otro sentido'));
+    await tester.pump();
+    lineas = mapa(tester).lines;
+    expect(lineas.last.points.first, t.vuelta!.trazado.first);
+    expect(lineas.last.color.a, 1);
+    expect(lineas.first.color.a, lessThan(1));
+
+    // Una línea sin regreso va sola, por el medio de la calle.
+    RecorridosService.instance.select(v1);
+    await tester.pump();
+    expect(mapa(tester).lines.single.lane, isFalse);
+  });
+
+  testWidgets('la línea en foco marca sus terminales con el nombre de la '
+      'cartola', (tester) async {
+    LocationService.instance.debugSetPosition(null);
+    await tester.pumpWidget(app());
+    await tester.pump();
+    Iterable<MapMarker> terminales() =>
+        mapa(tester).markers.where((m) => m.id.startsWith('terminal_'));
+    // Sin línea en foco, ninguno.
+    expect(terminales(), isEmpty);
+
+    RecorridosService.instance.select(t);
+    await tester.pump();
+    // La T vuelve por otra calle: cada sentido tiene sus dos extremos.
+    expect(terminales(), hasLength(4));
+    expect(marcador(tester, 'terminal_0').point, t.ida.trazado.first);
+    expect((marcador(tester, 'terminal_0').icon as TaggedIcon).tag, 'Centro');
+    expect(marcador(tester, 'terminal_1').point, t.ida.trazado.last);
+    expect(
+      (marcador(tester, 'terminal_1').icon as TaggedIcon).tag,
+      'Alto el Yugo',
+    );
+    // Van debajo de todo lo demás: primero en la lista.
+    expect(mapa(tester).markers.first.id, 'terminal_0');
+
+    // Sin cartola no hay nombre: el anillo solo.
+    RecorridosService.instance.select(v1);
+    await tester.pump();
+    expect(terminales(), hasLength(2));
+    expect(terminales().every((m) => m.icon is MarkerIcon), isTrue);
   });
 }

@@ -49,14 +49,18 @@ las reglas de Firestore lo verifican en el servidor al crear la cuenta.
   conviene bajarse. Sólo propone una línea si en ese sentido la bajada viene
   después de la subida. Incluye un catálogo local de 26 lugares de Quilpué y
   no distingue tildes ("lider" encuentra "Líder").
-- **Puntos de seña** en vez de paraderos: el mapa no dibuja los recorridos;
-  muestra un ícono por línea ("10 · 180 m") en el punto de su recorrido más
-  cercano al pasajero (o al centro del mapa, si lo movió lejos). Al tocarlo se
-  elige la variante (T, V-1, V-2) y se dibuja esa sola: la ida continua, el
-  regreso a trazos y flechas chicas que dicen hacia dónde va, con un punto de
-  seña por sentido ("Hacia Alto el Yugo", "Hacia el centro") y la ruta a pie
-  hasta el más cercano.
-- Cada colectivo en el mapa lleva la etiqueta de su línea ("10 T").
+- **Puntos de seña** en vez de paraderos. El mapa dibuja solo las líneas de
+  los colectivos que andan a menos de 1 km del pasajero. Al tocar un colectivo
+  (o elegir una línea en la pestaña Líneas) queda esa sola, con los colectivos
+  de esa línea hasta 2 km: sus dos sentidos lado a lado, cada uno por su
+  carril como los autos, con flechas que dicen hacia dónde va. Lleva un punto
+  de seña por sentido ("Hacia Alto el Yugo", "Hacia el centro"), con el
+  sentido elegido resaltado y la ruta a pie hasta él, y sus terminales
+  marcados con el nombre de la cartola. En un viaje armado se resalta sólo el
+  tramo que se recorre arriba del colectivo.
+- Cada colectivo en el mapa es un auto negro con su letrero amarillo, visto
+  desde arriba: apunta hacia donde va, se desliza de una posición a la
+  siguiente y lleva un anillo del color de su línea y su etiqueta ("10 T").
 - Pestaña **Líneas**: las líneas activas de la garita, de la que pasa más
   cerca a la más lejana, con cuántos colectivos andan en cada una. Al tocar una,
   su ida y su vuelta dibujadas sobre el mapa.

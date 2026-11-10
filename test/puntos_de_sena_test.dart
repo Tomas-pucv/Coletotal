@@ -177,6 +177,65 @@ void main() {
     });
   });
 
+  group('terminales', () {
+    const cartolaIda = ['QUILPUÉ', 'SERRANO', 'ALTO EL YUGO'];
+    const cartolaVuelta = ['ALTO EL YUGO', 'SERRANO', 'QUILPUÉ'];
+
+    test('una línea de ida y regreso por la misma calle tiene dos, con el '
+        'nombre de su cartola', () {
+      final r = variante(
+        't',
+        callesIda: cartolaIda,
+        callesVuelta: cartolaVuelta,
+      );
+      final terminales = PuntosDeSena.terminales(r);
+      expect(terminales, hasLength(2));
+      // Donde empieza la ida, que es donde termina el regreso: el centro.
+      expect(terminales[0].punto, r.ida.trazado.first);
+      expect(terminales[0].lugar!.esCentro, isTrue);
+      // Donde termina la ida y empieza el regreso.
+      expect(terminales[1].punto, r.ida.trazado.last);
+      expect(terminales[1].lugar, const DestinoSena.lugar('Alto el Yugo'));
+    });
+
+    test('si el regreso llega por otra calle, a la vuelta de la esquina, '
+        'sigue siendo el mismo terminal', () {
+      // El regreso va una cuadra más allá (unos 93 m).
+      final r = variante(
+        't',
+        lonVuelta: lng + 0.001,
+        callesIda: cartolaIda,
+        callesVuelta: cartolaVuelta,
+      );
+      expect(PuntosDeSena.terminales(r), hasLength(2));
+    });
+
+    test('si empieza y termina en lugares distintos, uno por extremo', () {
+      // El regreso sube cuatro cuadras más allá (unos 373 m).
+      final r = variante('t', lonVuelta: lng + 0.004);
+      final terminales = PuntosDeSena.terminales(r);
+      expect(terminales, hasLength(4));
+      // Sin cartola no tienen nombre: se marcan igual.
+      expect(terminales.every((t) => t.lugar == null), isTrue);
+    });
+
+    test('una línea sin regreso tiene su inicio y su final', () {
+      final r = Recorrido(
+        id: 'x',
+        garitaId: kGaritaPublica,
+        nombre: 'Línea 10 V-1',
+        colorValue: 0xFF00727C,
+        ida: recto(lat0, -33.090, lng),
+        callesIda: const ['SAN MARTIN', 'TRONCOS VIEJOS', 'ISIDORA'],
+      );
+      final terminales = PuntosDeSena.terminales(r);
+      expect(terminales.map((t) => t.lugar), const [
+        DestinoSena.lugar('San Martin'),
+        DestinoSena.lugar('Isidora'),
+      ]);
+    });
+  });
+
   group('foco', () {
     const yo = LatLng(-33.060, -71.4425);
     const cerca = LatLng(-33.061, -71.4425); // ~110 m

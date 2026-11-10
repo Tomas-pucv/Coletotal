@@ -7,7 +7,9 @@ import 'package:taxi1/models/recorrido.dart';
 import 'package:taxi1/services/puntos_de_sena.dart';
 import 'package:taxi1/services/recorridos_service.dart';
 import 'package:taxi1/theme/app_colors.dart';
+import 'package:taxi1/theme/app_spacing.dart';
 import 'package:taxi1/utils/patente.dart';
+import 'package:taxi1/utils/polyline.dart';
 import 'package:taxi1/widgets/app_map.dart';
 
 /// Radio base en Modo Radar (1 km): sólo se muestran los colectivos dentro de
@@ -22,6 +24,10 @@ const double kRadioLineaSeleccionadaKm = 2.0;
 /// Con muchas unidades sólo se dibujan las de este radio alrededor del
 /// usuario en vistas generales.
 const double kRadioColectivosKm = 6.0;
+
+/// Hasta qué distancia de su línea un colectivo que todavía no se movió se
+/// dibuja apuntando como ella. Más lejos no la está recorriendo.
+const double kRadioRumboDeLinea = 60;
 
 /// Filtra los colectivos activos según el modo del mapa del pasajero:
 /// - En Modo Radar ([recorridoId] es `null`): devuelve sólo las unidades dentro
@@ -148,44 +154,76 @@ List<ColectivoActivo> colectivosVisibles(
   return (texto: PuntosDeSena.etiqueta(r), color: Color(r.colorValue));
 }
 
-/// El marcador de un colectivo en servicio, para el mapa del pasajero y el del
-/// chofer. Con [linea], una etiqueta debajo dice qué línea es ("10 T"), sin
-/// tener que dibujar los recorridos.
-MapMarker colectivoMarker(
+/// Hacia dónde apunta [colectivo] en el mapa, en grados desde el norte.
+///
+/// Su rumbo, si ya se movió ([ColectivoActivo.rumbo]). Si no —recién apareció,
+/// o espera en la garita—, el de su línea en ese lugar, por el sentido que le
+/// pase más cerca: es hacia donde va a salir. Sin línea, al norte.
+double rumboDeColectivo(ColectivoActivo colectivo) {
+  if (colectivo.rumbo case final rumbo?) return rumbo;
+  final id = colectivo.recorridoId;
+  final linea = id == null ? null : RecorridosService.instance.byId(id);
+  if (linea == null) return 0;
+  final aqui = LatLng(colectivo.latitud, colectivo.longitud);
+  PuntoEnLinea? mejor;
+  for (final (_, trayecto) in linea.trayectos) {
+    final cerca = nearestOnPolyline(trayecto.trazado, aqui);
+    if (cerca != null &&
+        cerca.metros <= kRadioRumboDeLinea &&
+        (mejor == null || cerca.metros < mejor.metros)) {
+      mejor = cerca;
+    }
+  }
+  return mejor?.rumbo ?? 0;
+}
+
+/// El disco bajo el auto es blanco en cualquier tema. Su anillo lleva el color
+/// de la línea, y los colores de las líneas son tonos oscuros
+/// (`kRecorridoColors`): sobre un disco oscuro, el del tema oscuro, no se
+/// distinguían. Es lo mismo que el contorno blanco de los recorridos.
+const Color _discoDelAuto = Color(0xFFFFFFFF);
+
+/// Un colectivo en servicio, para el mapa del pasajero, el del chofer y la
+/// consola de flota: un auto negro con su letrero amarillo, visto desde
+/// arriba, que apunta hacia donde va.
+///
+/// Con [linea], el anillo que lo rodea es del color de su línea —el mismo de
+/// su recorrido en el mapa— y una etiqueta debajo dice cuál es ("10 T"). Sin
+/// línea, el anillo es el verde de "en servicio". [selected] es la unidad
+/// elegida en la consola de flota: se dibuja más grande.
+MapVehicle colectivoMarker(
   ColectivoActivo colectivo, {
   required bool isMe,
   required bool offline,
-  required AppStatusColors status,
   required Color primary,
   required AppLocalizations l10n,
   ({String texto, Color color})? linea,
+  bool selected = false,
   VoidCallback? onTap,
 }) {
-  final color = isMe ? primary : (linea?.color ?? status.disponible);
-  final circulo = MarkerIcon.circle(
-    diameter: isMe ? 46 : 40,
-    color: color,
-    borderColor: status.markerBorder,
-    borderWidth: isMe ? 3 : 2,
-    glyph: Icons.directions_car,
-    glyphColor: AppStatusColors.onColorFor(color),
-    glyphSize: isMe ? 24 : 20,
-    shadow: const BoxShadow(
-      color: Color(0x59000000),
-      blurRadius: 6,
-      offset: Offset(0, 2),
-    ),
-  );
-  return MapMarker(
+  return MapVehicle(
     id: 'colectivo_${colectivo.uid}',
     point: LatLng(colectivo.latitud, colectivo.longitud),
-    icon: linea == null
-        ? circulo
-        : TaggedIcon(
-            base: circulo,
-            tag: linea.texto,
-            tagColor: linea.color,
-            tagTextColor: AppStatusColors.onColorFor(linea.color),
+    heading: rumboDeColectivo(colectivo),
+    icon: CarIcon(
+      bodyColor: kColeTotalInk,
+      signColor: kColeTotalYellow,
+      ringColor: isMe
+          ? primary
+          // El verde del tema claro: es el que se lee sobre el disco blanco.
+          : (linea?.color.withValues(alpha: 1) ??
+                AppStatusColors.light.disponible),
+      borderColor: _discoDelAuto,
+      diameter: isMe || selected ? 52 : 44,
+      tapTarget: AppSpacing.minTapTarget,
+    ),
+    tag: linea == null
+        ? null
+        : LineBadge(
+            text: linea.texto,
+            color: linea.color,
+            textColor: AppStatusColors.onColorFor(linea.color),
+            borderColor: const Color(0xFFFFFFFF),
           ),
     // Sin señal se atenúa en vez de desaparecer: la unidad existe, pero su
     // posición puede estar desfasada (túnel, cerro sin cobertura).

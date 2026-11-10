@@ -855,6 +855,9 @@ class AppLocalizationsEs extends AppLocalizations {
   String get hailSwitch => 'Tomarlo en el otro sentido';
 
   @override
+  String get terminalCenter => 'Centro';
+
+  @override
   String get tapToSeeBoarding => 'Tocar para ver dónde subir';
 
   @override

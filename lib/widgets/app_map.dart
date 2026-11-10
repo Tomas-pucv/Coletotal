@@ -7,11 +7,13 @@ import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart' show kTouchSlop;
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart' show Ticker;
 import 'package:latlong2/latlong.dart';
 import 'package:maplibre_gl/maplibre_gl.dart' as ml;
 
 import 'package:taxi1/config/map_config.dart';
 import 'package:taxi1/services/basemap_service.dart';
+import 'package:taxi1/utils/polyline.dart';
 import 'package:taxi1/widgets/map_attribution.dart';
 
 // ---------------------------------------------------------------------------
@@ -170,9 +172,221 @@ class MarkerIcon implements MapImage {
   }
 }
 
-/// Un marcador de [MarkerIcon.circle] con una etiqueta chica debajo (la línea
-/// de un colectivo: "10 T"). El círculo sigue en el centro de la imagen, que
-/// es el punto del mapa: la etiqueta no lo corre.
+/// Un colectivo visto desde arriba, con la trompa hacia arriba de la imagen:
+/// MapLibre lo gira con su rumbo (ver [MapVehicle]). Va sobre un disco con un
+/// anillo del color de su capacidad; como es redondo, no cambia al girar.
+@immutable
+class CarIcon implements MapImage {
+  const CarIcon({
+    required this.bodyColor,
+    required this.signColor,
+    required this.ringColor,
+    required this.borderColor,
+    this.diameter = 44,
+    this.tapTarget = 0,
+  });
+
+  /// La carrocería y el letrero del techo.
+  final Color bodyColor;
+  final Color signColor;
+
+  /// El anillo y el tinte del disco: la capacidad que informa el chofer.
+  final Color ringColor;
+
+  /// El fondo del disco y el filete que lo separa del mapa.
+  final Color borderColor;
+
+  /// Del disco; el auto mide lo que cabe adentro.
+  final double diameter;
+  final double tapTarget;
+
+  @override
+  String get key => [
+    'auto',
+    bodyColor.toARGB32(),
+    signColor.toARGB32(),
+    ringColor.toARGB32(),
+    borderColor.toARGB32(),
+    diameter,
+    tapTarget,
+  ].join('_');
+
+  /// Lado de la imagen, en píxeles lógicos. Es cuadrada y lleva el auto al
+  /// centro, para que gire sobre sí mismo.
+  double get extent => math.max(tapTarget, diameter + 2).ceilToDouble();
+
+  @override
+  Future<Uint8List> toPng(double devicePixelRatio) {
+    final lado = extent;
+    final recorder = ui.PictureRecorder();
+    final canvas = Canvas(recorder)..scale(devicePixelRatio);
+    _pintar(canvas, Offset(lado / 2, lado / 2));
+    final pixeles = lado * devicePixelRatio;
+    return _aPng(recorder.endRecording(), pixeles, pixeles);
+  }
+
+  void _pintar(Canvas canvas, Offset c) {
+    final radio = diameter / 2;
+    // Las medidas del auto son las de un disco de 44 px.
+    final u = diameter / 44;
+
+    // El disco: un fondo que despega al auto de lo que haya debajo (calles,
+    // la foto del satélite), teñido con el color de la capacidad, y su anillo.
+    canvas
+      ..drawCircle(c, radio, Paint()..color = borderColor)
+      ..drawCircle(
+        c,
+        radio - 1.2,
+        Paint()..color = Color.lerp(borderColor, ringColor, 0.22)!,
+      )
+      ..drawCircle(
+        c,
+        radio - 1.2 - 1.5 * u,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 3 * u
+          ..color = ringColor,
+      );
+
+    final ancho = 17 * u;
+    final largo = 34 * u;
+    final frente = c.dy - largo / 2;
+    final cola = c.dy + largo / 2;
+    final izquierda = c.dx - ancho / 2;
+    final derecha = c.dx + ancho / 2;
+    RRect caja(
+      double left,
+      double top,
+      double right,
+      double bottom,
+      double radio,
+    ) => RRect.fromRectAndRadius(
+      Rect.fromLTRB(left, top, right, bottom),
+      Radius.circular(radio),
+    );
+
+    // La carrocería: más redonda en la trompa que en la cola.
+    final cuerpo = RRect.fromRectAndCorners(
+      Rect.fromLTRB(izquierda, frente, derecha, cola),
+      topLeft: Radius.elliptical(6.5 * u, 8 * u),
+      topRight: Radius.elliptical(6.5 * u, 8 * u),
+      bottomLeft: Radius.elliptical(5.5 * u, 5 * u),
+      bottomRight: Radius.elliptical(5.5 * u, 5 * u),
+    );
+    // Los espejos, a la altura del parabrisas.
+    final espejos = [
+      caja(
+        izquierda - 1.7 * u,
+        frente + 9.4 * u,
+        izquierda + u,
+        frente + 11.8 * u,
+        u,
+      ),
+      caja(
+        derecha - u,
+        frente + 9.4 * u,
+        derecha + 1.7 * u,
+        frente + 11.8 * u,
+        u,
+      ),
+    ];
+    // Un filete claro alrededor de todo, para que el auto negro se lea sobre
+    // el mapa oscuro y sobre su propio disco.
+    final filete = Paint()..color = const Color(0xFFFFFFFF);
+    final carroceria = Paint()..color = bodyColor;
+    canvas.drawRRect(
+      cuerpo.inflate(0.6),
+      Paint()
+        ..color = const Color(0x80000000)
+        ..maskFilter = MaskFilter.blur(BlurStyle.normal, 1.8 * u),
+    );
+    for (final espejo in espejos) {
+      canvas.drawRRect(espejo.inflate(1), filete);
+    }
+    canvas.drawRRect(cuerpo.inflate(1), filete);
+    for (final espejo in espejos) {
+      canvas.drawRRect(espejo, carroceria);
+    }
+    canvas.drawRRect(cuerpo, carroceria);
+
+    // Los vidrios: una cabina más clara y, encima, el techo; lo que asoma por
+    // delante es el parabrisas y por detrás, la luneta, más angosta.
+    canvas
+      ..drawRRect(
+        caja(
+          izquierda + 1.7 * u,
+          frente + 8.4 * u,
+          derecha - 1.7 * u,
+          cola - 5.4 * u,
+          3.2 * u,
+        ),
+        Paint()..color = Color.lerp(bodyColor, const Color(0xFFC4D4E3), 0.5)!,
+      )
+      ..drawRRect(
+        caja(
+          izquierda + 2.9 * u,
+          frente + 14.2 * u,
+          derecha - 2.9 * u,
+          cola - 9 * u,
+          2.2 * u,
+        ),
+        Paint()..color = Color.lerp(bodyColor, const Color(0xFFFFFFFF), 0.07)!,
+      );
+
+    // El letrero del techo, atravesado: lo que distingue a un colectivo.
+    final letrero = RRect.fromRectAndRadius(
+      Rect.fromCenter(
+        center: Offset(c.dx, c.dy + 1.4 * u),
+        width: 9.4 * u,
+        height: 3.8 * u,
+      ),
+      Radius.circular(1.2 * u),
+    );
+    canvas
+      ..drawRRect(letrero, Paint()..color = signColor)
+      ..drawRRect(
+        letrero.deflate(0.3),
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 0.6
+          ..color = const Color(0x99000000),
+      );
+
+    // Faros adelante y luces rojas atrás: dicen para dónde va aunque el auto
+    // se vea chico.
+    final faros = Paint()..color = const Color(0xFFFFF1B8);
+    final luces = Paint()..color = const Color(0xFFE5484D);
+    for (final lado in const [-1.0, 1.0]) {
+      canvas
+        ..drawRRect(
+          RRect.fromRectAndRadius(
+            Rect.fromCenter(
+              center: Offset(c.dx + lado * 5 * u, frente + 2.3 * u),
+              width: 3.6 * u,
+              height: 1.8 * u,
+            ),
+            Radius.circular(0.9 * u),
+          ),
+          faros,
+        )
+        ..drawRRect(
+          RRect.fromRectAndRadius(
+            Rect.fromCenter(
+              center: Offset(c.dx + lado * 5.2 * u, cola - 1.7 * u),
+              width: 3.2 * u,
+              height: 1.5 * u,
+            ),
+            Radius.circular(0.7 * u),
+          ),
+          luces,
+        );
+    }
+  }
+}
+
+/// Un marcador de [MarkerIcon.circle] con una etiqueta chica debajo (el nombre
+/// de un terminal: "Alto el Yugo"). El círculo sigue en el centro de la
+/// imagen, que es el punto del mapa: la etiqueta no lo corre.
 @immutable
 class TaggedIcon implements MapImage {
   const TaggedIcon({
@@ -442,35 +656,38 @@ class LineBadge implements MapImage {
   }
 }
 
-/// Galón que muestra hacia dónde va una línea. Apunta a la derecha, que en
-/// una imagen colocada sobre una línea es hacia adelante: MapLibre lo gira con
-/// cada tramo. Blanco con un contorno oscuro, para que se vea sobre cualquier
-/// color de línea y sobre el mapa claro u oscuro.
+/// Flecha que muestra hacia dónde va una línea. Apunta a la derecha, que en
+/// una imagen colocada sobre una línea es hacia adelante: MapLibre la gira con
+/// cada tramo. Una punta blanca rellena, con un contorno oscuro, para que se
+/// vea sobre cualquier color de línea y sobre el mapa claro u oscuro. Es del
+/// ancho de un carril ([MapLine.laneWidth]): no pisa al del sentido contrario.
 class _Galon implements MapImage {
   const _Galon();
 
-  static const double _lado = 14;
+  static const double _lado = 12;
 
   @override
-  String get key => 'galon_linea';
+  String get key => 'flecha_carril';
 
   @override
   Future<Uint8List> toPng(double devicePixelRatio) {
     final recorder = ui.PictureRecorder();
     final canvas = Canvas(recorder)..scale(devicePixelRatio);
-    final galon = ui.Path()
-      ..moveTo(4.5, 3)
-      ..lineTo(9, 7)
-      ..lineTo(4.5, 11);
+    final punta = ui.Path()
+      ..moveTo(4.3, 3.7)
+      ..lineTo(8.1, 6)
+      ..lineTo(4.3, 8.3)
+      ..close();
+    // El trazo redondea las esquinas de la punta.
     Paint trazo(Color color, double ancho) => Paint()
       ..style = PaintingStyle.stroke
       ..strokeWidth = ancho
-      ..strokeCap = StrokeCap.round
       ..strokeJoin = StrokeJoin.round
       ..color = color;
     canvas
-      ..drawPath(galon, trazo(const Color(0x59000000), 4.2))
-      ..drawPath(galon, trazo(const Color(0xFFFFFFFF), 2.2));
+      ..drawPath(punta, trazo(const Color(0x52000000), 2.2))
+      ..drawPath(punta, trazo(const Color(0xFFFFFFFF), 0.9))
+      ..drawPath(punta, Paint()..color = const Color(0xFFFFFFFF));
     final pixeles = _lado * devicePixelRatio;
     return _aPng(recorder.endRecording(), pixeles, pixeles);
   }
@@ -505,6 +722,38 @@ class MapMarker {
   final String? semanticLabel;
 }
 
+/// Un colectivo en el mapa: un auto visto desde arriba que apunta hacia donde
+/// va y, cuando llega una posición nueva, se desliza hasta ella en vez de
+/// saltar. Los vehículos van encima de los marcadores.
+@immutable
+class MapVehicle {
+  const MapVehicle({
+    required this.id,
+    required this.point,
+    required this.icon,
+    this.heading = 0,
+    this.tag,
+    this.opacity = 1,
+    this.onTap,
+    this.semanticLabel,
+  });
+
+  final String id;
+  final LatLng point;
+  final CarIcon icon;
+
+  /// Hacia dónde apunta, en grados desde el norte (en sentido horario).
+  final double heading;
+
+  /// Etiqueta debajo del auto (su línea: "10 T"). No gira con él.
+  final LineBadge? tag;
+  final double opacity;
+  final VoidCallback? onTap;
+
+  /// Lo que lee el lector de pantalla (ver `_AppMapState._semanticas`).
+  final String? semanticLabel;
+}
+
 /// Una línea con borde (el trazado de un recorrido, la ruta a pie).
 @immutable
 class MapLine {
@@ -515,15 +764,28 @@ class MapLine {
     this.borderColor = const Color(0x00000000),
     this.borderWidth = 0,
     this.dotted = false,
-    this.dashed = false,
+    this.lane = false,
+    this.shadow = false,
     this.badge,
     this.badgeOpacity = 1,
     this.arrows = false,
     this.onTap,
   });
 
+  /// Ancho y borde de una línea que va por su carril ([lane]).
+  static const double laneWidth = 5;
+  static const double laneBorder = 1;
+
+  /// Cuánto se corre un carril del eje de su calle: la mitad de lo que mide
+  /// con sus bordes. Sus flechas se corren lo mismo.
+  static const double laneOffset = laneWidth / 2 + laneBorder;
+
   final List<LatLng> points;
   final Color color;
+
+  /// En el zoom de calle (z15). Más lejos el mapa la dibuja más angosta y más
+  /// cerca más ancha, con su borde, para que siempre ocupe parecido de la
+  /// calle por la que va.
   final double width;
   final Color borderColor;
 
@@ -534,9 +796,14 @@ class MapLine {
   /// de los colectivos. Cada punto es un círculo de [width] con su borde.
   final bool dotted;
 
-  /// A trazos, sin borde: el regreso de la línea elegida, para distinguirlo de
-  /// su ida.
-  final bool dashed;
+  /// Por su carril: corrida a la derecha de su sentido (el orden de [points])
+  /// la mitad de su ancho, como un auto por su pista. Con la del sentido
+  /// contrario por la misma calle quedan lado a lado en vez de taparse. Tiene
+  /// que medir [laneWidth] con un borde de [laneBorder].
+  final bool lane;
+
+  /// Con una sombra suave debajo, que la despega del mapa.
+  final bool shadow;
 
   /// Insignia repetida a lo largo de la línea, por encima de los nombres de
   /// calles. Si dos se topan, MapLibre muestra sólo una.
@@ -738,6 +1005,67 @@ class AppMapController {
 
 ml.LatLng _ml(LatLng p) => ml.LatLng(p.latitude, p.longitude);
 
+/// El rumbo a una fracción [t] del giro de [desde] a [hasta], en grados, por
+/// el lado corto: de 350° a 10° pasa por el norte, no da la vuelta entera.
+@visibleForTesting
+double girarHacia(double desde, double hasta, double t) {
+  final diferencia = (hasta - desde + 540) % 360 - 180;
+  return (desde + diferencia * t + 360) % 360;
+}
+
+/// Por dónde va dibujado un vehículo: el camino entre donde estaba dibujado
+/// al llegar su posición nueva y esa posición.
+class _Deslizamiento {
+  const _Deslizamiento({
+    required this.desde,
+    required this.hasta,
+    required this.rumboDesde,
+    required this.rumboHasta,
+    required this.inicio,
+    required this.duracion,
+  });
+
+  /// Ya en su lugar: un vehículo recién aparecido, o uno que no se anima.
+  const _Deslizamiento.quieto(LatLng punto, double rumbo, this.inicio)
+    : desde = punto,
+      hasta = punto,
+      rumboDesde = rumbo,
+      rumboHasta = rumbo,
+      duracion = Duration.zero;
+
+  /// Lo que tarda en girar: un auto dobla en la esquina, no a lo largo de
+  /// toda la cuadra.
+  static const giro = Duration(milliseconds: 600);
+
+  final LatLng desde;
+  final LatLng hasta;
+  final double rumboDesde;
+  final double rumboHasta;
+
+  /// Cuándo llegó la posición [hasta].
+  final DateTime inicio;
+  final Duration duracion;
+
+  bool terminado(DateTime ahora) => ahora.difference(inicio) >= duracion;
+
+  /// Dónde va y hacia dónde apunta en el momento [ahora].
+  (LatLng, double) en(DateTime ahora) {
+    if (terminado(ahora)) return (hasta, rumboHasta);
+    final pasado = ahora.difference(inicio).inMicroseconds;
+    // A velocidad pareja: entre una posición y la siguiente el auto no frena.
+    final t = (pasado / duracion.inMicroseconds).clamp(0.0, 1.0);
+    final g = (pasado / math.min(duracion.inMicroseconds, giro.inMicroseconds))
+        .clamp(0.0, 1.0);
+    return (
+      LatLng(
+        desde.latitude + (hasta.latitude - desde.latitude) * t,
+        desde.longitude + (hasta.longitude - desde.longitude) * t,
+      ),
+      girarHacia(rumboDesde, rumboHasta, Curves.easeOut.transform(g)),
+    );
+  }
+}
+
 /// Radio en píxeles, en el zoom 0, de un círculo de [meters] metros en la
 /// [latitude] dada. En MapLibre el mundo mide 512 px en el zoom 0 y el doble
 /// en cada nivel siguiente; Mercator estira las distancias por 1/cos(lat).
@@ -754,9 +1082,9 @@ double circleRadiusAtZoom0(double meters, double latitude) =>
 ///
 /// El mapa base sale de los archivos offline ([BasemapService]); la vista
 /// satelital es la única que necesita conexión. Encima, la app dibuja lo suyo
-/// con capas propias: [lines], [circles] y [markers], en ese orden. Cambiar
-/// cualquiera de esas listas sólo actualiza sus datos, sin volver a dibujar el
-/// mapa base.
+/// con capas propias: [lines], [circles], [markers] y [vehicles], en ese
+/// orden. Cambiar cualquiera de esas listas sólo actualiza sus datos, sin
+/// volver a dibujar el mapa base.
 class AppMap extends StatefulWidget {
   const AppMap({
     super.key,
@@ -765,6 +1093,8 @@ class AppMap extends StatefulWidget {
     this.initialZoom = kInitialZoom,
     this.style = MapStyle.normal,
     this.markers = const [],
+    this.vehicles = const [],
+    this.animateVehicles = true,
     this.lines = const [],
     this.circles = const [],
     this.pulse,
@@ -783,6 +1113,14 @@ class AppMap extends StatefulWidget {
   final double initialZoom;
   final MapStyle style;
   final List<MapMarker> markers;
+
+  /// Los colectivos: autos que giran con su rumbo, encima de los marcadores.
+  final List<MapVehicle> vehicles;
+
+  /// Si los [vehicles] se deslizan de una posición a la siguiente. Sin esto
+  /// saltan: para la preferencia "Animaciones" y para un mapa que no se está
+  /// viendo (otra pestaña), donde deslizarlos sería trabajo perdido.
+  final bool animateVehicles;
   final List<MapLine> lines;
   final List<MapCircle> circles;
   final MapPulse? pulse;
@@ -819,20 +1157,36 @@ class AppMap extends StatefulWidget {
   State<AppMap> createState() => _AppMapState();
 }
 
-class _AppMapState extends State<AppMap> with SingleTickerProviderStateMixin {
+class _AppMapState extends State<AppMap> with TickerProviderStateMixin {
   static const _lineas = 'app_lineas';
-  static const _discontinuas = 'app_lineas_discontinuas';
   static const _insignias = 'app_insignias';
   static const _circulos = 'app_circulos';
   static const _pulso = 'app_pulso';
   static const _marcadores = 'app_marcadores';
   static const _ocultables = 'app_marcadores_ocultables';
+  static const _vehiculos = 'app_vehiculos';
+  static const _etiquetas = 'app_vehiculos_etiquetas';
 
   static const _galon = _Galon();
 
   /// Entre una flecha y la siguiente, en píxeles lógicos: las reparte
   /// MapLibre a lo largo de la línea, a esta distancia en cualquier zoom.
-  static const double _espacioFlechas = 90;
+  static const double _espacioFlechas = 75;
+
+  /// Entre una insignia de línea y la siguiente, en píxeles lógicos.
+  static const double _espacioInsignias = 420;
+
+  /// Cuánto baja la etiqueta de un vehículo desde su centro, en píxeles
+  /// lógicos: justo debajo del disco del auto.
+  static const double _bajoElAuto = 21;
+
+  /// Entre un cuadro y el siguiente de los vehículos que se deslizan: veinte
+  /// por segundo, porque cada uno es una llamada al mapa nativo.
+  static const _cuadro = Duration(milliseconds: 50);
+
+  /// Un vehículo que aparece a más de esto de donde estaba (volvió la señal
+  /// después de un túnel) salta: deslizarlo lo haría cruzar manzanas.
+  static const double _saltoMaximo = 300;
 
   /// Imágenes ya dibujadas, por ícono y densidad: se reusan entre mapas y al
   /// recargar el estilo.
@@ -869,6 +1223,14 @@ class _AppMapState extends State<AppMap> with SingleTickerProviderStateMixin {
   late final AnimationController _animacion;
   bool _pintandoPulso = false;
 
+  /// Por dónde va dibujado cada vehículo, y el reloj que los mueve mientras
+  /// alguno no llega a su lugar.
+  final Map<String, _Deslizamiento> _deslizamientos = {};
+  late final Ticker _reloj;
+  Duration _ultimoCuadro = Duration.zero;
+  bool _pintandoVehiculos = false;
+  bool _vehiculosPendientes = false;
+
   /// Lo último que se le aplicó a la flecha de navegación y a su cámara.
   MapUserFix? _fixEnviado;
   MapFollow _seguimiento = MapFollow.none;
@@ -884,7 +1246,8 @@ class _AppMapState extends State<AppMap> with SingleTickerProviderStateMixin {
 
   double _densidad = 1;
   bool _accesible = false;
-  List<(MapMarker, Offset)> _semanticas = const [];
+  List<({String texto, VoidCallback alTocar, Offset punto})> _semanticas =
+      const [];
 
   Offset? _inicioGesto;
   bool _gestoAvisado = false;
@@ -900,6 +1263,8 @@ class _AppMapState extends State<AppMap> with SingleTickerProviderStateMixin {
       vsync: this,
       duration: const Duration(milliseconds: 1400),
     )..addListener(_pintarPulso);
+    _reloj = createTicker(_alAvanzar);
+    _actualizarVehiculos();
     _basemap.addListener(_onBasemapChanged);
     if (!_basemap.isReady) unawaited(_basemap.load());
   }
@@ -908,6 +1273,7 @@ class _AppMapState extends State<AppMap> with SingleTickerProviderStateMixin {
   void dispose() {
     _basemap.removeListener(_onBasemapChanged);
     _animacion.dispose();
+    _reloj.dispose();
     widget.controller?._map = null;
     final map = _map;
     if (map != null) map.onFeatureTapped.remove(_alTocar);
@@ -925,7 +1291,9 @@ class _AppMapState extends State<AppMap> with SingleTickerProviderStateMixin {
       oldWidget.controller?._map = null;
       widget.controller?._map = _map;
     }
+    _actualizarVehiculos();
     _sincronizar();
+    _animarVehiculos();
     _sincronizarNavegacion();
     _actualizarPulso();
     if (_accesible) unawaited(_actualizarSemanticas());
@@ -969,9 +1337,24 @@ class _AppMapState extends State<AppMap> with SingleTickerProviderStateMixin {
     if (_accesible) unawaited(_actualizarSemanticas());
   }
 
+  /// [valor] tal cual en el zoom de calle (z15); más lejos se achica y más
+  /// cerca se agranda. Así una línea ocupa siempre parecido de su calle, en
+  /// vez de taparla de lejos y perderse en ella de cerca.
+  static List<Object> _porZoom(Object valor) => [
+    'interpolate',
+    ['linear'],
+    ['zoom'],
+    11,
+    ['*', 0.55, valor],
+    15,
+    valor,
+    18,
+    ['*', 1.5, valor],
+  ];
+
   /// Capas de la app. Las líneas, sus flechas, el halo y el pulso van debajo
   /// de [debajoDe], la primera capa de nombres del mapa base; las insignias de
-  /// las líneas y los marcadores, encima de todo.
+  /// las líneas, los marcadores y los vehículos, encima de todo.
   Future<void> _agregarCapas(
     ml.MapLibreMapController map,
     String? debajoDe,
@@ -979,32 +1362,64 @@ class _AppMapState extends State<AppMap> with SingleTickerProviderStateMixin {
     const vacio = {'type': 'FeatureCollection', 'features': <Object>[]};
     final ordenado = ['get', 'orden'];
     const continua = [
-      'all',
+      '!',
+      ['get', 'punteada'],
+    ];
+    const porSuCarril = [
+      '==',
+      ['get', 'carril'],
+      true,
+    ];
+    const conBorde = [
+      '+',
+      ['get', 'ancho'],
       [
-        '!',
-        ['get', 'punteada'],
-      ],
-      [
-        '!',
-        ['get', 'discontinua'],
+        '*',
+        2,
+        ['get', 'borde'],
       ],
     ];
+    // Un carril va corrido a la derecha de su sentido la mitad de lo que mide:
+    // con el del sentido contrario por la misma calle quedan lado a lado, como
+    // las dos pistas de la calle.
+    final corrida = _porZoom(const [
+      'case',
+      porSuCarril,
+      ['/', conBorde, 2],
+      0,
+    ]);
 
     await map.addGeoJsonSource(_lineas, vacio);
+    // La sombra: una línea negra desenfocada un poco más ancha, que despega
+    // el recorrido del mapa.
+    await map.addLineLayer(
+      _lineas,
+      '${_lineas}_sombra',
+      ml.LineLayerProperties(
+        lineColor: 'rgba(0, 0, 0, 0.32)',
+        lineWidth: _porZoom(const ['+', conBorde, 3]),
+        lineBlur: 4,
+        lineOffset: corrida,
+        lineTranslate: const [0, 1.5],
+        lineJoin: 'round',
+        lineCap: 'round',
+        lineSortKey: ordenado,
+      ),
+      belowLayerId: debajoDe,
+      filter: const [
+        'all',
+        continua,
+        ['get', 'sombra'],
+      ],
+      enableInteraction: false,
+    );
     await map.addLineLayer(
       _lineas,
       '${_lineas}_borde',
       ml.LineLayerProperties(
         lineColor: ['get', 'colorBorde'],
-        lineWidth: [
-          '+',
-          ['get', 'ancho'],
-          [
-            '*',
-            2,
-            ['get', 'borde'],
-          ],
-        ],
+        lineWidth: _porZoom(conBorde),
+        lineOffset: corrida,
         lineJoin: 'round',
         lineCap: 'round',
         lineSortKey: ordenado,
@@ -1018,7 +1433,8 @@ class _AppMapState extends State<AppMap> with SingleTickerProviderStateMixin {
       _lineas,
       ml.LineLayerProperties(
         lineColor: ['get', 'color'],
-        lineWidth: ['get', 'ancho'],
+        lineWidth: _porZoom(const ['get', 'ancho']),
+        lineOffset: corrida,
         lineJoin: 'round',
         lineCap: 'round',
         lineSortKey: ordenado,
@@ -1026,22 +1442,6 @@ class _AppMapState extends State<AppMap> with SingleTickerProviderStateMixin {
       belowLayerId: debajoDe,
       filter: continua,
       // Tocar una línea la elige (ver `MapLine.onTap`).
-      enableInteraction: true,
-    );
-    // A trazos y sin borde: el regreso de la línea elegida. Los trazos se
-    // miden en anchos de línea.
-    await map.addLineLayer(
-      _lineas,
-      _discontinuas,
-      ml.LineLayerProperties(
-        lineColor: ['get', 'color'],
-        lineWidth: ['get', 'ancho'],
-        lineDasharray: const [2, 1.5],
-        lineJoin: 'round',
-        lineSortKey: ordenado,
-      ),
-      belowLayerId: debajoDe,
-      filter: ['get', 'discontinua'],
       enableInteraction: true,
     );
     // Las flechas, quietas, encima de las líneas y debajo de la ruta a pie:
@@ -1057,11 +1457,28 @@ class _AppMapState extends State<AppMap> with SingleTickerProviderStateMixin {
         iconRotationAlignment: 'map',
         iconAllowOverlap: true,
         iconIgnorePlacement: true,
+        // Crecen con la línea.
+        iconSize: _porZoom(1),
+        // Hacia abajo de una flecha que apunta a la derecha es la derecha de
+        // su sentido: el lado de su carril. MapLibre multiplica este corrimiento
+        // por el tamaño del ícono, así que sigue al carril en cualquier zoom.
+        iconOffset: const [
+          'case',
+          porSuCarril,
+          [
+            'literal',
+            [0, MapLine.laneOffset],
+          ],
+          [
+            'literal',
+            [0, 0],
+          ],
+        ],
       ),
       belowLayerId: debajoDe,
       filter: ['get', 'flechas'],
       // Más lejos, en una línea de pocos píxeles, serían puro ruido.
-      minzoom: 12,
+      minzoom: 13,
       enableInteraction: false,
     );
     // Las punteadas, con un punto (imagen) cada [_espacioPuntos]: un guion de
@@ -1115,7 +1532,7 @@ class _AppMapState extends State<AppMap> with SingleTickerProviderStateMixin {
         iconImage: ['get', 'insignia'],
         iconOpacity: ['get', 'opacidadInsignia'],
         symbolPlacement: 'line',
-        symbolSpacing: 280,
+        symbolSpacing: _espacioInsignias,
         iconRotationAlignment: 'viewport',
         iconPadding: 6,
         symbolSortKey: ['-', ordenado],
@@ -1189,6 +1606,40 @@ class _AppMapState extends State<AppMap> with SingleTickerProviderStateMixin {
         symbolSortKey: ordenado,
       ),
     );
+
+    // Los vehículos, encima de los marcadores: lo que se mueve no queda
+    // debajo de lo que está quieto. El auto gira con su rumbo y va acostado
+    // sobre el mapa, también con la cámara inclinada del chofer; su etiqueta
+    // es otra capa, que no gira.
+    await map.addGeoJsonSource(_vehiculos, vacio);
+    await map.addSymbolLayer(
+      _vehiculos,
+      _vehiculos,
+      ml.SymbolLayerProperties(
+        iconImage: ['get', 'icono'],
+        iconOpacity: ['get', 'opacidad'],
+        iconRotate: ['get', 'rumbo'],
+        iconRotationAlignment: 'map',
+        iconPitchAlignment: 'map',
+        iconAllowOverlap: true,
+        iconIgnorePlacement: true,
+        symbolSortKey: ordenado,
+      ),
+    );
+    await map.addSymbolLayer(
+      _vehiculos,
+      _etiquetas,
+      ml.SymbolLayerProperties(
+        iconImage: ['get', 'etiqueta'],
+        iconOpacity: ['get', 'opacidad'],
+        iconAnchor: 'top',
+        iconOffset: const [0, _bajoElAuto],
+        iconAllowOverlap: true,
+        iconIgnorePlacement: true,
+        symbolSortKey: ordenado,
+      ),
+      filter: ['has', 'etiqueta'],
+    );
   }
 
   void _alTocar(
@@ -1198,13 +1649,20 @@ class _AppMapState extends State<AppMap> with SingleTickerProviderStateMixin {
     String layerId,
     ml.Annotation? annotation,
   ) {
-    if (layerId == _lineas ||
-        layerId == _discontinuas ||
-        layerId == _insignias) {
+    if (layerId == _lineas || layerId == _insignias) {
       // El id es `linea_<posición en la lista>` (ver `_lineasGeoJson`).
       final lines = widget.lines;
       final i = int.tryParse(id.replaceFirst('linea_', ''));
       if (i != null && i >= 0 && i < lines.length) lines[i].onTap?.call();
+      return;
+    }
+    if (layerId == _vehiculos || layerId == _etiquetas) {
+      for (final vehiculo in widget.vehicles) {
+        if (vehiculo.id == id) {
+          vehiculo.onTap?.call();
+          return;
+        }
+      }
       return;
     }
     if (layerId != _marcadores && layerId != _ocultables) return;
@@ -1276,6 +1734,7 @@ class _AppMapState extends State<AppMap> with SingleTickerProviderStateMixin {
     final markers = widget.markers;
     final iconos = <MapImage>[
       for (final marker in markers) marker.icon,
+      for (final vehiculo in widget.vehicles) ...[vehiculo.icon, ?vehiculo.tag],
       for (final line in widget.lines) ...[
         if (line.dotted) line.dotIcon,
         ?line.badge,
@@ -1319,6 +1778,10 @@ class _AppMapState extends State<AppMap> with SingleTickerProviderStateMixin {
       if (!vigente()) return;
       _enviado[id] = texto;
     }
+    // Los vehículos van aparte, porque se mueven solos entre un cambio y
+    // otro. Recién ahora están sus imágenes en el mapa.
+    _pintarVehiculos();
+    _animarVehiculos();
   }
 
   static Map<String, dynamic> _punto(
@@ -1354,7 +1817,8 @@ class _AppMapState extends State<AppMap> with SingleTickerProviderStateMixin {
               'borde': line.borderWidth,
               'orden': i,
               'punteada': line.dotted,
-              'discontinua': line.dashed,
+              'carril': line.lane,
+              'sombra': line.shadow,
               'flechas': line.arrows,
               if (line.dotted) 'icono': line.dotIcon.key,
               if (line.badge case final badge?) ...{
@@ -1403,6 +1867,135 @@ class _AppMapState extends State<AppMap> with SingleTickerProviderStateMixin {
   static String _css(Color c) =>
       'rgba(${(c.r * 255).round()}, ${(c.g * 255).round()}, '
       '${(c.b * 255).round()}, ${c.a.toStringAsFixed(3)})';
+
+  // --- Vehículos -----------------------------------------------------------
+
+  /// Anota hacia dónde tiene que ir cada vehículo. Uno nuevo aparece en su
+  /// lugar; uno que ya estaba parte de donde va dibujado en este momento, y
+  /// tarda en llegar lo que tardó en llegar su posición nueva: así se mueve
+  /// sin detenerse entre una y otra.
+  void _actualizarVehiculos() {
+    final ahora = DateTime.now();
+    final vigentes = <String>{};
+    for (final vehiculo in widget.vehicles) {
+      vigentes.add(vehiculo.id);
+      final antes = _deslizamientos[vehiculo.id];
+      if (antes != null &&
+          antes.hasta == vehiculo.point &&
+          antes.rumboHasta == vehiculo.heading) {
+        continue;
+      }
+      final quieto = _Deslizamiento.quieto(
+        vehiculo.point,
+        vehiculo.heading,
+        ahora,
+      );
+      if (antes == null || !widget.animateVehicles) {
+        _deslizamientos[vehiculo.id] = quieto;
+        continue;
+      }
+      final (desde, rumbo) = antes.en(ahora);
+      final salto = metrosEntre(desde, vehiculo.point);
+      if (!salto.isFinite || salto > _saltoMaximo) {
+        _deslizamientos[vehiculo.id] = quieto;
+        continue;
+      }
+      final espera = ahora.difference(antes.inicio).inMilliseconds;
+      _deslizamientos[vehiculo.id] = _Deslizamiento(
+        desde: desde,
+        hasta: vehiculo.point,
+        rumboDesde: rumbo,
+        rumboHasta: vehiculo.heading,
+        inicio: ahora,
+        // Sin moverse sólo gira. Si no, entre 0,8 y 4 s: una posición que
+        // demoró más (el auto estuvo detenido) no se alcanza a paso de tortuga.
+        duracion: salto == 0
+            ? _Deslizamiento.giro
+            : Duration(milliseconds: espera.clamp(800, 4000)),
+      );
+    }
+    _deslizamientos.removeWhere((id, _) => !vigentes.contains(id));
+  }
+
+  /// Echa a andar el reloj si algún vehículo todavía no llega a su lugar. Sólo
+  /// con el mapa listo: en los tests y en el escritorio no hay a quién
+  /// enviarle nada, y un reloj andando no los dejaría terminar.
+  void _animarVehiculos() {
+    if (_map == null || !_estiloListo || _reloj.isActive) return;
+    final ahora = DateTime.now();
+    if (_deslizamientos.values.every((d) => d.terminado(ahora))) return;
+    _ultimoCuadro = Duration.zero;
+    _reloj.start();
+  }
+
+  void _alAvanzar(Duration transcurrido) {
+    if (transcurrido - _ultimoCuadro < _cuadro) return;
+    _ultimoCuadro = transcurrido;
+    // El último cuadro los deja a todos en su lugar exacto.
+    final ahora = DateTime.now();
+    if (_deslizamientos.values.every((d) => d.terminado(ahora))) _reloj.stop();
+    _pintarVehiculos();
+  }
+
+  /// Envía al mapa dónde va cada vehículo en este momento. Si el envío
+  /// anterior todavía no termina, queda uno pendiente con lo más reciente: no
+  /// se acumulan llamadas.
+  void _pintarVehiculos() {
+    final map = _map;
+    if (map == null || !_estiloListo) return;
+    if (_pintandoVehiculos) {
+      _vehiculosPendientes = true;
+      return;
+    }
+    final vehiculos = widget.vehicles;
+    // Sus imágenes las agrega `_enviar`, que al terminar vuelve a llamar acá.
+    for (final v in vehiculos) {
+      if (!_imagenes.contains(v.icon.key)) return;
+      if (v.tag case final tag? when !_imagenes.contains(tag.key)) return;
+    }
+    final datos = _vehiculosGeoJson(vehiculos, DateTime.now());
+    final texto = jsonEncode(datos);
+    if (_enviado[_vehiculos] == texto) return;
+
+    final generacion = _generacion;
+    _pintandoVehiculos = true;
+    map
+        .setGeoJsonSource(_vehiculos, datos)
+        .then((_) {
+          if (generacion == _generacion) _enviado[_vehiculos] = texto;
+        })
+        .catchError((Object _) {})
+        .whenComplete(() {
+          _pintandoVehiculos = false;
+          if (_vehiculosPendientes && mounted) {
+            _vehiculosPendientes = false;
+            _pintarVehiculos();
+          }
+        });
+  }
+
+  Map<String, dynamic> _vehiculosGeoJson(
+    List<MapVehicle> vehiculos,
+    DateTime ahora,
+  ) => {
+    'type': 'FeatureCollection',
+    'features': [
+      for (final (i, v) in vehiculos.indexed)
+        if (_deslizamientos[v.id]?.en(ahora) case (
+          final punto,
+          final rumbo,
+        ) when _finito(punto))
+          _punto(v.id, punto, {
+            'icono': v.icon.key,
+            // Con un decimal: el mapa no distingue menos, y el texto que se
+            // compara para no reenviar lo mismo queda más corto.
+            'rumbo': (rumbo * 10).round() / 10,
+            'opacidad': v.opacity,
+            'orden': i,
+            if (v.tag case final tag?) 'etiqueta': tag.key,
+          }),
+    ],
+  };
 
   // --- Pulso ---------------------------------------------------------------
 
@@ -1586,20 +2179,24 @@ class _AppMapState extends State<AppMap> with SingleTickerProviderStateMixin {
 
   // --- Lector de pantalla --------------------------------------------------
 
-  /// Con TalkBack activo, un botón invisible encima de cada marcador con su
-  /// descripción: los marcadores son imágenes dentro del mapa nativo y el
-  /// lector de pantalla no los ve. Se ubican cada vez que la cámara se detiene.
+  /// Con TalkBack activo, un botón invisible encima de cada marcador y de cada
+  /// vehículo con su descripción: son imágenes dentro del mapa nativo y el
+  /// lector de pantalla no las ve. Se ubican cada vez que la cámara se detiene.
   Future<void> _actualizarSemanticas() async {
     final map = _map;
     if (map == null || !_estiloListo) return;
     final conEtiqueta = [
       for (final m in widget.markers)
-        if (m.semanticLabel != null && m.onTap != null) m,
+        if ((m.semanticLabel, m.onTap) case (final texto?, final alTocar?))
+          (texto: texto, alTocar: alTocar, donde: m.point),
+      for (final v in widget.vehicles)
+        if ((v.semanticLabel, v.onTap) case (final texto?, final alTocar?))
+          (texto: texto, alTocar: alTocar, donde: v.point),
     ];
     List<math.Point<num>> puntos;
     try {
       puntos = await map.toScreenLocationBatch(
-        conEtiqueta.map((m) => _ml(m.point)),
+        conEtiqueta.map((e) => _ml(e.donde)),
       );
     } catch (_) {
       return;
@@ -1609,8 +2206,12 @@ class _AppMapState extends State<AppMap> with SingleTickerProviderStateMixin {
     final escala = !kIsWeb && Platform.isAndroid ? _densidad : 1.0;
     setState(() {
       _semanticas = [
-        for (final (i, m) in conEtiqueta.indexed)
-          (m, Offset(puntos[i].x / escala, puntos[i].y / escala)),
+        for (final (i, e) in conEtiqueta.indexed)
+          (
+            texto: e.texto,
+            alTocar: e.alTocar,
+            punto: Offset(puntos[i].x / escala, puntos[i].y / escala),
+          ),
       ];
     });
   }
@@ -1730,16 +2331,16 @@ class _AppMapState extends State<AppMap> with SingleTickerProviderStateMixin {
             foregroundLoadColor: scheme.surfaceContainerHighest,
           ),
         ),
-        for (final (marker, punto) in _semanticas)
+        for (final semantica in _semanticas)
           Positioned(
-            left: punto.dx - 24,
-            top: punto.dy - 24,
+            left: semantica.punto.dx - 24,
+            top: semantica.punto.dy - 24,
             width: 48,
             height: 48,
             child: Semantics(
               button: true,
-              label: marker.semanticLabel,
-              onTap: marker.onTap,
+              label: semantica.texto,
+              onTap: semantica.alTocar,
               child: const SizedBox.expand(),
             ),
           ),

@@ -1570,6 +1570,12 @@ abstract class AppLocalizations {
   /// **'Tomarlo en el otro sentido'**
   String get hailSwitch;
 
+  /// No description provided for @terminalCenter.
+  ///
+  /// In es, this message translates to:
+  /// **'Centro'**
+  String get terminalCenter;
+
   /// No description provided for @tapToSeeBoarding.
   ///
   /// In es, this message translates to:

@@ -6,6 +6,7 @@ import 'package:geolocator/geolocator.dart';
 
 import 'package:taxi1/models/colectivo_activo.dart';
 import 'package:taxi1/services/location_service.dart';
+import 'package:taxi1/services/rumbos_de_flota.dart';
 import 'package:taxi1/services/session_log_service.dart';
 
 /// Lo que se sabe de la flota en vivo en un momento dado.
@@ -78,6 +79,7 @@ class FirebaseTelemetriaService {
   DateTime _lastEmit = DateTime.fromMillisecondsSinceEpoch(0);
   List<ColectivoActivo> _raw = const [];
   List<ColectivoActivo> _simulados = const [];
+  final RumbosDeFlota _rumbos = RumbosDeFlota();
   bool _readFailed = false;
   bool _readLoaded = false;
   int _serverOffsetMs = 0;
@@ -182,14 +184,19 @@ class FirebaseTelemetriaService {
   void _emit() {
     _lastEmit = DateTime.now();
     final reales = vigentes(_raw, serverNow());
+    final flota = _simulados.isEmpty
+        ? reales
+        : [
+            ...reales,
+            for (final s in _simulados)
+              if (reales.every((r) => r.uid != s.uid)) s,
+          ];
     _state.value = TelemetriaState(
-      colectivos: _simulados.isEmpty
-          ? reales
-          : [
-              ...reales,
-              for (final s in _simulados)
-                if (reales.every((r) => r.uid != s.uid)) s,
-            ],
+      // El rumbo de cada unidad sale de comparar su posición con la del aviso
+      // anterior, también el de las simuladas. Un chofer publica una posición
+      // cada tres segundos y hay a lo más un aviso por segundo, así que no se
+      // salta ninguna.
+      colectivos: _rumbos.aplicar(flota),
       failed: _readFailed,
       loaded: _readLoaded,
     );

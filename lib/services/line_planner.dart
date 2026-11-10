@@ -17,6 +17,7 @@ class LineSuggestion {
     required this.metrosHastaLinea,
     required this.metrosDesdeLinea,
     required this.metrosEnColectivo,
+    required this.metrosSubida,
   });
 
   final Recorrido recorrido;
@@ -36,6 +37,14 @@ class LineSuggestion {
 
   /// Lo que recorre arriba del colectivo, siguiendo la línea.
   final double metrosEnColectivo;
+
+  /// Cuánto lleva recorrido la línea, desde su inicio, al pasar por la
+  /// [subida]. Con [metrosBajada] delimita el tramo que se viaja, para
+  /// resaltarlo en el mapa.
+  final double metrosSubida;
+
+  /// Cuánto lleva recorrido la línea al pasar por la [bajada].
+  double get metrosBajada => metrosSubida + metrosEnColectivo;
 
   /// Total a pie, que es por lo que se ordenan las sugerencias.
   double get metrosAPie => metrosHastaLinea + metrosDesdeLinea;
@@ -195,6 +204,7 @@ abstract final class LinePlanner {
           metrosHastaLinea: subida.metros,
           metrosDesdeLinea: bajada.metros,
           metrosEnColectivo: enColectivo,
+          metrosSubida: subida.desdeInicio,
         );
         final actual = porLinea[linea.id];
         if (actual == null || sugerencia.metrosAPie < actual.metrosAPie) {

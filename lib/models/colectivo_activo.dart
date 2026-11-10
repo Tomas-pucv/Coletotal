@@ -17,6 +17,7 @@ class ColectivoActivo {
     this.recorridoNombre,
     this.conectado = true,
     this.ts,
+    this.rumbo,
   });
 
   /// Clave del nodo y dueño de la escritura.
@@ -43,6 +44,15 @@ class ColectivoActivo {
   /// Marca de tiempo del servidor, en milisegundos. Nula en los nodos escritos
   /// por versiones anteriores de la app.
   final int? ts;
+
+  /// Hacia dónde va, en grados desde el norte (en sentido horario), o `null`
+  /// mientras no se sabe.
+  ///
+  /// No viaja por la red: lo calcula cada teléfono con lo que la unidad se
+  /// movió entre una posición y la siguiente (ver `RumbosDeFlota`). Por eso no
+  /// está en [toJson] ni en `database.rules.json`, y funciona con cualquier
+  /// versión de la app de los choferes.
+  final double? rumbo;
 
   /// Cuánto tiempo sin noticias antes de dar por muerta a una unidad.
   ///
@@ -131,6 +141,7 @@ class ColectivoActivo {
     bool clearRecorrido = false,
     bool? conectado,
     int? ts,
+    double? rumbo,
   }) => ColectivoActivo(
     uid: uid,
     idVehiculo: idVehiculo,
@@ -143,5 +154,6 @@ class ColectivoActivo {
         : (recorridoNombre ?? this.recorridoNombre),
     conectado: conectado ?? this.conectado,
     ts: ts ?? this.ts,
+    rumbo: rumbo ?? this.rumbo,
   );
 }

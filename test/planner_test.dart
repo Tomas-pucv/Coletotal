@@ -90,6 +90,21 @@ void main() {
       final cerca = nearestOnPolyline(vaivien, const LatLng(-33.045, -71.439))!;
       expect(cerca.desdeInicio, lessThan(1200));
     });
+
+    test('dice hacia dónde va la línea en ese punto', () {
+      // Al sur y después al este: una "L".
+      const ele = [
+        LatLng(-33.04, -71.44),
+        LatLng(-33.05, -71.44),
+        LatLng(-33.05, -71.43),
+      ];
+      double rumbo(LatLng p) => nearestOnPolyline(ele, p)!.rumbo;
+      expect(rumbo(const LatLng(-33.045, -71.4405)), closeTo(180, 1e-6));
+      expect(rumbo(const LatLng(-33.0505, -71.435)), closeTo(90, 1e-6));
+      // Antes del primer punto y después del último: el del tramo de la punta.
+      expect(rumbo(const LatLng(-33.03, -71.44)), closeTo(180, 1e-6));
+      expect(rumbo(const LatLng(-33.05, -71.42)), closeTo(90, 1e-6));
+    });
   });
 
   group('LinePlanner', () {
@@ -106,6 +121,10 @@ void main() {
       expect(s.single.metrosDesdeLinea, closeTo(46.6, 1));
       expect(s.single.metrosEnColectivo, closeTo(3700, 20));
       expect(s.single.subida.longitude, closeTo(lng, 1e-9));
+      // De qué metro a qué metro de la ida se viaja: lo que el mapa resalta.
+      // La subida queda 0,0072° al sur del inicio de la línea, unos 800 m.
+      expect(s.single.metrosSubida, closeTo(800, 5));
+      expect(s.single.metrosBajada, closeTo(4500, 25));
     });
 
     test('hacia el otro lado toma la vuelta', () {
