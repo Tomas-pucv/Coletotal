@@ -8,6 +8,7 @@ import 'package:taxi1/l10n/app_localizations.dart';
 import 'package:taxi1/models/colectivo_activo.dart';
 import 'package:taxi1/models/place_result.dart';
 import 'package:taxi1/models/recorrido.dart';
+import 'package:taxi1/navigation/app_destination.dart';
 import 'package:taxi1/screens/main_screen.dart';
 import 'package:taxi1/services/auth_service.dart';
 import 'package:taxi1/services/firebase_telemetria_service.dart';
@@ -778,6 +779,7 @@ class _MapaPasajero extends StatelessWidget {
     final telemetria = FirebaseTelemetriaService.instance;
     final route = RouteService.instance;
     final prefs = PreferencesService.instance;
+    final nav = MainNavigationController.instance;
 
     return ListenableBuilder(
       listenable: Listenable.merge([
@@ -787,6 +789,7 @@ class _MapaPasajero extends StatelessWidget {
         telemetria.state,
         route,
         prefs,
+        nav,
       ]),
       builder: (context, _) {
         final l10n = AppLocalizations.of(context)!;
@@ -857,12 +860,18 @@ class _MapaPasajero extends StatelessWidget {
                   onTap: () => onTapVariante(r),
                 ),
             // Modo Foco (vehículo o línea seleccionada): sólo esa línea, con
-            // flechas e insignias.
+            // flechas e insignias. Sin viaje, sus dos sentidos, con el del
+            // punto de seña elegido resaltado; en un viaje, su sentido, con el
+            // tramo que se recorre arriba del colectivo resaltado.
             if (linea != null)
               ...recorridoLines(
                 linea,
                 status,
                 sentido: sentido,
+                destacado: viaje == null ? sentidoSena : null,
+                tramo: viaje == null
+                    ? null
+                    : (desde: viaje.metrosSubida, hasta: viaje.metrosBajada),
                 badge: true,
                 arrows: true,
               ),
@@ -910,7 +919,30 @@ class _MapaPasajero extends StatelessWidget {
                   toRadius: 38,
                 )
               : null,
+          // Los colectivos: autos que giran y se deslizan, salvo sin
+          // "Animaciones" o mientras se mira otra pestaña.
+          vehicles: [
+            for (final colectivo in colectivos)
+              colectivoMarker(
+                colectivo,
+                isMe: auth.isColectivero && colectivo.uid == auth.uid,
+                offline: colectivo.seemsOffline(ahora),
+                primary: scheme.primary,
+                l10n: l10n,
+                linea: lineaDeColectivo(colectivo),
+                onTap: () => onTapColectivo(colectivo),
+              ),
+          ],
+          animateVehicles:
+              prefs.animationsEnabled && nav.destination == AppDestination.mapa,
           markers: [
+            // Dónde empieza y dónde termina la línea elegida, debajo de todo
+            // lo demás. En un viaje no: ahí importan la subida y la bajada.
+            if (linea != null && viaje == null)
+              for (final (i, terminal) in PuntosDeSena.terminales(
+                linea,
+              ).indexed)
+                _terminal(terminal, i, linea, scheme, l10n),
             // Bandera del destino final buscado: la dirección a la que el
             // usuario quiere llegar caminando después de bajarse.
             if (destino != null)
@@ -961,17 +993,6 @@ class _MapaPasajero extends StatelessWidget {
                 elegido: ambos || sena.sentido == sentidoSena,
                 l10n: l10n,
               ),
-            for (final colectivo in colectivos)
-              colectivoMarker(
-                colectivo,
-                isMe: auth.isColectivero && colectivo.uid == auth.uid,
-                offline: colectivo.seemsOffline(ahora),
-                status: status,
-                primary: scheme.primary,
-                l10n: l10n,
-                linea: lineaDeColectivo(colectivo),
-                onTap: () => onTapColectivo(colectivo),
-              ),
             if (verPosicion)
               MapMarker(
                 id: 'yo',
@@ -994,6 +1015,47 @@ class _MapaPasajero extends StatelessWidget {
     );
   }
 
+  /// Un extremo de la línea elegida: un anillo de su color sobre el trazado y,
+  /// debajo, el nombre que le da la cartola ("Alto el Yugo", "Centro"). Sin
+  /// cartola, el anillo solo.
+  MapMarker _terminal(
+    Terminal terminal,
+    int i,
+    Recorrido linea,
+    ColorScheme scheme,
+    AppLocalizations l10n,
+  ) {
+    final anillo = MarkerIcon.circle(
+      diameter: 16,
+      color: const Color(0xFFFFFFFF),
+      borderColor: Color(linea.colorValue).withValues(alpha: 1),
+      borderWidth: 4,
+      shadow: const BoxShadow(
+        color: Color(0x59000000),
+        blurRadius: 4,
+        offset: Offset(0, 1),
+      ),
+    );
+    final nombre = switch (terminal.lugar) {
+      null => null,
+      DestinoSena(esCentro: true) => l10n.terminalCenter,
+      DestinoSena(:final lugar) => lugar,
+    };
+    return MapMarker(
+      id: 'terminal_$i',
+      point: terminal.punto,
+      // La etiqueta, en negro o en blanco según el tema: no es del color de
+      // la línea, para que no se confunda con un punto de seña.
+      icon: nombre == null
+          ? anillo
+          : TaggedIcon(
+              base: anillo,
+              tag: nombre,
+              tagColor: scheme.inverseSurface,
+              tagTextColor: scheme.onInverseSurface,
+            ),
+    );
+  }
 
   MapMarker _iconoSentido(
     PuntoDeSena sena, {

@@ -322,6 +322,11 @@ class _TurnoScreenState extends State<TurnoScreen> {
                     : MapFollow.position,
                 insets: EdgeInsets.only(top: arriba, bottom: abajo),
                 zoomPara: _zoomPara,
+                // Los demás colectivos se deslizan sólo mientras se ve esta
+                // pestaña, y con "Animaciones" encendidas.
+                animarColectivos:
+                    _prefs.animationsEnabled &&
+                    _nav.destination == AppDestination.turno,
                 onUserGesture: () {
                   if (_siguiendo) setState(() => _siguiendo = false);
                 },
@@ -825,6 +830,7 @@ class _MapaTurno extends StatelessWidget {
     required this.follow,
     required this.insets,
     required this.zoomPara,
+    required this.animarColectivos,
     required this.onUserGesture,
   });
 
@@ -835,6 +841,9 @@ class _MapaTurno extends StatelessWidget {
 
   /// El zoom de navegación para una velocidad en m/s.
   final double Function(double? metrosPorSegundo) zoomPara;
+
+  /// Si los demás colectivos se deslizan de una posición a la siguiente.
+  final bool animarColectivos;
   final VoidCallback onUserGesture;
 
   static final _sinHora = DateTime.fromMillisecondsSinceEpoch(0);
@@ -899,13 +908,13 @@ class _MapaTurno extends StatelessWidget {
           ],
           // Sin toque: manejando, una ficha que se abre es una distracción.
           // La etiqueta dice qué línea cubre cada uno.
-          markers: [
+          animateVehicles: animarColectivos,
+          vehicles: [
             for (final c in otros)
               colectivoMarker(
                 c,
                 isMe: false,
                 offline: c.seemsOffline(ahora),
-                status: status,
                 primary: scheme.primary,
                 l10n: l10n,
                 linea: lineaDeColectivo(c),

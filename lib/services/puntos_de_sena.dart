@@ -49,6 +49,16 @@ class DestinoSena {
   int get hashCode => lugar.hashCode;
 }
 
+/// Un extremo de una línea: donde empieza o termina uno de sus sentidos.
+class Terminal {
+  const Terminal({required this.punto, this.lugar});
+
+  final LatLng punto;
+
+  /// Cómo lo llama la cartola, o `null` si la línea no la tiene.
+  final DestinoSena? lugar;
+}
+
 /// Los puntos de seña de las líneas, y dónde va el ícono de cada variante en
 /// el mapa del pasajero. En vez de dibujar todos los recorridos encima (con las
 /// tres variantes de la Línea 10 por las mismas calles, el mapa se volvía
@@ -199,13 +209,55 @@ abstract final class PuntosDeSena {
   /// centro. Sin cartola, `null`.
   static DestinoSena? destino(Recorrido r, Sentido sentido) {
     final calles = r.calles(sentido);
-    if (calles.isEmpty) return null;
-    final ultima = calles.last.trim();
-    final clave = _sinTildes(ultima.toUpperCase());
+    return calles.isEmpty ? null : _lugar(calles.last);
+  }
+
+  /// Hasta qué distancia dos extremos son el mismo terminal: donde termina la
+  /// ida suele empezar el regreso, a la vuelta de la esquina.
+  static const double mismoTerminal = 150;
+
+  /// Los terminales de [r], para marcarlos en el mapa: dónde empieza y dónde
+  /// termina cada sentido, con el nombre que les da la cartola (su primer y
+  /// su último lugar). Los que quedan a menos de [mismoTerminal] metros son
+  /// uno solo, así que una línea de ida y regreso tiene dos.
+  static List<Terminal> terminales(Recorrido r) {
+    final terminales = <Terminal>[];
+    void agregar(LatLng punto, DestinoSena? lugar) {
+      for (final (i, t) in terminales.indexed) {
+        if (metrosEntre(t.punto, punto) > mismoTerminal) continue;
+        // El mismo terminal: queda donde se lo vio primero, con el nombre de
+        // quien lo traiga.
+        if (t.lugar == null && lugar != null) {
+          terminales[i] = Terminal(punto: t.punto, lugar: lugar);
+        }
+        return;
+      }
+      terminales.add(Terminal(punto: punto, lugar: lugar));
+    }
+
+    for (final (sentido, trayecto) in r.trayectos) {
+      final calles = r.calles(sentido);
+      agregar(
+        trayecto.trazado.first,
+        calles.isEmpty ? null : _lugar(calles.first),
+      );
+      agregar(
+        trayecto.trazado.last,
+        calles.isEmpty ? null : _lugar(calles.last),
+      );
+    }
+    return terminales;
+  }
+
+  /// Un lugar de la cartola: el centro si es la garita ("SERRANO",
+  /// "QUILPUÉ"), o su nombre.
+  static DestinoSena _lugar(String entrada) {
+    final nombre = entrada.trim();
+    final clave = _sinTildes(nombre.toUpperCase());
     if (clave == 'QUILPUE' || clave == 'SERRANO') {
       return const DestinoSena.centro();
     }
-    return DestinoSena.lugar(_titulo(ultima));
+    return DestinoSena.lugar(_titulo(nombre));
   }
 
   static const _minusculas = {'de', 'del', 'la', 'las', 'el', 'los', 'y'};

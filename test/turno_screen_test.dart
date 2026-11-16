@@ -16,6 +16,7 @@ import 'package:taxi1/services/location_service.dart';
 import 'package:taxi1/services/preferences_service.dart';
 import 'package:taxi1/services/recorridos_service.dart';
 import 'package:taxi1/services/turno_service.dart';
+import 'package:taxi1/theme/app_colors.dart';
 import 'package:taxi1/theme/app_theme.dart';
 import 'package:taxi1/utils/polyline.dart';
 import 'package:taxi1/widgets/app_map.dart';
@@ -204,9 +205,11 @@ void main() {
     await tester.pumpWidget(_app());
     await tester.pump();
 
-    final ids = _mapa(tester).markers.map((m) => m.id);
+    final ids = _mapa(tester).vehicles.map((v) => v.id);
     expect(ids, contains('colectivo_otro'));
     expect(ids, isNot(contains('colectivo_yo')));
+    // Son autos, no marcadores: giran con su rumbo y se deslizan.
+    expect(_mapa(tester).markers, isEmpty);
   });
 
   testWidgets('el chofer ve sólo su línea: sin línea, nada dibujado; la '
@@ -249,10 +252,89 @@ void main() {
     await tester.pumpWidget(_app());
     await tester.pump();
 
-    final marcadores = {for (final m in _mapa(tester).markers) m.id: m.icon};
-    expect(marcadores['colectivo_con-linea'], isA<TaggedIcon>());
-    expect((marcadores['colectivo_con-linea']! as TaggedIcon).tag, '1');
-    expect(marcadores['colectivo_sin-linea'], isA<MarkerIcon>());
+    final etiquetas = {for (final v in _mapa(tester).vehicles) v.id: v.tag};
+    expect(etiquetas['colectivo_con-linea']?.text, '1');
+    expect(etiquetas.containsKey('colectivo_sin-linea'), isTrue);
+    expect(etiquetas['colectivo_sin-linea'], isNull);
+  });
+
+  testWidgets('un colectivo apunta hacia donde va; detenido en su línea, como '
+      'ella', (tester) async {
+    FirebaseTelemetriaService.instance.debugSetColectivos(const [
+      // Ya se movió: se sabe hacia dónde va.
+      ColectivoActivo(
+        uid: 'andando',
+        idVehiculo: 'EFGH34',
+        latitud: -33.050,
+        longitud: -71.4425,
+        recorridoId: 'l1',
+        rumbo: 270,
+      ),
+      // Detenido sobre la Línea 1, que baja hacia el sur.
+      ColectivoActivo(
+        uid: 'detenido',
+        idVehiculo: 'IJKL56',
+        latitud: -33.060,
+        longitud: -71.4425,
+        recorridoId: 'l1',
+      ),
+      // Detenido lejos de su línea, o sin línea: no hay de dónde sacarlo.
+      ColectivoActivo(
+        uid: 'lejos',
+        idVehiculo: 'MNOP78',
+        latitud: -33.060,
+        longitud: -71.4300,
+        recorridoId: 'l1',
+      ),
+      ColectivoActivo(
+        uid: 'sin-linea',
+        idVehiculo: 'QRST90',
+        latitud: -33.052,
+        longitud: -71.4425,
+      ),
+    ]);
+    await tester.pumpWidget(_app());
+    await tester.pump();
+
+    final rumbos = {for (final v in _mapa(tester).vehicles) v.id: v.heading};
+    expect(rumbos['colectivo_andando'], 270);
+    expect(rumbos['colectivo_detenido'], closeTo(180, 1e-6));
+    expect(rumbos['colectivo_lejos'], 0);
+    expect(rumbos['colectivo_sin-linea'], 0);
+  });
+
+  testWidgets('el anillo del auto es del color de su línea; sin línea, el '
+      'verde de "en servicio"', (tester) async {
+    FirebaseTelemetriaService.instance.debugSetColectivos(const [
+      ColectivoActivo(
+        uid: 'con-linea',
+        idVehiculo: 'EFGH34',
+        latitud: -33.050,
+        longitud: -71.4425,
+        recorridoId: 'l1',
+      ),
+      ColectivoActivo(
+        uid: 'sin-linea',
+        idVehiculo: 'IJKL56',
+        latitud: -33.052,
+        longitud: -71.4425,
+      ),
+    ]);
+    await tester.pumpWidget(_app());
+    await tester.pump();
+
+    final autos = {for (final v in _mapa(tester).vehicles) v.id: v.icon};
+    expect(
+      autos['colectivo_con-linea']!.ringColor,
+      Color(kRecorridoColors.first),
+    );
+    expect(
+      autos['colectivo_sin-linea']!.ringColor,
+      AppStatusColors.light.disponible,
+    );
+    // El disco es blanco en cualquier tema: los colores de las líneas son
+    // oscuros y sobre un disco oscuro no se distinguían.
+    expect(autos.values.every((a) => a.borderColor == Colors.white), isTrue);
   });
 
   testWidgets('sin perfil de chofer, el mensaje de siempre y sin mapa', (

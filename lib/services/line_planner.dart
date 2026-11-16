@@ -20,6 +20,7 @@ class LineSuggestion {
     required this.metrosHastaLinea,
     required this.metrosDesdeLinea,
     required this.metrosEnColectivo,
+    this.metrosSubida = 0.0,
     this.costoTotal,
     this.esFallbackCaminataLarga = false,
   });
@@ -41,6 +42,14 @@ class LineSuggestion {
 
   /// Lo que recorre arriba del colectivo, siguiendo la línea.
   final double metrosEnColectivo;
+
+  /// Cuánto lleva recorrido la línea, desde su inicio, al pasar por la
+  /// [subida]. Con [metrosBajada] delimita el tramo que se viaja, para
+  /// resaltarlo en el mapa.
+  final double metrosSubida;
+
+  /// Cuánto lleva recorrido la línea al pasar por la [bajada].
+  double get metrosBajada => metrosSubida + metrosEnColectivo;
 
   /// Costo objetivo $Z$ calculado por [HybridRouteOptimizer].
   final double? costoTotal;
@@ -222,6 +231,7 @@ abstract final class LinePlanner {
       var metrosHastaLinea = c.rawWalkAccessMeters;
       var metrosDesdeLinea = c.rawWalkEgressMeters;
       var metrosEnColectivo = c.vehMeters;
+      var metrosSubida = c.lut.cumulativeMeters[c.upIndex];
 
       if (localSubida != null && localBajada != null) {
         final refinedVeh =
@@ -233,7 +243,23 @@ abstract final class LinePlanner {
           metrosHastaLinea = localSubida.metros;
           metrosDesdeLinea = localBajada.metros;
           metrosEnColectivo = refinedVeh;
+          metrosSubida = c.lut.cumulativeMeters[upStart] + localSubida.desdeInicio;
         }
+      }
+
+      final trazadoOriginal = c.recorrido.trayecto(c.sentido)?.trazado;
+      final pasoSubida = trazadoOriginal != null
+          ? nearestOnPolyline(trazadoOriginal, subida)
+          : null;
+      final pasoBajada = trazadoOriginal != null
+          ? nearestOnPolyline(trazadoOriginal, bajada)
+          : null;
+      if (pasoSubida != null &&
+          pasoBajada != null &&
+          pasoBajada.desdeInicio - pasoSubida.desdeInicio >=
+              HybridRouteOptimizer.kMinVehicularMeters) {
+        metrosSubida = pasoSubida.desdeInicio;
+        metrosEnColectivo = pasoBajada.desdeInicio - pasoSubida.desdeInicio;
       }
 
       resultado.add(
@@ -245,6 +271,7 @@ abstract final class LinePlanner {
           metrosHastaLinea: metrosHastaLinea,
           metrosDesdeLinea: metrosDesdeLinea,
           metrosEnColectivo: metrosEnColectivo,
+          metrosSubida: metrosSubida,
           costoTotal: c.totalCost,
           esFallbackCaminataLarga: plan.isLongWalkFallback,
         ),

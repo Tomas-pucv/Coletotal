@@ -58,6 +58,56 @@ void main() {
     });
   });
 
+  group('CarIcon', () {
+    CarIcon auto({Color anillo = Colors.green, double diametro = 44}) =>
+        CarIcon(
+          bodyColor: Colors.black,
+          signColor: Colors.yellow,
+          ringColor: anillo,
+          borderColor: Colors.white,
+          diameter: diametro,
+          tapTarget: 48,
+        );
+
+    test('los autos de la misma capacidad comparten la imagen', () {
+      // Con veinte colectivos hay tres imágenes, una por capacidad.
+      expect(auto().key, auto().key);
+      expect(auto().key, isNot(auto(anillo: Colors.red).key));
+      expect(auto().key, isNot(auto(diametro: 52).key));
+    });
+
+    test('conserva el área táctil, y el disco más grande no queda cortado', () {
+      expect(auto().extent, 48);
+      expect(auto(diametro: 52).extent, greaterThan(52));
+    });
+
+    testWidgets('la imagen es cuadrada: el auto gira sobre su centro', (
+      tester,
+    ) async {
+      await tester.runAsync(() async {
+        final png = await auto().toPng(3);
+        final codec = await ui.instantiateImageCodec(png);
+        final imagen = (await codec.getNextFrame()).image;
+        expect((imagen.width, imagen.height), (144, 144));
+        imagen.dispose();
+      });
+    });
+  });
+
+  test('un vehículo gira por el lado corto', () {
+    // De 350° a 10° pasa por el norte: no da la vuelta entera.
+    expect(girarHacia(350, 10, 0.5), closeTo(0, 1e-9));
+    expect(girarHacia(10, 350, 0.5), closeTo(0, 1e-9));
+    expect(girarHacia(90, 180, 0), closeTo(90, 1e-9));
+    expect(girarHacia(90, 180, 1), closeTo(180, 1e-9));
+  });
+
+  test('las flechas de un carril se corren lo mismo que su línea', () {
+    // La línea se corre la mitad de lo que mide con sus bordes; sus flechas,
+    // `MapLine.laneOffset`. Si no coinciden, las flechas quedan fuera de ella.
+    expect(MapLine.laneOffset, MapLine.laneWidth / 2 + MapLine.laneBorder);
+  });
+
   test('la ruta a pie va punteada, con puntos del ancho de la línea', () {
     const linea = MapLine(
       points: [kQuilpueCenter, kQuilpueCenter],

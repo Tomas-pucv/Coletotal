@@ -304,6 +304,7 @@
   "hailLineTitle": "Línea {linea}",
   "@hailLineTitle": {"placeholders": {"linea": {"type": "String"}}},
   "hailSwitch": "Tomarlo en el otro sentido",
+  "terminalCenter": "Centro",
   "tapToSeeBoarding": "Tocar para ver dónde subir",
   "routePointRemoved": "Punto eliminado",
   "undo": "Deshacer"

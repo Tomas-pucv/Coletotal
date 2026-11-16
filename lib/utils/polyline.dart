@@ -118,12 +118,14 @@ List<LatLng> joinLegs(Iterable<List<LatLng>> legs) {
 }
 
 /// El punto de una línea más cercano a otro: dónde queda, a cuántos metros
-/// está y en qué punto de la línea cae, medido desde su inicio.
+/// está, en qué punto de la línea cae, medido desde su inicio, y hacia dónde
+/// va la línea ahí.
 class PuntoEnLinea {
   const PuntoEnLinea({
     required this.punto,
     required this.metros,
     required this.desdeInicio,
+    required this.rumbo,
   });
 
   final LatLng punto;
@@ -135,23 +137,72 @@ class PuntoEnLinea {
   /// Es lo que dice si un lugar viene antes o después que otro en el sentido
   /// de marcha.
   final double desdeInicio;
+
+  /// Hacia dónde va la línea en [punto], en grados desde el norte (en sentido
+  /// horario): el rumbo del tramo donde cae.
+  final double rumbo;
 }
 
 const double _radioTierra = 6371008.8;
+
+/// Metros entre dos puntos cercanos (aproximación equirectangular: a la escala
+/// de una ciudad el error es de centímetros, y no puede fallar con datos
+/// raros como las fórmulas sobre el elipsoide).
+double metrosEntre(LatLng a, LatLng b) {
+  final lat = (a.latitude + b.latitude) / 2 * math.pi / 180;
+  final dx = (b.longitude - a.longitude) * math.cos(lat);
+  final dy = b.latitude - a.latitude;
+  return math.sqrt(dx * dx + dy * dy) * math.pi / 180 * _radioTierra;
+}
+
+/// Hacia dónde queda [b] desde [a], en grados desde el norte (en sentido
+/// horario): 90 es el este.
+double rumboEntre(LatLng a, LatLng b) {
+  final lat = (a.latitude + b.latitude) / 2 * math.pi / 180;
+  final dx = (b.longitude - a.longitude) * math.cos(lat);
+  final dy = b.latitude - a.latitude;
+  return (math.atan2(dx, dy) * 180 / math.pi + 360) % 360;
+}
 
 /// Largo de [linea] en metros (aproximación equirectangular por tramo, de
 /// sobra precisa para mostrar "4,3 km").
 double polylineLength(List<LatLng> linea) {
   var total = 0.0;
   for (var i = 1; i < linea.length; i++) {
-    final a = linea[i - 1];
-    final b = linea[i];
-    final lat = (a.latitude + b.latitude) / 2 * math.pi / 180;
-    final dx = (b.longitude - a.longitude) * math.cos(lat);
-    final dy = b.latitude - a.latitude;
-    total += math.sqrt(dx * dx + dy * dy) * math.pi / 180 * _radioTierra;
+    total += metrosEntre(linea[i - 1], linea[i]);
   }
   return total;
+}
+
+/// El trozo de [linea] que va de [desde] a [hasta] metros de su inicio,
+/// medidos sobre ella como [PuntoEnLinea.desdeInicio]: el tramo que un
+/// pasajero recorre arriba del colectivo, entre su subida y su bajada. Los
+/// dos extremos caen donde corresponde dentro de su tramo, no en el vértice
+/// más cercano. Vacío si no queda nada que dibujar.
+List<LatLng> subLinea(List<LatLng> linea, double desde, double hasta) {
+  if (linea.length < 2 || hasta <= desde) return const [];
+  final trozo = <LatLng>[];
+  var acumulado = 0.0;
+  for (var i = 1; i < linea.length && acumulado < hasta; i++) {
+    final a = linea[i - 1];
+    final b = linea[i];
+    final largo = metrosEntre(a, b);
+    final fin = acumulado + largo;
+    if (largo > 0 && fin > desde) {
+      LatLng en(double metros) {
+        final t = ((metros - acumulado) / largo).clamp(0.0, 1.0);
+        return LatLng(
+          a.latitude + (b.latitude - a.latitude) * t,
+          a.longitude + (b.longitude - a.longitude) * t,
+        );
+      }
+
+      if (trozo.isEmpty) trozo.add(en(desde));
+      trozo.add(en(hasta));
+    }
+    acumulado = fin;
+  }
+  return trozo.length >= 2 ? trozo : const [];
 }
 
 /// El punto de [linea] más cercano a [p], o `null` si la línea está vacía.
@@ -172,11 +223,15 @@ PuntoEnLinea? nearestOnPolyline(List<LatLng> linea, LatLng p) {
       LatLng(p.latitude + y / grado, p.longitude + x / (grado * cosLat));
 
   var (ax, ay) = plano(linea.first);
+  // El primer punto vale mientras ningún tramo pase más cerca; su rumbo es
+  // el del primer tramo que tenga largo (ver más abajo).
   var mejor = PuntoEnLinea(
     punto: linea.first,
     metros: math.sqrt(ax * ax + ay * ay),
     desdeInicio: 0,
+    rumbo: 0,
   );
+  var enElInicio = true;
   var acumulado = 0.0;
   for (var i = 1; i < linea.length; i++) {
     final (bx, by) = plano(linea[i]);
@@ -190,12 +245,26 @@ PuntoEnLinea? nearestOnPolyline(List<LatLng> linea, LatLng p) {
     final px = ax + t * dx;
     final py = ay + t * dy;
     final metros = math.sqrt(px * px + py * py);
+    // En el plano, x va al este e y al norte: el rumbo se mide desde el norte.
+    final rumbo = largo2 == 0
+        ? null
+        : (math.atan2(dx, dy) * 180 / math.pi + 360) % 360;
     if (metros < mejor.metros) {
       mejor = PuntoEnLinea(
         punto: esfera(px, py),
         metros: metros,
         desdeInicio: acumulado + t * largo,
+        rumbo: rumbo ?? mejor.rumbo,
       );
+      enElInicio = false;
+    } else if (enElInicio && rumbo != null) {
+      mejor = PuntoEnLinea(
+        punto: mejor.punto,
+        metros: mejor.metros,
+        desdeInicio: 0,
+        rumbo: rumbo,
+      );
+      enElInicio = false;
     }
     acumulado += largo;
     ax = bx;
