@@ -1,0 +1,169 @@
+rules_version = '2';
+
+// Reglas de Firestore de ColeTotal.
+//
+// Antes de esto no existía ningún archivo de reglas en el repositorio: la base
+// estaba abierta. Las tres ideas que sostienen todo lo de abajo son:
+//
+//  1. El **rol no se declara, se deriva**. Al crear su documento, el usuario
+//     tiene que citar el código de garita que usó, y la regla vuelve a leer ese
+//     código para comprobar que concede el rol que se está reclamando. Sin esta
+//     verificación del lado del servidor, el sistema de roles entero sería
+//     decoración: bastaría un `set(usuarios/miUid, {rol: 'administrador'})`.
+//
+//  2. Los códigos son **legibles de a uno pero no enumerables**. Firestore
+//     distingue `get` (un documento por id) de `list` (consulta), así que con
+//     `get` abierto y `list` cerrado hay que conocer el código exacto para
+//     llegar a él. Eso permite validarlo *antes* de crear la cuenta, en vez de
+//     crearla y tener que borrarla si el código resulta inválido.
+//
+//  3. Nadie se autoasciende ni se auto-habilita: cada `update` declara
+//     exactamente qué campos puede tocar.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function me() {
+      return get(/databases/$(database)/documents/usuarios/$(request.auth.uid)).data;
+    }
+
+    function isAdminOf(garitaId) {
+      return signedIn()
+        && exists(/databases/$(database)/documents/usuarios/$(request.auth.uid))
+        && me().rol == 'administrador'
+        && me().activo == true
+        && me().garitaId == garitaId;
+    }
+
+    function codigo(c) {
+      return get(/databases/$(database)/documents/codigos_acceso/$(c)).data;
+    }
+
+    // Un sentido de un recorrido (ida o vuelta): los puntos que marcó la
+    // garita en el editor y el trazado por calle calculado a partir de ellos.
+    function trayectoValido(t) {
+      return t is map
+        && t.puntos is list && t.puntos.size() <= 200
+        && t.geometria is string && t.geometria.size() <= 300000;
+    }
+
+    // Una línea: nombre, color, si está activa, su ida y, cuando ya se dibujó,
+    // su vuelta. No tiene paraderos: los colectivos paran donde se les hace la
+    // seña (los paraderos se eliminaron el 10 de octubre de 2026).
+    function recorridoValido() {
+      let d = request.resource.data;
+      return d.nombre is string && d.nombre.size() > 0 && d.nombre.size() <= 80
+        && d.color is int
+        && d.activo is bool
+        && trayectoValido(d.ida)
+        && (!('vuelta' in d) || trayectoValido(d.vuelta));
+    }
+
+    // Códigos de enrolamiento. El id del documento ES el código.
+    match /codigos_acceso/{c} {
+      allow get: if true;      // validable antes de registrarse…
+      allow list: if false;    // …pero jamás enumerable
+      allow write: if false;   // se crean desde la consola de Firebase
+    }
+
+    // Configuración global (ej. verificación de versión y actualizaciones OTA).
+    match /config/{document} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    // Metadatos públicos de la garita. Los códigos NO están aquí: si lo
+    // estuvieran, el primer chofer que se registrara podría leer el código de
+    // administrador y ascenderse.
+    match /garitas/{garitaId} {
+      allow read: if true;
+      allow write: if false;
+
+      // Auditoría de turnos e incidencias operacionales de los choferes.
+      //
+      // Antes bastaba con tener sesión: cualquier cuenta podía escribir
+      // auditorías en cualquier garita. Ahora cada uno sube sólo las suyas, a
+      // su propia garita y con un tamaño acotado (el cliente agrupa las fallas
+      // repetidas y topa los eventos en 300).
+      match /auditoria_turnos/{sessionId} {
+        allow read: if isAdminOf(garitaId);
+        allow create: if signedIn()
+          && exists(/databases/$(database)/documents/usuarios/$(request.auth.uid))
+          && me().garitaId == garitaId
+          && request.resource.data.uid == request.auth.uid
+          && request.resource.data.garitaId == garitaId
+          && request.resource.data.eventos is list
+          && request.resource.data.eventos.size() <= 500;
+        allow update, delete: if false;
+      }
+    }
+
+    match /usuarios/{uid} {
+      allow get: if signedIn()
+        && (request.auth.uid == uid || isAdminOf(resource.data.garitaId));
+
+      // El administrador lista los choferes de **su** garita. La consulta
+      // filtra por `garitaId`, y las reglas exigen que ese filtro sea el de la
+      // garita del administrador: antes cualquier administrador, incluso uno
+      // deshabilitado, podía listar los usuarios de todas las garitas.
+      allow list: if isAdminOf(resource.data.garitaId)
+        && request.query.limit <= 200;
+
+      // Este es el corazón del sistema de roles: el rol y la garita que se
+      // escriben tienen que ser exactamente los que concede el código citado.
+      allow create: if signedIn()
+        && request.auth.uid == uid
+        && request.resource.data.keys().hasOnly(
+             ['rol', 'nombre', 'garitaId', 'patente', 'email', 'activo', 'codigo'])
+        && request.resource.data.rol in ['colectivero', 'administrador']
+        && request.resource.data.activo == true
+        && request.resource.data.nombre is string
+        && request.resource.data.nombre.size() > 0
+        && request.resource.data.nombre.size() <= 60
+        && exists(/databases/$(database)/documents/codigos_acceso/$(request.resource.data.codigo))
+        && codigo(request.resource.data.codigo).activo == true
+        && codigo(request.resource.data.codigo).rol == request.resource.data.rol
+        && codigo(request.resource.data.codigo).garitaId == request.resource.data.garitaId;
+
+      // El dueño sólo puede cambiar su nombre visible. No su rol, no su
+      // garita, y sobre todo no su propio `activo`.
+      allow update: if signedIn()
+        && request.auth.uid == uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['nombre'])
+        && request.resource.data.nombre is string
+        && request.resource.data.nombre.size() > 0
+        && request.resource.data.nombre.size() <= 60;
+
+      // El administrador de la garita sólo puede habilitar o deshabilitar.
+      allow update: if isAdminOf(resource.data.garitaId)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['activo']);
+
+      // Borrar una cuenta dejaría al usuario autenticado y sin perfil, que es
+      // un estado peor que tenerla deshabilitada.
+      allow delete: if false;
+    }
+
+    // Los recorridos van al nivel raíz, con un campo `garitaId`, y no como
+    // subcolección de `garitas`: el invitado no tiene garita, y como
+    // subcolección necesitaría conocer un id para poder leerlos.
+    // (`paraderos` ya no existe: cae en la regla final, que lo cierra.)
+    match /recorridos/{id} {
+      allow read: if true;
+      allow create: if isAdminOf(request.resource.data.garitaId)
+        && recorridoValido();
+      // Una línea no puede cambiar de garita por la vía de un update.
+      allow update: if isAdminOf(resource.data.garitaId)
+        && request.resource.data.garitaId == resource.data.garitaId
+        && recorridoValido();
+      allow delete: if isAdminOf(resource.data.garitaId);
+    }
+
+    // Nada más es accesible.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

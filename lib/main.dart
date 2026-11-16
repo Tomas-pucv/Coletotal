@@ -1,26 +1,114 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_core/firebase_core.dart';
-import 'firebase_options.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:maplibre_gl/maplibre_gl.dart' show MapLibreMap;
+
+import 'package:taxi1/config/app_version.dart';
+import 'package:taxi1/config/map_config.dart';
+import 'package:taxi1/firebase_options.dart';
 import 'package:taxi1/l10n/app_localizations.dart';
 import 'package:taxi1/screens/main_screen.dart';
+import 'package:taxi1/services/auth_service.dart';
+import 'package:taxi1/services/basemap_service.dart';
+import 'package:taxi1/services/firebase_telemetria_service.dart';
+import 'package:taxi1/services/garita_service.dart';
+import 'package:taxi1/services/location_service.dart';
 import 'package:taxi1/services/preferences_service.dart';
+import 'package:taxi1/services/recorridos_service.dart';
+import 'package:taxi1/services/simulacion_flota_service.dart';
+import 'package:taxi1/services/turno_service.dart';
+import 'package:taxi1/services/street_index.dart';
+import 'package:taxi1/theme/app_text_scaler.dart';
+import 'package:taxi1/theme/app_theme.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  await Firebase.initializeApp(
-    options: DefaultFirebaseOptions.currentPlatform,
+  // El mapa se dibuja en un TextureView y Flutter lo compone como una capa
+  // más. Con el modo por omisión (Virtual Display), Flutter redimensiona el
+  // mapa con una tarea diferida que puede correr cuando el mapa ya no existe:
+  // la app se cerraba al girar el teléfono o al cambiar de app mientras la
+  // ventana se achicaba (2026-10-10, NullPointerException en
+  // `SurfaceProducer.getWidth`). Tiene que fijarse antes del primer mapa.
+  MapLibreMap.useHybridComposition = true;
+
+  // El mapa base viene en el APK y no depende de Firebase: se abre en
+  // paralelo y sin esperarlo. La primera vez tras instalar copia unos 60 MB;
+  // mientras tanto los mapas muestran su fondo (ver `BasemapService`).
+  unawaited(BasemapService.instance.load());
+
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+
+  // Caché offline explícita (RF-07-01): las líneas tienen que verse en los
+  // tramos sin cobertura de los cerros de Quilpué.
+  FirebaseFirestore.instance.settings = const Settings(
+    persistenceEnabled: true,
+    cacheSizeBytes: Settings.CACHE_SIZE_UNLIMITED,
   );
 
-  // Inicializa Firebase (descomenta la línea de abajo cuando tengas el
-  // google-services.json configurado):
-  // await Firebase.initializeApp();
-  
+  // La versión instalada, que compara el actualizador y registra la auditoría
+  // de turnos. Se lee del APK en vez de repetirse a mano en el código.
+  await AppVersion.load();
+
+  // Antes que las preferencias: el rol decide qué pantallas existen, así que
+  // la primera construcción del árbol ya tiene que conocerlo.
+  await AuthService.instance.init();
+
+  // Engancha el turno a la sesión: cerrar sesión tiene que detener la
+  // telemetría ANTES de perder el token, o el nodo del vehículo queda colgado
+  // en el mapa de todos los pasajeros.
+  await TurnoService.instance.bind();
+
+  // Los datos de la garita sólo se escuchan cuando hay un administrador en
+  // sesión: un listener abierto contra datos que el usuario ya no puede leer
+  // sólo produce errores de reglas.
+  GaritaService.instance.bind();
 
   await PreferencesService.instance.load();
+
+  // Las líneas las lee todo el mundo, no sólo el administrador: son lo que
+  // el pasajero busca para saber qué colectivo tomar.
+  RecorridosService.instance.startListening();
+
+  // La flota en vivo: una sola suscripción para toda la app. Antes cada
+  // pantalla (mapa, flota, portada de garita, choferes) abría la suya.
+  FirebaseTelemetriaService.instance.startListening();
+
+  // ===========================================================================
+  // NOTA: CONFIGURACIONES DE PRUEBA (FUNCIÓN RADAR DE RUTAS POR PROXIMIDAD)
+  // ---------------------------------------------------------------------------
+  // Para validar y demostrar el muestreo dinámico de recorridos por cercanía
+  // (Modo Radar 1 km / Modo Foco 2 km) sin depender de ubicarse físicamente en
+  // Quilpué ni de tener flota real transmitiendo en ese instante:
+  //   1. `setDefaultPassengerPosition(kQuilpueCenter)` fija la ubicación por
+  //      defecto del pasajero en el centro de Quilpué (-33.0472, -71.4425) si
+  //      el GPS no está disponible o reporta coordenadas fuera de la comuna
+  //      (> 10 km, ej. emulador). En modo conductor usa siempre el GPS real.
+  //   2. `SimulacionFlotaService.instance.start(centro: kQuilpueCenter)`
+  //      inyecta 3 colectivos simulados (BBCC10, DDEE11, FFGG12) circulando
+  //      sobre los trazados reales de las 3 líneas originales de Firestore
+  //      (`linea-10-t`, `linea-10-v1`, `linea-10-v2`), donde `FFGG12` entra y
+  //      sale periódicamente del radio de 1 km por Av. Ricardo Cumming.
+  // Para pruebas de campo exclusivamente con GPS real y flota en vivo, basta
+  // con comentar estas dos líneas.
+  // ===========================================================================
+  LocationService.instance.setDefaultPassengerPosition(kQuilpueCenter);
+  SimulacionFlotaService.instance.start(centro: kQuilpueCenter);
+
   runApp(const ColeTotalApp());
+
+  // El GPS se abre una sola vez y para toda la app (ver `LocationService`), y
+  // después del primer frame: el diálogo de permiso necesita la actividad ya
+  // en pantalla.
+  WidgetsBinding.instance.addPostFrameCallback((_) {
+    unawaited(LocationService.instance.start());
+    // El índice offline de calles del buscador: se lee ya para que la
+    // primera búsqueda no tenga que esperarlo.
+    unawaited(StreetIndex.preload());
+  });
 }
 
 class ColeTotalApp extends StatefulWidget {
@@ -32,6 +120,11 @@ class ColeTotalApp extends StatefulWidget {
 
 class _ColeTotalAppState extends State<ColeTotalApp> {
   final prefs = PreferencesService.instance;
+
+  /// `ColorScheme.fromSeed` hace un cálculo de color no trivial y este widget
+  /// se reconstruye ante *cualquier* cambio de preferencia, así que el tema se
+  /// memoiza por (brillo, densidad) en vez de recalcularse cada vez.
+  final Map<(Brightness, bool), ThemeData> _themeCache = {};
 
   @override
   void initState() {
@@ -45,137 +138,22 @@ class _ColeTotalAppState extends State<ColeTotalApp> {
     super.dispose();
   }
 
-  void _onPrefsChanged() => setState(() {});
-
-  ThemeData _buildLightTheme() {
-    final scheme = ColorScheme.fromSeed(
-      seedColor: Colors.blue,
-      brightness: Brightness.light,
-    );
-    return ThemeData(
-      useMaterial3: true,
-      brightness: Brightness.light,
-      scaffoldBackgroundColor: scheme.surface,
-      colorScheme: scheme,
-      appBarTheme: AppBarTheme(
-        centerTitle: false,
-        backgroundColor: scheme.surface,
-        foregroundColor: scheme.onSurface,
-        elevation: 0,
-        scrolledUnderElevation: 0,
-        // Barra del sistema (iconos y fondo) contrastando con tema claro:
-        // fondo claro, iconos oscuros.
-        systemOverlayStyle: SystemUiOverlayStyle.dark.copyWith(
-          systemNavigationBarColor: scheme.surface,
-          systemNavigationBarIconBrightness: Brightness.dark,
-          statusBarColor: Colors.transparent,
-        ),
-      ),
-      cardTheme: CardThemeData(
-        elevation: 0,
-        color: scheme.surface,
-        surfaceTintColor: Colors.transparent,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      ),
-      filledButtonTheme: FilledButtonThemeData(
-        style: FilledButton.styleFrom(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        ),
-      ),
-      navigationBarTheme: NavigationBarThemeData(
-        // El indicador usa secondaryContainer: el icono seleccionado cae
-        // automáticamente a onSecondaryContainer => buen contraste en ambos temas.
-        backgroundColor: scheme.surface,
-        surfaceTintColor: Colors.transparent,
-        indicatorColor: scheme.secondaryContainer,
-        elevation: 0,
-        height: 72,
-        labelTextStyle: WidgetStateProperty.resolveWith((states) {
-          final selected = states.contains(WidgetState.selected);
-          return TextStyle(
-            fontSize: 12 * prefs.fontSizeMultiplier,
-            fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
-            color: selected ? scheme.onSurface : scheme.onSurfaceVariant,
-          );
-        }),
-        iconTheme: WidgetStateProperty.resolveWith((states) {
-          final selected = states.contains(WidgetState.selected);
-          return IconThemeData(
-            size: 24,
-            color: selected ? scheme.onSecondaryContainer : scheme.onSurfaceVariant,
-          );
-        }),
-      ),
-    );
+  void _onPrefsChanged() {
+    if (mounted) setState(() {});
   }
 
-  ThemeData _buildDarkTheme() {
-    final scheme = ColorScheme.fromSeed(
-      seedColor: Colors.blue,
-      brightness: Brightness.dark,
-    );
-    return ThemeData(
-      useMaterial3: true,
-      brightness: Brightness.dark,
-      colorScheme: scheme,
-      scaffoldBackgroundColor: scheme.surface,
-      appBarTheme: AppBarTheme(
-        centerTitle: false,
-        backgroundColor: scheme.surface,
-        foregroundColor: scheme.onSurface,
-        elevation: 0,
-        scrolledUnderElevation: 0,
-        // Barra del sistema (iconos y fondo) contrastando con tema oscuro:
-        // fondo oscuro, iconos claros.
-        systemOverlayStyle: SystemUiOverlayStyle.light.copyWith(
-          systemNavigationBarColor: scheme.surface,
-          systemNavigationBarIconBrightness: Brightness.light,
-          statusBarColor: Colors.transparent,
-        ),
-      ),
-      cardTheme: CardThemeData(
-        elevation: 0,
-        color: scheme.surface,
-        surfaceTintColor: Colors.transparent,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      ),
-      filledButtonTheme: FilledButtonThemeData(
-        style: FilledButton.styleFrom(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        ),
-      ),
-      navigationBarTheme: NavigationBarThemeData(
-        backgroundColor: scheme.surface,
-        surfaceTintColor: Colors.transparent,
-        indicatorColor: scheme.secondaryContainer,
-        elevation: 0,
-        height: 72,
-        labelTextStyle: WidgetStateProperty.resolveWith((states) {
-          final selected = states.contains(WidgetState.selected);
-          return TextStyle(
-            fontSize: 12 * prefs.fontSizeMultiplier,
-            fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
-            color: selected ? scheme.onSurface : scheme.onSurfaceVariant,
-          );
-        }),
-        iconTheme: WidgetStateProperty.resolveWith((states) {
-          final selected = states.contains(WidgetState.selected);
-          return IconThemeData(
-            size: 24,
-            color: selected ? scheme.onSecondaryContainer : scheme.onSurfaceVariant,
-          );
-        }),
-      ),
-    );
-  }
+  ThemeData _theme(Brightness brightness) => _themeCache.putIfAbsent((
+    brightness,
+    prefs.compactMode,
+  ), () => buildAppTheme(brightness: brightness, compact: prefs.compactMode));
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'ColeTotal',
       debugShowCheckedModeBanner: false,
-      theme: _buildLightTheme(),
-      darkTheme: _buildDarkTheme(),
+      theme: _theme(Brightness.light),
+      darkTheme: _theme(Brightness.dark),
       themeMode: prefs.themeMode,
       localizationsDelegates: const [
         AppLocalizations.delegate,
@@ -183,15 +161,27 @@ class _ColeTotalAppState extends State<ColeTotalApp> {
         GlobalWidgetsLocalizations.delegate,
         GlobalCupertinoLocalizations.delegate,
       ],
-      supportedLocales: const [
-        Locale('en'),
-        Locale('es'),
-      ],
-      home: const MainScreen(),
-      routes: {
-        '/main': (context) => const MainScreen(),
-        // '/login': (context) => const LoginScreen(),
+
+      // Una sola fuente de verdad. Antes acá se declaraba `[Locale('en'),
+      // Locale('es')]` mientras el delegate solo soporta `es`: en un teléfono
+      // en inglés, Flutter resolvía a `en`, el delegate no cargaba y
+      // `AppLocalizations.of(context)!` reventaba al abrir la app.
+      supportedLocales: AppLocalizations.supportedLocales,
+
+      // El ajuste de tamaño de fuente se aplica una vez, acá, y así alcanza a
+      // todas las pantallas. Antes se multiplicaba a mano en cada `TextStyle`,
+      // por lo que Mapa y Rutas lo ignoraban por completo.
+      builder: (context, child) {
+        final mq = MediaQuery.of(context);
+        return MediaQuery(
+          data: mq.copyWith(
+            textScaler: AppTextScaler(mq.textScaler, prefs.fontSizeMultiplier),
+          ),
+          child: child!,
+        );
       },
+
+      home: const MainScreen(),
     );
   }
 }

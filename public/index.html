@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ColeTotal — Descarga e Instalación | Transportes Serrano</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --primary: #1E3A8A;
+      --primary-dark: #172554;
+      --accent: #10B981;
+      --accent-dark: #059669;
+      --bg: #F8FAFC;
+      --surface: #FFFFFF;
+      --text: #0F172A;
+      --text-muted: #64748B;
+      --border: #E2E8F0;
+      --warning-bg: #FEF3C7;
+      --warning-border: #F59E0B;
+      --warning-text: #92400E;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+      background-color: var(--bg);
+      color: var(--text);
+      line-height: 1.5;
+      padding: 1.5rem 1rem 3rem;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      min-height: 100vh;
+    }
+
+    .container {
+      width: 100%;
+      max-width: 520px;
+      display: flex;
+      flex-direction: column;
+      gap: 1.5rem;
+    }
+
+    /* Header */
+    .header-card {
+      background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
+      color: white;
+      padding: 2rem 1.5rem;
+      border-radius: 1.5rem;
+      text-align: center;
+      box-shadow: 0 10px 25px -5px rgba(30, 58, 138, 0.25);
+    }
+
+    .badge-linea {
+      display: inline-block;
+      background: rgba(255, 255, 255, 0.15);
+      backdrop-filter: blur(8px);
+      padding: 0.35rem 0.85rem;
+      border-radius: 9999px;
+      font-size: 0.8rem;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      margin-bottom: 0.75rem;
+    }
+
+    .logo-title {
+      font-size: 2.25rem;
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      margin-bottom: 0.25rem;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+    }
+
+    .logo-subtitle {
+      font-size: 0.95rem;
+      opacity: 0.9;
+      font-weight: 500;
+    }
+
+    .version-tag {
+      margin-top: 1rem;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      background: #10B981;
+      color: white;
+      padding: 0.25rem 0.75rem;
+      border-radius: 0.5rem;
+      font-size: 0.8rem;
+      font-weight: 700;
+    }
+
+    /* Card Box */
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 1.25rem;
+      padding: 1.5rem;
+      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.04);
+    }
+
+    /* Download CTA Button */
+    .btn-download {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.75rem;
+      background-color: var(--accent);
+      color: white;
+      text-decoration: none;
+      padding: 1.15rem 1.5rem;
+      border-radius: 1rem;
+      font-weight: 800;
+      font-size: 1.15rem;
+      box-shadow: 0 8px 20px -4px rgba(16, 185, 129, 0.4);
+      transition: all 0.2s ease;
+      text-align: center;
+    }
+
+    .btn-download:hover, .btn-download:active {
+      background-color: var(--accent-dark);
+      transform: translateY(-2px);
+    }
+
+    .btn-secondary {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+      background-color: white;
+      color: var(--primary);
+      border: 2px solid var(--primary);
+      text-decoration: none;
+      padding: 0.85rem 1.25rem;
+      border-radius: 0.85rem;
+      font-weight: 700;
+      font-size: 0.95rem;
+      margin-top: 0.75rem;
+      transition: all 0.15s ease;
+    }
+
+    .btn-secondary:hover {
+      background-color: #EEF2FF;
+    }
+
+    /* Step Guide */
+    .guide-title {
+      font-size: 1.15rem;
+      font-weight: 800;
+      margin-bottom: 1rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .steps-list {
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+    }
+
+    .step-item {
+      display: flex;
+      gap: 1rem;
+      align-items: flex-start;
+    }
+
+    .step-number {
+      background-color: var(--primary);
+      color: white;
+      width: 2rem;
+      height: 2rem;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 800;
+      font-size: 0.95rem;
+      flex-shrink: 0;
+      margin-top: 0.1rem;
+    }
+
+    .step-content h4 {
+      font-size: 1rem;
+      font-weight: 700;
+      margin-bottom: 0.2rem;
+    }
+
+    .step-content p {
+      font-size: 0.875rem;
+      color: var(--text-muted);
+    }
+
+    /* Warning callout */
+    .callout-warning {
+      background-color: var(--warning-bg);
+      border-left: 4px solid var(--warning-border);
+      padding: 0.85rem 1rem;
+      border-radius: 0.5rem;
+      margin-top: 0.75rem;
+      font-size: 0.85rem;
+      color: var(--warning-text);
+      line-height: 1.4;
+    }
+
+    /* QR Code Card */
+    .qr-card {
+      text-align: center;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    .qr-img {
+      width: 180px;
+      height: 180px;
+      border-radius: 0.75rem;
+      border: 1px solid var(--border);
+      margin: 1rem 0 0.5rem;
+      background: white;
+      padding: 0.5rem;
+    }
+
+    .footer {
+      text-align: center;
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      margin-top: 1rem;
+    }
+
+    /* Responsive Platform Switches */
+    .ios-box {
+      display: none;
+    }
+
+    .android-box {
+      display: block;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="container">
+    
+    <!-- Header -->
+    <div class="header-card">
+      <div class="badge-linea">Transportes Serrano S.A. • Quilpué</div>
+      <div class="logo-title">
+        <span>🚖</span> ColeTotal
+      </div>
+      <div class="logo-subtitle">Aplicación Oficial para Choferes y Pasajeros</div>
+      <div>
+        <span class="version-tag">✓ Versión Oficial v0.4.3.1</span>
+      </div>
+    </div>
+
+    <!-- Android Direct Download Card -->
+    <div class="card android-box" id="androidBox">
+      <a href="https://files.catbox.moe/99fybl.apk" class="btn-download" download="ColeTotal-v0.4.3.1.apk" id="downloadLink">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+          <polyline points="7 10 12 15 17 10"></polyline>
+          <line x1="12" y1="15" x2="12" y2="3"></line>
+        </svg>
+        <span>Descargar ColeTotal Oficial v0.4.3.1 (APK Directo)</span>
+      </a>
+      <p style="text-align: center; font-size: 0.8rem; color: var(--text-muted); margin-top: 0.6rem;">
+        Descarga directa en 1 clic • Compatible con Android 6.0+ (56.6 MB)
+      </p>
+
+      <div style="margin-top: 1.5rem;">
+        <div class="guide-title">
+          <span>📲</span> ¿Cómo instalar en 3 simples pasos?
+        </div>
+        <div class="steps-list">
+          <div class="step-item">
+            <div class="step-number">1</div>
+            <div class="step-content">
+              <h4>Descarga el archivo</h4>
+              <p>Toca el botón verde de arriba. Si tu teléfono dice <em>"Es posible que el archivo sea dañino"</em>, pulsa <strong>Descargar de todos modos</strong>.</p>
+              <div class="callout-warning">
+                <strong>¿Por qué sale este aviso?</strong> Es la advertencia estándar de Google cuando instalas una aplicación corporativa de la garita que aún no está en la Play Store comercial. Es 100% segura.
+              </div>
+            </div>
+          </div>
+
+          <div class="step-item">
+            <div class="step-number">2</div>
+            <div class="step-content">
+              <h4>Abre la descarga</h4>
+              <p>Al terminar la descarga, baja la barra de notificaciones de tu teléfono o pulsa <strong>Abrir</strong> en la pantalla.</p>
+            </div>
+          </div>
+
+          <div class="step-item">
+            <div class="step-number">3</div>
+            <div class="step-content">
+              <h4>Presiona Instalar</h4>
+              <p>Pulsa <strong>Instalar</strong>. Si te pide permitir instalar desde el navegador, activa la casilla y ¡listo! Ya puedes abrir ColeTotal e ingresar.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- iOS (iPhone) Card -->
+    <div class="card ios-box" id="iosBox">
+      <h3 style="font-size: 1.25rem; font-weight: 800; color: var(--primary); margin-bottom: 0.5rem;">
+        🍎 ColeTotal para iPhone / iOS
+      </h3>
+      <p style="font-size: 0.9rem; color: var(--text-muted); margin-bottom: 1rem;">
+        Puedes usar ColeTotal directamente desde Safari sin necesidad de instalar archivos.
+      </p>
+      <a href="https://coletotal-32735.web.app" class="btn-download" style="background-color: var(--primary);">
+        <span>Abrir en Safari</span>
+      </a>
+
+      <div style="margin-top: 1.25rem; background: #F1F5F9; padding: 1rem; border-radius: 0.75rem;">
+        <h4 style="font-size: 0.95rem; font-weight: 700; margin-bottom: 0.35rem;">💡 ¿Cómo dejarla en tu inicio?</h4>
+        <ol style="font-size: 0.85rem; padding-left: 1.25rem; color: #334155; line-height: 1.6;">
+          <li>Abre el enlace en Safari.</li>
+          <li>Toca el botón <strong>Compartir</strong> (el cuadrado con la flecha hacia arriba).</li>
+          <li>Desliza hacia abajo y elige <strong>"Agregar a la pantalla de inicio"</strong>.</li>
+        </ol>
+      </div>
+    </div>
+
+    <!-- Garita QR & Afiche Card -->
+    <div class="card qr-card">
+      <h3 style="font-size: 1.1rem; font-weight: 700;">Código QR para la Garita</h3>
+      <p style="font-size: 0.85rem; color: var(--text-muted);">
+        Escanea este código con la cámara de cualquier teléfono para abrir esta página al instante.
+      </p>
+      
+      <img 
+        src="https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=https://coletotal-32735.web.app/" 
+        alt="QR ColeTotal" 
+        class="qr-img"
+      >
+
+      <a href="/afiche.html" class="btn-secondary" style="width: 100%;">
+        <span>🖨️</span> Ver e Imprimir Afiche para el Mural de Garita
+      </a>
+    </div>
+
+    <!-- Footer -->
+    <div class="footer">
+      Proyecto de Título • Plataforma ColeTotal © 2026<br>
+      Transportes Serrano S.A. (Garitas Cumming, Las Rosas, Belloto 2000)
+    </div>
+
+  </div>
+
+  <script>
+    // Detección automática del dispositivo
+    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+    if (isIOS) {
+      document.getElementById('iosBox').style.display = 'block';
+    }
+  </script>
+</body>
+</html>

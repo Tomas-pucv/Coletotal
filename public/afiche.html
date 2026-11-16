@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Afiche Mural — Instala ColeTotal | Garita Transportes Serrano</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;700;800;900&display=swap" rel="stylesheet">
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+    body {
+      font-family: 'Plus Jakarta Sans', sans-serif;
+      background-color: #F1F5F9;
+      display: flex;
+      justify-content: center;
+      padding: 2rem 1rem;
+    }
+    .poster {
+      background: white;
+      width: 210mm;
+      min-height: 297mm; /* Formato A4 */
+      padding: 18mm 15mm;
+      box-shadow: 0 10px 25px rgba(0,0,0,0.1);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
+      border: 4px solid #1E3A8A;
+      position: relative;
+    }
+    .top-badge {
+      background: #1E3A8A;
+      color: white;
+      font-weight: 800;
+      font-size: 14pt;
+      letter-spacing: 2px;
+      padding: 6px 24px;
+      border-radius: 999px;
+      text-transform: uppercase;
+      margin-bottom: 12px;
+    }
+    h1 {
+      font-size: 32pt;
+      font-weight: 900;
+      color: #0F172A;
+      line-height: 1.1;
+      margin-bottom: 6px;
+    }
+    .subtitle {
+      font-size: 16pt;
+      color: #475569;
+      font-weight: 700;
+      margin-bottom: 20px;
+    }
+    .qr-container {
+      background: #F8FAFC;
+      border: 3px dashed #CBD5E1;
+      padding: 16px;
+      border-radius: 20px;
+      margin-bottom: 20px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    .qr-img {
+      width: 240px;
+      height: 240px;
+    }
+    .qr-caption {
+      font-size: 13pt;
+      font-weight: 800;
+      color: #1E3A8A;
+      margin-top: 10px;
+    }
+    .instructions-box {
+      width: 100%;
+      background: #EEF2FF;
+      border: 2px solid #C7D2FE;
+      border-radius: 16px;
+      padding: 16px 20px;
+      text-align: left;
+      margin-bottom: 20px;
+    }
+    .instructions-title {
+      font-size: 14pt;
+      font-weight: 800;
+      color: #1E3A8A;
+      margin-bottom: 12px;
+      text-align: center;
+    }
+    .step-row {
+      display: flex;
+      gap: 14px;
+      margin-bottom: 10px;
+      align-items: flex-start;
+    }
+    .step-circle {
+      background: #1E3A8A;
+      color: white;
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      font-weight: 900;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      font-size: 12pt;
+    }
+    .step-text {
+      font-size: 12pt;
+      color: #1E293B;
+      line-height: 1.35;
+    }
+    .step-text strong {
+      color: #0F172A;
+    }
+    .garita-footer {
+      margin-top: auto;
+      border-top: 2px solid #E2E8F0;
+      padding-top: 12px;
+      width: 100%;
+      font-size: 10.5pt;
+      color: #64748B;
+      font-weight: 600;
+    }
+    .print-button {
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      background: #10B981;
+      color: white;
+      border: none;
+      padding: 12px 24px;
+      font-size: 14pt;
+      font-weight: 800;
+      border-radius: 12px;
+      cursor: pointer;
+      box-shadow: 0 4px 12px rgba(16,185,129,0.3);
+    }
+    @media print {
+      body {
+        background: white;
+        padding: 0;
+      }
+      .poster {
+        border: 2px solid #1E3A8A;
+        box-shadow: none;
+        width: 100%;
+        min-height: 100vh;
+      }
+      .print-button {
+        display: none;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <button class="print-button" onclick="window.print()">🖨️ Imprimir este Afiche</button>
+
+  <div class="poster">
+    <div class="top-badge">Línea 1 Transportes Serrano S.A.</div>
+    <h1>¡Descarga ColeTotal!</h1>
+    <div class="subtitle">Aplicación Oficial para Choferes y Garita</div>
+
+    <div class="qr-container">
+      <img src="https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=https://coletotal-32735.web.app/" alt="QR ColeTotal" class="qr-img">
+      <div class="qr-caption">ESCANEA ESTE CÓDIGO CON LA CÁMARA DE TU CELULAR</div>
+    </div>
+
+    <div class="instructions-box">
+      <div class="instructions-title">¿CÓMO INSTALAR EN 3 PASOS?</div>
+      
+      <div class="step-row">
+        <div class="step-circle">1</div>
+        <div class="step-text">
+          Apunta con la cámara de tu celular al código QR y toca el enlace que aparece en la pantalla.
+        </div>
+      </div>
+
+      <div class="step-row">
+        <div class="step-circle">2</div>
+        <div class="step-text">
+          Toca <strong>"Descargar para Android"</strong>. Si sale un aviso que dice <em>"El archivo puede ser dañino"</em>, pulsa <strong>"Descargar de todos modos"</strong> (es seguro, es la app oficial de la línea).
+        </div>
+      </div>
+
+      <div class="step-row">
+        <div class="step-circle">3</div>
+        <div class="step-text">
+          Abre la descarga y pulsa <strong>"Instalar"</strong>. Al entrar, ingresa con tu patente o código entregado por la garita.
+        </div>
+      </div>
+    </div>
+
+    <div style="background: #FEF3C7; border: 1px solid #F59E0B; border-radius: 10px; padding: 10px 16px; font-size: 10.5pt; color: #92400E; width: 100%; font-weight: 600;">
+      ℹ️ Si tienes dudas o necesitas ayuda para instalarla, acércate al inspector de turno en Garita Cumming.
+    </div>
+
+    <div class="garita-footer">
+      Transportes Serrano S.A. • Garitas Cumming, Las Rosas y Belloto 2000 • Quilpué<br>
+      Plataforma ColeTotal — Proyecto de Título Ingeniería Civil en Informática
+    </div>
+  </div>
+
+</body>
+</html>
