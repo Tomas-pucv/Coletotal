@@ -62,11 +62,27 @@ service cloud.firestore {
         && (!('vuelta' in d) || trayectoValido(d.vuelta));
     }
 
+    function codigoAccesoValido() {
+      let d = request.resource.data;
+      return d.size() == 3
+        && d.garitaId is string && d.garitaId.size() > 0 && d.garitaId.size() <= 80
+        && d.rol in ['colectivero', 'administrador']
+        && d.activo is bool;
+    }
+
     // Códigos de enrolamiento. El id del documento ES el código.
     match /codigos_acceso/{c} {
       allow get: if true;      // validable antes de registrarse…
-      allow list: if false;    // …pero jamás enumerable
-      allow write: if false;   // se crean desde la consola de Firebase
+      // Sólo el administrador activo de esa garita puede listar los códigos de su propia garita.
+      allow list: if isAdminOf(resource.data.garitaId)
+        && request.query.limit <= 100;
+      allow create: if c.size() >= 4 && c.size() <= 40
+        && isAdminOf(request.resource.data.garitaId)
+        && codigoAccesoValido();
+      allow update: if isAdminOf(resource.data.garitaId)
+        && request.resource.data.garitaId == resource.data.garitaId
+        && codigoAccesoValido();
+      allow delete: if isAdminOf(resource.data.garitaId);
     }
 
     // Configuración global (ej. verificación de versión y actualizaciones OTA).
@@ -76,13 +92,13 @@ service cloud.firestore {
     }
 
     // Metadatos públicos de la garita. Los códigos NO están aquí: si lo
-    // estuvieran, el primer chofer que se registrara podría leer el código de
+    // estuvieran, el primer conductor que se registrara podría leer el código de
     // administrador y ascenderse.
     match /garitas/{garitaId} {
       allow read: if true;
       allow write: if false;
 
-      // Auditoría de turnos e incidencias operacionales de los choferes.
+      // Auditoría de turnos e incidencias operacionales de los conductores.
       //
       // Antes bastaba con tener sesión: cualquier cuenta podía escribir
       // auditorías en cualquier garita. Ahora cada uno sube sólo las suyas, a
@@ -105,7 +121,7 @@ service cloud.firestore {
       allow get: if signedIn()
         && (request.auth.uid == uid || isAdminOf(resource.data.garitaId));
 
-      // El administrador lista los choferes de **su** garita. La consulta
+      // El administrador lista los conductores de **su** garita. La consulta
       // filtra por `garitaId`, y las reglas exigen que ese filtro sea el de la
       // garita del administrador: antes cualquier administrador, incluso uno
       // deshabilitado, podía listar los usuarios de todas las garitas.

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:taxi1/l10n/app_localizations.dart';
 import 'package:taxi1/navigation/app_destination.dart';
 import 'package:taxi1/screens/admin/choferes_admin_screen.dart';
+import 'package:taxi1/screens/admin/codigos_admin_screen.dart';
 import 'package:taxi1/screens/admin/recorridos_admin_screen.dart';
 import 'package:taxi1/screens/main_screen.dart';
 import 'package:taxi1/services/auth_service.dart';
@@ -126,6 +127,13 @@ class _GaritaHubScreenState extends State<GaritaHubScreen> {
                           title: AppDestination.choferes.label(l10n),
                           subtitle: l10n.adminDriversDesc,
                           onTap: () => _push(const ChoferesAdminScreen()),
+                        ),
+                        _tile(
+                          icon: Icons.vpn_key_outlined,
+                          title: 'Códigos de garita',
+                          subtitle:
+                              'Crea, activa o desactiva códigos para inscribir conductores y administradores',
+                          onTap: () => _push(const CodigosAdminScreen()),
                         ),
                         _tile(
                           icon: AppDestination.flota.icon,

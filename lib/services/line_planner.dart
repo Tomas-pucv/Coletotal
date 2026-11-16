@@ -1,8 +1,11 @@
+import 'dart:math' as math;
+
 import 'package:latlong2/latlong.dart';
 
 import 'package:taxi1/config/garita_config.dart';
 import 'package:taxi1/models/colectivo_activo.dart';
 import 'package:taxi1/models/recorrido.dart';
+import 'package:taxi1/services/hybrid_route_optimizer.dart';
 import 'package:taxi1/services/recorridos_service.dart';
 import 'package:taxi1/utils/polyline.dart';
 
@@ -17,6 +20,8 @@ class LineSuggestion {
     required this.metrosHastaLinea,
     required this.metrosDesdeLinea,
     required this.metrosEnColectivo,
+    this.costoTotal,
+    this.esFallbackCaminataLarga = false,
   });
 
   final Recorrido recorrido;
@@ -36,6 +41,12 @@ class LineSuggestion {
 
   /// Lo que recorre arriba del colectivo, siguiendo la línea.
   final double metrosEnColectivo;
+
+  /// Costo objetivo $Z$ calculado por [HybridRouteOptimizer].
+  final double? costoTotal;
+
+  /// `true` cuando la sugerencia proviene del radio de fallback (> 1000 m).
+  final bool esFallbackCaminataLarga;
 
   /// Total a pie, que es por lo que se ordenan las sugerencias.
   double get metrosAPie => metrosHastaLinea + metrosDesdeLinea;
@@ -162,52 +173,86 @@ abstract final class LinePlanner {
     return resultado;
   }
 
-  /// Las mejores formas de ir de [user] a [destino], de menos a más caminata,
-  /// con a lo más una por línea (la de su mejor sentido).
+  /// Las mejores formas de ir de [user] a [destino] usando el optimizador
+  /// híbrido ([HybridRouteOptimizer]), con a lo más una por línea (la de su
+  /// mejor sentido y menor costo objetivo acoplado $Z$).
   ///
   /// Por omisión usa las líneas públicas ([RecorridosService.publicas]): las
-  /// activas de la garita [kGaritaPublica].
+  /// activas de la garita [kGaritaPublica]. Si caminar directo es mejor o
+  /// equivalente que tomar colectivo, devuelve lista vacía.
   static List<LineSuggestion> suggest({
     required LatLng user,
     required LatLng destino,
     List<Recorrido>? recorridos,
   }) {
     final lineas = recorridos ?? RecorridosService.instance.publicas;
-    final porLinea = <String, LineSuggestion>{};
-
-    for (final linea in lineas) {
-      if (!linea.activo) continue;
-      for (final (sentido, trayecto) in linea.trayectos) {
-        final subida = nearestOnPolyline(trayecto.trazado, user);
-        final bajada = nearestOnPolyline(trayecto.trazado, destino);
-        if (subida == null || bajada == null) continue;
-        if (subida.metros > maxCaminata || bajada.metros > maxCaminata) {
-          continue;
-        }
-        final enColectivo = bajada.desdeInicio - subida.desdeInicio;
-        if (enColectivo < minEnColectivo) continue;
-
-        final sugerencia = LineSuggestion(
-          recorrido: linea,
-          sentido: sentido,
-          subida: subida.punto,
-          bajada: bajada.punto,
-          metrosHastaLinea: subida.metros,
-          metrosDesdeLinea: bajada.metros,
-          metrosEnColectivo: enColectivo,
-        );
-        final actual = porLinea[linea.id];
-        if (actual == null || sugerencia.metrosAPie < actual.metrosAPie) {
-          porLinea[linea.id] = sugerencia;
-        }
-      }
+    final plan = HybridRouteOptimizer.optimize(
+      origin: user,
+      destination: destino,
+      recorridos: lineas,
+    );
+    if (plan.status != HybridPlanStatus.optimalFound) {
+      return const [];
     }
 
-    final resultado = porLinea.values.toList()
-      ..sort((a, b) => a.metrosAPie.compareTo(b.metrosAPie));
-    return resultado.length > maxSuggestions
-        ? resultado.sublist(0, maxSuggestions)
-        : resultado;
+    final resultado = <LineSuggestion>[];
+    for (final c in plan.rankedByLine) {
+      if (c.rawWalkAccessMeters > maxCaminata ||
+          c.rawWalkEgressMeters > maxCaminata) {
+        continue;
+      }
+
+      final nodes = c.lut.nodes;
+      final upStart = math.max(0, c.upIndex - 1);
+      final upEnd = math.min(nodes.length, c.upIndex + 2);
+      final downStart = math.max(0, c.downIndex - 1);
+      final downEnd = math.min(nodes.length, c.downIndex + 2);
+
+      final localSubida = nearestOnPolyline(
+        nodes.sublist(upStart, upEnd),
+        user,
+      );
+      final localBajada = nearestOnPolyline(
+        nodes.sublist(downStart, downEnd),
+        destino,
+      );
+
+      var subida = c.boardingNode;
+      var bajada = c.alightingNode;
+      var metrosHastaLinea = c.rawWalkAccessMeters;
+      var metrosDesdeLinea = c.rawWalkEgressMeters;
+      var metrosEnColectivo = c.vehMeters;
+
+      if (localSubida != null && localBajada != null) {
+        final refinedVeh =
+            (c.lut.cumulativeMeters[downStart] + localBajada.desdeInicio) -
+            (c.lut.cumulativeMeters[upStart] + localSubida.desdeInicio);
+        if (refinedVeh >= HybridRouteOptimizer.kMinVehicularMeters) {
+          subida = localSubida.punto;
+          bajada = localBajada.punto;
+          metrosHastaLinea = localSubida.metros;
+          metrosDesdeLinea = localBajada.metros;
+          metrosEnColectivo = refinedVeh;
+        }
+      }
+
+      resultado.add(
+        LineSuggestion(
+          recorrido: c.recorrido,
+          sentido: c.sentido,
+          subida: subida,
+          bajada: bajada,
+          metrosHastaLinea: metrosHastaLinea,
+          metrosDesdeLinea: metrosDesdeLinea,
+          metrosEnColectivo: metrosEnColectivo,
+          costoTotal: c.totalCost,
+          esFallbackCaminataLarga: plan.isLongWalkFallback,
+        ),
+      );
+      if (resultado.length >= maxSuggestions) break;
+    }
+
+    return resultado;
   }
 
   /// A cuántos metros pasa [linea] de [p], por cualquiera de sus sentidos, o

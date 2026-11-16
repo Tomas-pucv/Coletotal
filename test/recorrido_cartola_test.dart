@@ -3,11 +3,15 @@ import 'dart:math';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:latlong2/latlong.dart';
 
+import 'package:taxi1/config/map_config.dart';
 import 'package:taxi1/models/recorrido.dart';
+import 'package:taxi1/services/cartola_resolver.dart';
+import 'package:taxi1/services/street_index.dart';
 import 'package:taxi1/utils/polyline.dart';
 import 'package:taxi1/utils/text_search.dart';
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
   const puntosPrueba = [
     LatLng(-33.0483, -71.4429),
     LatLng(-33.0508, -71.4421),
@@ -392,5 +396,305 @@ void main() {
         expect(l.sigla, l.codigoVariante);
       }
     });
+  });
+
+  group(
+    'Resolución de Calles e Intersecciones de Cartola (StreetIndex + CartolaResolver)',
+    () {
+      test(
+        'prioriza arterias principales sobre pasajes, galerías y condominios',
+        () async {
+          final marga = await StreetIndex.searchCartolaCandidates(
+            'MARGA MARGA',
+            near: kQuilpueCenter,
+          );
+          expect(marga, isNotEmpty);
+          expect(marga.first.name, 'Marga Marga');
+          expect(
+            marga.any(
+              (c) =>
+                  c.name.contains('Margarita') || c.name.contains('Antiguo'),
+            ),
+            isFalse,
+          );
+
+          final covadonga = await StreetIndex.searchCartolaCandidates(
+            'COVADONGA',
+            near: kQuilpueCenter,
+          );
+          expect(covadonga, isNotEmpty);
+          expect(covadonga.first.name, 'Covadonga');
+          expect(
+            covadonga.any((c) => c.name.startsWith('Pasaje')),
+            isFalse,
+          );
+
+          final freire = await StreetIndex.searchCartolaCandidates(
+            'FREIRE',
+            near: kQuilpueCenter,
+          );
+          expect(freire, isNotEmpty);
+          expect(freire.first.name, 'Avenida Ramón Freire');
+          expect(
+            freire.any(
+              (c) => c.name.contains('Galería') || c.name.contains('Pasaje'),
+            ),
+            isFalse,
+          );
+
+          final losCarrera = await StreetIndex.searchCartolaCandidates(
+            'LOS CARRERA',
+            near: kQuilpueCenter,
+          );
+          expect(losCarrera, isNotEmpty);
+          expect(losCarrera.first.name, isNot(contains('Condominio')));
+          expect(losCarrera.first.name, isNot(contains('Pasaje')));
+
+          final serrano = await StreetIndex.searchCartolaCandidates(
+            'SERRANO',
+            near: kQuilpueCenter,
+          );
+          expect(serrano, isNotEmpty);
+          expect(serrano.first.name, 'Serrano');
+        },
+      );
+
+      test(
+        'resuelve secuencia de cartola con rumbos y sin secuestro de POIs',
+        () async {
+          final pasos = [
+            for (final (i, nombre) in [
+              'SERRANO',
+              'COVADONGA',
+              'SAN MARTIN',
+              'BLANCO ENCALADA',
+            ].indexed)
+              PasoCartola(id: 'p_$i', nombre: nombre),
+          ];
+
+          final resuelta = await CartolaResolver.resolverSecuencia(pasos);
+          expect(resuelta.pasos.every((p) => p.resuelto), isTrue);
+          expect(resuelta.waypoints.length, greaterThanOrEqualTo(2));
+          expect(resuelta.headings.length, resuelta.waypoints.length);
+
+          // San Martín debe quedar en el tramo Covadonga–Blanco Encalada, no en
+          // el POI del Hospital de Quilpué (-33.0416, -71.4398).
+          final sanMartin = resuelta.pasos[2];
+          final hospitalPoi = const LatLng(-33.0416, -71.4398);
+          final distHospital = const Distance().distance(
+            sanMartin.coordenada!,
+            hospitalPoi,
+          );
+          expect(distHospital, greaterThan(400));
+        },
+      );
+
+      test(
+        'calle inexistente en el mapa base queda no resuelta sin saltar a otra comuna',
+        () async {
+          final pasos = [
+            for (final (i, nombre) in [
+              'ALTO EL YUGO',
+              'BELLOTO 2000',
+              'SERRANO',
+              'MIRADOR',
+            ].indexed)
+              PasoCartola(id: 'n_$i', nombre: nombre),
+          ];
+
+          final resuelta = await CartolaResolver.resolverSecuencia(pasos);
+          expect(resuelta.pasos[0].resuelto, isFalse);
+          expect(resuelta.pasos[1].resuelto, isFalse);
+          expect(resuelta.pasos[2].resuelto, isTrue);
+          expect(resuelta.pasos[3].resuelto, isFalse);
+
+          final serranoCoord = resuelta.pasos[2].coordenada!;
+          expect(serranoCoord.longitude, lessThan(-71.40));
+          expect(serranoCoord.longitude, greaterThan(-71.47));
+        },
+      );
+    },
+  );
+
+  group('Pruebas de Estrés - Nuevas Funciones de Cartola', () {
+    test(
+      'Estrés NF-1: parseStreetQuery sobre 100.000 nombres de calles con prefijos y abreviaturas',
+      () {
+        const muestras = [
+          'AV. RAMON FREIRE',
+          'PSJE. MARGARITA',
+          'ALMTE. LATORRE',
+          'GRAL. VELASQUEZ',
+          'PDTE. MANUEL MONTT',
+          'STA. MARIA',
+          'CAM. TRONCAL ANTIGUO',
+          'BLANCO ENCALADA',
+          'SERRANO',
+          'AVDA. LOS CARRERA',
+        ];
+        // Warmup
+        parseStreetQuery(muestras.first);
+
+        const totalOps = 100000;
+        var minorCount = 0;
+        final sw = Stopwatch()..start();
+        for (var i = 0; i < totalOps; i++) {
+          final parsed = parseStreetQuery(muestras[i % muestras.length]);
+          if (parsed.explicitMinorType) minorCount++;
+        }
+        sw.stop();
+
+        expect(minorCount, 20000);
+        final elapsedMs = sw.elapsedMicroseconds / 1000.0;
+        final opsPerSec = elapsedMs > 0
+            ? (totalOps * 1000.0 / elapsedMs).round()
+            : totalOps;
+        // ignore: avoid_print
+        print(
+          '[STRESS] fn=parseStreetQuery ops=$totalOps elapsed_ms=${elapsedMs.toStringAsFixed(2)} throughput=${opsPerSec}_ops/s',
+        );
+        expect(sw.elapsedMilliseconds, lessThan(2000));
+      },
+    );
+
+    test(
+      'Estrés NF-2: StreetIndex.searchCartolaCandidates con 1.000 consultas sobre índice real',
+      () async {
+        // Warmup de carga del JSON real
+        await StreetIndex.searchCartolaCandidates(
+          'SERRANO',
+          near: kQuilpueCenter,
+        );
+
+        const calles = [
+          'SERRANO',
+          'COVADONGA',
+          'SAN MARTIN',
+          'BLANCO ENCALADA',
+          'RAMON FREIRE',
+          'LOS CARRERA',
+          'MARGA MARGA',
+          'LAGO PANGUIPULLI',
+          'JOTABECHE',
+          'TRONCOS VIEJOS',
+          'ISIDORA',
+          'ANIBAL PINTO',
+          'BAQUEDANO',
+          'LATORRE',
+          'DIEGO PORTALES',
+        ];
+
+        const totalOps = 1000;
+        var hits = 0;
+        final sw = Stopwatch()..start();
+        for (var i = 0; i < totalOps; i++) {
+          final res = await StreetIndex.searchCartolaCandidates(
+            calles[i % calles.length],
+            near: kQuilpueCenter,
+          );
+          if (res.isNotEmpty) hits++;
+        }
+        sw.stop();
+
+        expect(hits, totalOps);
+        final elapsedMs = sw.elapsedMicroseconds / 1000.0;
+        final opsPerSec = elapsedMs > 0
+            ? (totalOps * 1000.0 / elapsedMs).round()
+            : totalOps;
+        // ignore: avoid_print
+        print(
+          '[STRESS] fn=StreetIndex.searchCartolaCandidates ops=$totalOps elapsed_ms=${elapsedMs.toStringAsFixed(2)} throughput=${opsPerSec}_queries/s',
+        );
+        expect(sw.elapsedMilliseconds, lessThan(5000));
+      },
+    );
+
+    test(
+      'Estrés NF-3: StreetIndex.findPrecomputedIntersections con 50.000 consultas de cruces reales',
+      () async {
+        await StreetIndex.findPrecomputedIntersections('SERRANO', 'COVADONGA');
+
+        const pares = [
+          ('SERRANO', 'COVADONGA'),
+          ('COVADONGA', 'SAN MARTIN'),
+          ('SAN MARTIN', 'BLANCO ENCALADA'),
+          ('BLANCO ENCALADA', 'AV. RAMON FREIRE'),
+          ('LAGO PANGUIPULLI', 'MARGA MARGA'),
+          ('AV. LOS CARRERA', 'TRONCAL'),
+          ('SERRANO', 'BAQUEDANO'),
+          ('ANIBAL PINTO', 'SERRANO'),
+          ('CALLE INEXISTENTE', 'OTRA'),
+          ('ALTO EL YUGO', 'MIRADOR'),
+        ];
+
+        const totalOps = 50000;
+        var encontrados = 0;
+        final sw = Stopwatch()..start();
+        for (var i = 0; i < totalOps; i++) {
+          final (a, b) = pares[i % pares.length];
+          final pts = await StreetIndex.findPrecomputedIntersections(a, b);
+          if (pts.isNotEmpty) encontrados++;
+        }
+        sw.stop();
+
+        expect(encontrados, greaterThan(0));
+        final elapsedMs = sw.elapsedMicroseconds / 1000.0;
+        final opsPerSec = elapsedMs > 0
+            ? (totalOps * 1000.0 / elapsedMs).round()
+            : totalOps;
+        // ignore: avoid_print
+        print(
+          '[STRESS] fn=StreetIndex.findPrecomputedIntersections ops=$totalOps elapsed_ms=${elapsedMs.toStringAsFixed(2)} throughput=${opsPerSec}_lookups/s',
+        );
+        expect(sw.elapsedMilliseconds, lessThan(5000));
+      },
+    );
+
+    test(
+      'Estrés NF-4: CartolaResolver.resolverSecuencia con 200 secuencias de 12 calles (2.400 pasos)',
+      () async {
+        const nombres = [
+          'LOS CARRERA',
+          'SERRANO',
+          'COVADONGA',
+          'SAN MARTIN',
+          'BLANCO ENCALADA',
+          'AV. RAMON FREIRE',
+          'LAGO PANGUIPULLI',
+          'MARGA MARGA',
+          'TRONCOS VIEJOS',
+          'JOTABECHE',
+          'BAQUEDANO',
+          'MIRADOR', // inexistente intercalada para probar resguardo de ancla
+        ];
+        final plantilla = [
+          for (var i = 0; i < nombres.length; i++)
+            PasoCartola(id: 'st_$i', nombre: nombres[i]),
+        ];
+
+        // Warmup de ambos índices JSON antes del cronómetro
+        await CartolaResolver.resolverSecuencia(plantilla);
+
+        const totalSeqs = 200;
+        var totalWaypoints = 0;
+        final sw = Stopwatch()..start();
+        for (var i = 0; i < totalSeqs; i++) {
+          final r = await CartolaResolver.resolverSecuencia(plantilla);
+          totalWaypoints += r.waypoints.length;
+        }
+        sw.stop();
+
+        expect(totalWaypoints, greaterThan(totalSeqs * 2));
+        final elapsedMs = sw.elapsedMicroseconds / 1000.0;
+        final opsPerSec = elapsedMs > 0
+            ? (totalSeqs * 1000.0 / elapsedMs).round()
+            : totalSeqs;
+        // ignore: avoid_print
+        print(
+          '[STRESS] fn=CartolaResolver.resolverSecuencia ops=${totalSeqs}_seqs_(${totalSeqs * nombres.length}_pasos) elapsed_ms=${elapsedMs.toStringAsFixed(2)} throughput=${opsPerSec}_seqs/s',
+        );
+        expect(sw.elapsedMilliseconds, lessThan(8000));
+      },
+    );
   });
 }

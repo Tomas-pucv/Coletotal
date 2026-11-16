@@ -78,15 +78,37 @@ abstract final class ValhallaClient {
   static Future<RoutePath?> route(
     List<LatLng> waypoints, {
     required ValhallaCosting costing,
+    bool preventUTurns = false,
+    List<double?>? headings,
   }) async {
-    final points = waypoints.where(isValidLatLng).toList(growable: false);
+    final points = <LatLng>[];
+    final validHeadings = headings == null ? null : <double?>[];
+    for (var i = 0; i < waypoints.length; i++) {
+      final w = waypoints[i];
+      if (!isValidLatLng(w)) continue;
+      points.add(w);
+      if (headings != null && validHeadings != null) {
+        validHeadings.add(i < headings.length ? headings[i] : null);
+      }
+    }
     if (points.length < 2) return null;
 
     final tramos = <List<LatLng>>[];
     var distance = 0.0;
     var duration = 0.0;
+    var offset = 0;
     for (final tramo in chunkWaypoints(points, maxLocations)) {
-      final parcial = await _request(tramo, costing);
+      final tramoHeadings = validHeadings?.sublist(
+        offset,
+        offset + tramo.length,
+      );
+      offset += tramo.length - 1;
+      final parcial = await _request(
+        tramo,
+        costing,
+        preventUTurns: preventUTurns,
+        headings: tramoHeadings,
+      );
       if (parcial == null) return null;
       tramos.add(parcial.points);
       distance += parcial.distanceMeters;
@@ -105,21 +127,31 @@ abstract final class ValhallaClient {
 
   static Future<RoutePath?> _request(
     List<LatLng> points,
-    ValhallaCosting costing,
-  ) async {
+    ValhallaCosting costing, {
+    bool preventUTurns = false,
+    List<double?>? headings,
+  }) async {
     final consulta = {
       'locations': [
-        for (final p in points)
+        for (var i = 0; i < points.length; i++)
           {
-            'lat': p.latitude,
-            'lon': p.longitude,
-            // Cada paradero corta la ruta en un tramo. Se permite dar la
-            // vuelta en él: probado con las líneas de la garita, prohibirlo
-            // (`break_through`) agregaba vueltas a la manzana más largas que
-            // los paraderos mal ubicados que las causaban.
-            'type': 'break',
+            'lat': points[i].latitude,
+            'lon': points[i].longitude,
+            // Los extremos del tramo siempre deben ser `break` en Valhalla;
+            // los intermedios usan `break_through` cuando `preventUTurns` está activo
+            // para evitar giros en U en arterias oficiales de cartola.
+            'type': preventUTurns && i > 0 && i < points.length - 1
+                ? 'break_through'
+                : 'break',
             if (costing == ValhallaCosting.auto)
               'search_filter': _soloCallesPublicas,
+            if (costing == ValhallaCosting.auto &&
+                headings != null &&
+                i < headings.length &&
+                headings[i] != null) ...{
+              'heading': headings[i]!.round() % 360,
+              'heading_tolerance': 45,
+            },
           },
       ],
       'costing': costing.name,

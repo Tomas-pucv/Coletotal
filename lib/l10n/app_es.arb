@@ -91,10 +91,10 @@
   "navFlota": "Flota",
   "navGarita": "Garita",
   "navRecorridos": "Recorridos",
-  "navDrivers": "Choferes",
+  "navDrivers": "Conductores",
 
   "roleGuest": "Invitado",
-  "roleColectivero": "Colectivero",
+  "roleColectivero": "Conductor",
   "roleAdmin": "Administrador",
   "roleColectiveroSubtitle": "Transmites tu posición a la garita",
   "roleAdminSubtitle": "Gestionas los datos de la garita",
@@ -175,7 +175,7 @@
   "turnoIssueInactive": "Tu cuenta está deshabilitada por la garita. Habla con el administrador.",
   "turnoIssueLocation": "No se pudo acceder al GPS. Revisa que esté encendido y que la app tenga permiso.",
   "turnoConsent": "Al iniciar el turno compartes tu ubicación en tiempo real con los pasajeros y con tu garita, mientras el turno esté activo. Puedes detenerlo cuando quieras (Ley 19.628).",
-  "turnoOnlyDrivers": "Esta sección es para los colectiveros de la garita.",
+  "turnoOnlyDrivers": "Esta sección es para los conductores de la garita.",
   "turnoNotificationTitle": "ColeTotal — en servicio",
   "turnoNotificationText": "Transmitiendo tu posición a los pasajeros",
   "turnoOffline": "Sin señal: tu posición se enviará apenas vuelva la conexión.",
@@ -204,7 +204,7 @@
   "adminMetricUnits": "En servicio",
   "adminMetricRoutes": "Líneas activas",
   "adminRoutesDesc": "Dibuja la ida y la vuelta de cada línea",
-  "adminDriversDesc": "Habilita o deshabilita a tus choferes",
+  "adminDriversDesc": "Habilita o deshabilita a tus conductores",
   "adminFleetDesc": "Dónde está cada unidad ahora mismo",
   "adminSectionData": "Datos de la línea",
   "adminSectionOps": "Operación",
@@ -212,7 +212,7 @@
   "savedOffline": "Guardado sin conexión: se sincronizará al recuperar la señal.",
 
   "fleetEmpty": "Ninguna unidad en servicio ahora mismo.",
-  "fleetEmptyHint": "Aparecerán aquí en cuanto un chofer inicie su turno.",
+  "fleetEmptyHint": "Aparecerán aquí en cuanto un conductor inicie su turno.",
   "fleetSeenNow": "Ahora mismo",
   "fleetSeenAgo": "Hace {minutos} min",
   "@fleetSeenAgo": {"placeholders": {"minutos": {"type": "String"}}},
@@ -232,11 +232,11 @@
   "@routeDeleteMessage": {"placeholders": {"nombre": {"type": "String"}}},
   "routeTraceHint": "Mantén presionado el mapa para marcar el recorrido punto por punto. La app lo ajusta a las calles y a sus sentidos de tránsito.",
 
-  "driversEmpty": "Todavía no hay choferes registrados en tu garita.",
+  "driversEmpty": "Todavía no hay conductores registrados en tu garita.",
   "driversEmptyHint": "Entrégales el código de garita para que se registren.",
   "driverInService": "En servicio",
-  "driverEnableHelp": "Un chofer deshabilitado no puede iniciar turno ni transmitir su posición.",
-  "driversNoPasswordReset": "No se pueden restablecer contraseñas desde la app: la patente no es un correo real. Si un chofer pierde la suya, deshabilita su cuenta y entrégale un código nuevo para que se registre otra vez.",
+  "driverEnableHelp": "Un conductor deshabilitado no puede iniciar turno ni transmitir su posición.",
+  "driversNoPasswordReset": "No se pueden restablecer contraseñas desde la app: la patente no es un correo real. Si un conductor pierde la suya, deshabilita su cuenta y entrégale un código nuevo para que se registre otra vez.",
   "driverSaved": "Cambios guardados.",
 
 
@@ -260,7 +260,7 @@
 
   "sentidoIda": "Ida",
   "sentidoVuelta": "Vuelta",
-  "routeActiveDesc": "La ven los pasajeros y la pueden elegir los choferes",
+  "routeActiveDesc": "La ven los pasajeros y la pueden elegir los conductores",
   "routeInactive": "Apagada",
   "routeSummaryBoth": "Ida {ida} · vuelta {vuelta}",
   "@routeSummaryBoth": {"placeholders": {"ida": {"type": "String"}, "vuelta": {"type": "String"}}},

@@ -259,13 +259,13 @@ class AppLocalizationsEs extends AppLocalizations {
   String get navRecorridos => 'Recorridos';
 
   @override
-  String get navDrivers => 'Choferes';
+  String get navDrivers => 'Conductores';
 
   @override
   String get roleGuest => 'Invitado';
 
   @override
-  String get roleColectivero => 'Colectivero';
+  String get roleColectivero => 'Conductor';
 
   @override
   String get roleAdmin => 'Administrador';
@@ -503,7 +503,7 @@ class AppLocalizationsEs extends AppLocalizations {
 
   @override
   String get turnoOnlyDrivers =>
-      'Esta sección es para los colectiveros de la garita.';
+      'Esta sección es para los conductores de la garita.';
 
   @override
   String get turnoNotificationTitle => 'ColeTotal — en servicio';
@@ -587,7 +587,7 @@ class AppLocalizationsEs extends AppLocalizations {
   String get adminRoutesDesc => 'Dibuja la ida y la vuelta de cada línea';
 
   @override
-  String get adminDriversDesc => 'Habilita o deshabilita a tus choferes';
+  String get adminDriversDesc => 'Habilita o deshabilita a tus conductores';
 
   @override
   String get adminFleetDesc => 'Dónde está cada unidad ahora mismo';
@@ -607,7 +607,7 @@ class AppLocalizationsEs extends AppLocalizations {
 
   @override
   String get fleetEmptyHint =>
-      'Aparecerán aquí en cuanto un chofer inicie su turno.';
+      'Aparecerán aquí en cuanto un conductor inicie su turno.';
 
   @override
   String get fleetSeenNow => 'Ahora mismo';
@@ -660,7 +660,7 @@ class AppLocalizationsEs extends AppLocalizations {
 
   @override
   String get driversEmpty =>
-      'Todavía no hay choferes registrados en tu garita.';
+      'Todavía no hay conductores registrados en tu garita.';
 
   @override
   String get driversEmptyHint =>
@@ -671,11 +671,11 @@ class AppLocalizationsEs extends AppLocalizations {
 
   @override
   String get driverEnableHelp =>
-      'Un chofer deshabilitado no puede iniciar turno ni transmitir su posición.';
+      'Un conductor deshabilitado no puede iniciar turno ni transmitir su posición.';
 
   @override
   String get driversNoPasswordReset =>
-      'No se pueden restablecer contraseñas desde la app: la patente no es un correo real. Si un chofer pierde la suya, deshabilita su cuenta y entrégale un código nuevo para que se registre otra vez.';
+      'No se pueden restablecer contraseñas desde la app: la patente no es un correo real. Si un conductor pierde la suya, deshabilita su cuenta y entrégale un código nuevo para que se registre otra vez.';
 
   @override
   String get driverSaved => 'Cambios guardados.';
@@ -732,7 +732,7 @@ class AppLocalizationsEs extends AppLocalizations {
 
   @override
   String get routeActiveDesc =>
-      'La ven los pasajeros y la pueden elegir los choferes';
+      'La ven los pasajeros y la pueden elegir los conductores';
 
   @override
   String get routeInactive => 'Apagada';

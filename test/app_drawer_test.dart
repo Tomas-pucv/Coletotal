@@ -84,7 +84,7 @@ void main() {
     );
 
     expect(find.text('Juan Pérez'), findsOneWidget);
-    expect(find.text('Colectivero'), findsOneWidget);
+    expect(find.text('Conductor'), findsOneWidget);
     final placa = find.text(formatPatente('ABCD12'));
     expect(placa, findsOneWidget);
     // Blanca como la placa de verdad, con borde.

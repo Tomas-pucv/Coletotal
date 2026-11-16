@@ -502,20 +502,55 @@ async function fuentes() {
 // 6. Índice de calles
 // ---------------------------------------------------------------------------
 
-/** Tipos de vía que la gente busca por nombre (sin senderos, huellas ni escaleras). */
+/** Tipos de vía vehiculares aptas para transporte público. */
 const VIAS =
-  '^(motorway|trunk|primary|secondary|tertiary|unclassified|residential|' +
-  'living_street|pedestrian|service|road)(_link)?$';
+  '^(motorway|trunk|primary|secondary|tertiary|unclassified|residential|road)(_link)?$';
+
+const PRIORIDAD_VIA = {
+  motorway: 1,
+  trunk: 1,
+  primary: 2,
+  secondary: 3,
+  tertiary: 4,
+  unclassified: 5,
+  residential: 5,
+  road: 5,
+};
+
+const PREFIJOS_BASE_VIA = new Set([
+  'av', 'avda', 'avenida', 'calle', 'cam', 'camino', 'pasaje', 'pje', 'psje',
+]);
+
+function prioridadDeVia(highway) {
+  const base = String(highway || 'residential').replace(/_link$/, '');
+  return PRIORIDAD_VIA[base] ?? 5;
+}
+
+function normalizarNombreViaBase(nombre) {
+  const tokens = normalizar(nombre).replace(/ñ/g, 'n').split(' ').filter(Boolean);
+  const sinPrefijo = tokens.filter((t) => !PREFIJOS_BASE_VIA.has(t));
+  return (sinPrefijo.length > 0 ? sinPrefijo : tokens).join(' ');
+}
+
+function puntosDeVia(via) {
+  if (Array.isArray(via.geometry) && via.geometry.length > 0) {
+    return via.geometry.map((p) => [p.lon, p.lat]);
+  }
+  if (via.center) {
+    return [[via.center.lon, via.center.lat]];
+  }
+  return [];
+}
 
 async function consultarOverpass() {
-  const destino = path.join(CACHE, 'calles_overpass.json');
+  const destino = path.join(CACHE, 'calles_overpass_geom.json');
   if (fs.existsSync(destino)) return leerJson(destino);
 
   const consulta = `
     [out:json][timeout:600];
     area["boundary"="administrative"]["admin_level"="4"]["name"="Región de Valparaíso"]->.r;
     way(area.r)["highway"~"${VIAS}"]["name"];
-    out tags center qt;
+    out tags geom qt;
   `;
   let ultimoError;
   for (const servidor of OVERPASS) {
@@ -621,11 +656,13 @@ async function calles() {
 
   const datos = await consultarOverpass();
   const porCalle = new Map();
+  const verticesPorComuna = new Map();
   let sinComuna = 0;
   for (const via of datos.elements) {
     const nombre = via.tags?.name?.trim();
-    if (!nombre || !via.center) continue;
-    const punto = [via.center.lon, via.center.lat];
+    const geom = puntosDeVia(via);
+    if (!nombre || geom.length === 0) continue;
+    const punto = geom[Math.floor(geom.length / 2)];
     // Juan Fernández y Rapa Nui también son de la región, pero no del mapa.
     if (punto[0] < -76) continue;
     const comuna = comunaDe(punto);
@@ -634,10 +671,28 @@ async function calles() {
       continue;
     }
     const clave = `${normalizar(nombre)}|${comuna}`;
-    const calle = porCalle.get(clave) || { nombres: new Map(), comuna, puntos: [] };
+    const prioridad = prioridadDeVia(via.tags?.highway);
+    const calle = porCalle.get(clave) || {
+      nombres: new Map(),
+      comuna,
+      puntos: [],
+      prioridad,
+    };
     calle.nombres.set(nombre, (calle.nombres.get(nombre) || 0) + 1);
     calle.puntos.push(punto);
+    if (prioridad < calle.prioridad) calle.prioridad = prioridad;
     porCalle.set(clave, calle);
+
+    const base = normalizarNombreViaBase(nombre);
+    if (base) {
+      const comunaKey = normalizar(comuna).replace(/ñ/g, 'n');
+      let lista = verticesPorComuna.get(comunaKey);
+      if (!lista) {
+        lista = [];
+        verticesPorComuna.set(comunaKey, lista);
+      }
+      for (const v of geom) lista.push({ base, lon: v[0], lat: v[1] });
+    }
   }
 
   // Accesos y estacionamientos con la dirección en el nombre ("Avenida Los
@@ -652,7 +707,7 @@ async function calles() {
 
   const filas = [];
   let direcciones = 0;
-  for (const [clave, { nombres, comuna, puntos }] of porCalle) {
+  for (const [clave, { nombres, comuna, puntos, prioridad }] of porCalle) {
     if (esDireccion(clave)) {
       direcciones++;
       continue;
@@ -662,7 +717,7 @@ async function calles() {
     const nombre = [...nombres.entries()].sort((a, b) => b[1] - a[1])[0][0];
     for (const grupo of agrupar(puntos)) {
       const [lon, lat] = medoide(grupo);
-      filas.push([nombre, comuna, +lat.toFixed(5), +lon.toFixed(5)]);
+      filas.push([nombre, comuna, +lat.toFixed(5), +lon.toFixed(5), prioridad]);
     }
   }
   filas.sort((a, b) => a[1].localeCompare(b[1], 'es') || a[0].localeCompare(b[0], 'es'));
@@ -672,6 +727,61 @@ async function calles() {
   console.log(
     `✅ calles_valparaiso.json: ${filas.length} calles de ${datos.elements.length} tramos ` +
       `(${sinComuna} sin comuna, ${direcciones} accesos con número), ${mb(salida)}`,
+  );
+
+  // Intersecciones reales por par de calles normalizadas en cada comuna.
+  const CELL = 0.00045; // ~45 m
+  const crucesRaw = new Map();
+  for (const [comunaKey, vertices] of verticesPorComuna) {
+    const grid = new Map();
+    for (const item of vertices) {
+      const gx = Math.floor(item.lon / CELL);
+      const gy = Math.floor(item.lat / CELL);
+      const k = `${gx},${gy}`;
+      let arr = grid.get(k);
+      if (!arr) {
+        arr = [];
+        grid.set(k, arr);
+      }
+      arr.push(item);
+    }
+    for (const a of vertices) {
+      const gx = Math.floor(a.lon / CELL);
+      const gy = Math.floor(a.lat / CELL);
+      for (let dx = -1; dx <= 1; dx++) {
+        for (let dy = -1; dy <= 1; dy++) {
+          const vecinos = grid.get(`${gx + dx},${gy + dy}`);
+          if (!vecinos) continue;
+          for (const b of vecinos) {
+            if (a.base >= b.base) continue;
+            const d = metros([a.lon, a.lat], [b.lon, b.lat]);
+            if (d <= 35) {
+              const par = `${comunaKey}|${a.base}|${b.base}`;
+              let pts = crucesRaw.get(par);
+              if (!pts) {
+                pts = [];
+                crucesRaw.set(par, pts);
+              }
+              pts.push([(a.lon + b.lon) / 2, (a.lat + b.lat) / 2]);
+            }
+          }
+        }
+      }
+    }
+  }
+
+  const intersecciones = {};
+  for (const [par, pts] of [...crucesRaw.entries()].sort((x, y) => x[0].localeCompare(y[0]))) {
+    const grupos = agrupar(pts, 80);
+    intersecciones[par] = grupos.map((g) => {
+      const [lon, lat] = medoide(g);
+      return [+lat.toFixed(5), +lon.toFixed(5)];
+    });
+  }
+  const salidaIntersecciones = path.join(ASSETS, 'intersecciones_valparaiso.json');
+  fs.writeFileSync(salidaIntersecciones, JSON.stringify(intersecciones));
+  console.log(
+    `✅ intersecciones_valparaiso.json: ${Object.keys(intersecciones).length} cruces, ${mb(salidaIntersecciones)}`,
   );
 }
 

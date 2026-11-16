@@ -424,7 +424,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('Juan Pérez'), findsOneWidget);
-      expect(find.text('Colectivero'), findsOneWidget);
+      expect(find.text('Conductor'), findsOneWidget);
       expect(find.text('Iniciar sesión'), findsNothing);
       final salir = find.widgetWithText(OutlinedButton, 'Salir');
       expect(salir, findsOneWidget);

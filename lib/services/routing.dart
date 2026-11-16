@@ -16,14 +16,31 @@ abstract final class Routing {
   /// Trazado de una línea de colectivos por sus paraderos **en orden**, en
   /// auto (respeta el sentido de las calles). `null` si ningún enrutador
   /// respondió.
-  static Future<RoutePath?> linePath(List<LatLng> stops) async =>
-      await ValhallaClient.route(stops, costing: ValhallaCosting.auto) ??
-      await OsrmClient.route(stops);
+  static Future<RoutePath?> linePath(
+    List<LatLng> stops, {
+    bool preventUTurns = false,
+    List<double?>? headings,
+  }) async =>
+      await ValhallaClient.route(
+        stops,
+        costing: ValhallaCosting.auto,
+        preventUTurns: preventUTurns,
+        headings: headings,
+      ) ??
+      await OsrmClient.route(stops, continueStraight: preventUTurns);
 
   /// [linePath] como polilínea (precisión 6): lo que se guarda en el campo
   /// `geometria` de un recorrido.
-  static Future<String?> encodedLinePath(List<LatLng> stops) async {
-    final path = await linePath(stops);
+  static Future<String?> encodedLinePath(
+    List<LatLng> stops, {
+    bool preventUTurns = false,
+    List<double?>? headings,
+  }) async {
+    final path = await linePath(
+      stops,
+      preventUTurns: preventUTurns,
+      headings: headings,
+    );
     return path == null ? null : encodePolyline(path.points);
   }
 
