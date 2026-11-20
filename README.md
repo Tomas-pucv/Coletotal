@@ -52,15 +52,16 @@ las reglas de Firestore lo verifican en el servidor al crear la cuenta.
   escribe a dónde se quiere ir y la app propone qué línea tomar y en qué
   sentido, utilizando un modelo subrogado de optimización espaciotemporal
   (`HybridRouteOptimizer`) en dos niveles:
-  - **Nivel 1 (Subrogado analítico con tablas acumuladas $O(1)$)**: filtra y
+  - **Nivel 1 (Subrogado en memoria con tablas acumuladas $O(1)$)**: filtra y
     evalúa en microsegundos los pares de subida y bajada sobre cada polilínea,
-    penalizando tramos peatonales con factor de tortuosidad $\tau = 1.35$.
-  - **Nivel 2 (Verificación exacta con Valhalla)**: al seleccionar una
-    sugerencia, el candidato ganador del Nivel 1 se refina contra el grafo
-    peatonal real de Valhalla en el dispositivo para obtener la ruta a pie y
-    métricas exactas.
-  Incluye un catálogo local de lugares de Quilpué y normalización insensible a
-  tildes.
+    ponderando los tramos peatonales ($\alpha = \gamma = 2$, $\beta = 1$) con
+    factor de tortuosidad $\tau = 1,25$.
+  - **Nivel 2 (Ruta exacta con Valhalla)**: al seleccionar una sugerencia, el
+    candidato elegido se verifica contra el grafo peatonal de Valhalla en el
+    teléfono para trazar la ruta a pie exacta hasta el punto de seña con su
+    distancia y tiempo reales.
+  Incluye un catálogo local de 26 lugares de Quilpué y normalización insensible
+  a tildes.
 - **Puntos de seña** en vez de paraderos. Al seleccionar una línea se dibujan
   sus dos sentidos lado a lado, cada uno por su carril con flechas de sentido de
   marcha, un punto de seña por sentido ("Hacia Alto el Yugo", "Hacia el
@@ -150,17 +151,64 @@ las reglas de Firestore lo verifican en el servidor al crear la cuenta.
 **Requisitos:** Flutter ≥ 3.44, Dart ≥ 3.12. Probado en Android; iOS necesita
 además `ios/Runner/GoogleService-Info.plist`, que no está en el repositorio.
 
-## Puesta en marcha
+## Puesta en marcha desde cualquier PC (Guía rápida de evaluación)
+
+El repositorio incluye dentro de `assets/map/` el mapa base offline (`.pmtiles`),
+el índice de 24.785 calles de la región, el índice de 6.019 cruces de Quilpué y
+el grafo de ruteo de Valhalla, además de la configuración de cliente de Firebase
+(`lib/firebase_options.dart` y `android/app/google-services.json`). Por ello,
+**no se requiere configurar claves de API ni levantar servidores locales** para
+compilar y ejecutar la aplicación desde cualquier computador.
+
+### 1. Requisitos previos en el PC
+
+1. **Flutter SDK** (≥ 3.44, incluye Dart ≥ 3.12) y **Git** en el `PATH`.
+2. **Android Studio** (o Android SDK + Command-line Tools) con un **dispositivo
+   Android físico** conectado por USB (con *Depuración por USB* activa, Android
+   7.0 / API 24 o superior) o un **Emulador Android (`arm64-v8a` o `x86_64`)**.
+   > **Nota:** MapLibre Native y el motor nativo de Valhalla corren sobre
+   > **Android**. No se debe elegir Windows Desktop como destino de ejecución,
+   > ya que `maplibre_gl` no tiene implementación nativa para escritorio.
+
+### 2. Comandos para verificar y lanzar la aplicación
+
+Abrir una terminal en la raíz del proyecto y ejecutar:
 
 ```bash
+# 1. Descargar dependencias y generar archivos de localización
 flutter pub get
 flutter gen-l10n
+
+# 2. (Opcional) Verificar análisis estático y batería de pruebas automatizadas (sin red)
+flutter analyze
+flutter test
+
+# 3. Ver dispositivos Android conectados / emuladores activos
+flutter devices
+
+# 4A. Lanzar la aplicación en modo normal (usa el GPS real del dispositivo)
 flutter run
+
+# 4B. Lanzar la aplicación en Modo Demostración (recomendado si se evalúa en
+#     emulador o fuera de Quilpué: fija la posición inicial del pasajero en el
+#     centro de Quilpué y simula vehículos circulando en vivo sobre las líneas)
+flutter run --dart-define=DEMO_MODE=true
 ```
 
-La app arranca como Invitado y muestra el mapa sin necesidad de configurar
-nada. Para que funcionen el registro, las líneas y el panel de garita hay que
-preparar el proyecto de Firebase:
+También es posible generar el APK instalable directamente con:
+
+```bash
+flutter build apk --release --split-per-abi
+```
+El archivo resultante queda en `build/app/outputs/flutter-apk/app-arm64-v8a-release.apk`.
+
+---
+
+## Configuración de un proyecto Firebase propio (opcional)
+
+La aplicación ya viene conectada al proyecto Firebase del caso de estudio y
+arranca como **Invitado** mostrando el mapa y los recorridos sin configuración
+adicional. Si se desea desplegar un entorno Firebase propio desde cero:
 
 1. **Authentication → Sign-in method**: habilitar *Correo electrónico/contraseña*.
 2. **Firestore Database**: crearla en modo producción (la región es permanente).
@@ -168,7 +216,7 @@ preparar el proyecto de Firebase:
    ```bash
    firebase deploy --only firestore:rules,database
    ```
-4. **Sembrar los datos mínimos** desde la consola:
+4. **Sembrar los datos mínimos** desde la consola o con `scripts/gestionar_garitas_y_codigos.js`:
    - `garitas/{id}` → `{ nombre, comuna }`
    - `codigos_acceso/{CÓDIGO}` → `{ garitaId, rol: "colectivero", activo: true }`
    - otro `codigos_acceso` con `rol: "administrador"`
@@ -178,11 +226,7 @@ preparar el proyecto de Firebase:
    `SERRANO-CHO-7K4M9`). Los códigos **no** se guardan en el repositorio: el
    script de datos de prueba los recibe por variables de entorno
    (`CHOFER_CODE`, `ADMIN_CODE`, `TEST_DRIVER_PASSWORD`).
-5. Entrar como administrador y dibujar las líneas (menú → Recorridos).
-
-Sin el paso 5, la búsqueda de direcciones funciona, pero no hay líneas que
-proponer. Los pasajeros sólo ven las líneas de la garita `kGaritaPublica`
-(`lib/config/garita_config.dart`, la de Transportes Serrano).
+5. Entrar como administrador y cargar las variantes de la línea (menú → Recorridos).
 
 ### Claves de API
 

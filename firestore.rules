@@ -42,19 +42,14 @@ service cloud.firestore {
     }
 
     // Estructura de una línea (recorrido): nombre, color, estado activo,
-    // trazado de ida, trazado opcional de vuelta y metadatos de cartola D.S. 212.
+    // trazado de ida y trazado opcional de vuelta.
     function recorridoValido() {
       let d = request.resource.data;
       return d.nombre is string && d.nombre.size() > 0 && d.nombre.size() <= 80
         && d.color is int
         && d.activo is bool
         && trayectoValido(d.ida)
-        && (!('vuelta' in d) || trayectoValido(d.vuelta))
-        && (!('linea' in d) || (d.linea is string && d.linea.size() <= 80))
-        && (!('codigoVariante' in d) || (d.codigoVariante is string && d.codigoVariante.size() <= 20))
-        && (!('nombreVariante' in d) || (d.nombreVariante is string && d.nombreVariante.size() <= 120))
-        && (!('callesIda' in d) || (d.callesIda is list && d.callesIda.size() <= 200))
-        && (!('callesVuelta' in d) || (d.callesVuelta is list && d.callesVuelta.size() <= 200));
+        && (!('vuelta' in d) || trayectoValido(d.vuelta));
     }
 
     function codigoAccesoValido() {
@@ -92,7 +87,6 @@ service cloud.firestore {
         allow read: if isAdminOf(garitaId);
         allow create: if signedIn()
           && exists(/databases/$(database)/documents/usuarios/$(request.auth.uid))
-          && me().activo == true
           && me().garitaId == garitaId
           && request.resource.data.uid == request.auth.uid
           && request.resource.data.garitaId == garitaId
@@ -136,8 +130,7 @@ service cloud.firestore {
 
       // El administrador de la garita sólo puede habilitar o deshabilitar cuentas.
       allow update: if isAdminOf(resource.data.garitaId)
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['activo'])
-        && request.resource.data.activo is bool;
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['activo']);
 
       allow delete: if false;
     }
