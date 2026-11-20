@@ -106,26 +106,29 @@ class _RegisterScreenState extends State<RegisterScreen> {
     final auth = AuthService.instance;
 
     final CodigoAcceso? acceso;
+    Garita? garita;
     try {
       acceso = await auth.lookupCodigo(raw);
+      final valido = acceso != null && acceso.rol == _role;
+      garita = valido ? await auth.getGarita(acceso.garitaId) : null;
+      if (!mounted || request != _codigoRequest) return;
+      setState(() {
+        _codigoState = valido ? _CodigoState.valido : _CodigoState.invalido;
+        _garita = garita;
+      });
     } on AuthFailure {
       if (!mounted || request != _codigoRequest) return;
       setState(() {
         _codigoState = _CodigoState.sinConexion;
         _garita = null;
       });
-      return;
+    } catch (_) {
+      if (!mounted || request != _codigoRequest) return;
+      setState(() {
+        _codigoState = _CodigoState.sinConexion;
+        _garita = null;
+      });
     }
-    final valido = acceso != null && acceso.rol == _role;
-    final garita = valido ? await auth.getGarita(acceso.garitaId) : null;
-
-    // Llegó tarde: ya hay una comprobación más nueva en curso.
-    if (!mounted || request != _codigoRequest) return;
-
-    setState(() {
-      _codigoState = valido ? _CodigoState.valido : _CodigoState.invalido;
-      _garita = garita;
-    });
   }
 
   Future<void> _submit() async {
@@ -220,8 +223,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   value: _conductor,
                   onChanged: (v) => setState(() => _conductor = v),
                 ),
-              ]
-              else
+              ] else
                 EmailField(
                   controller: _identifier,
                   textInputAction: TextInputAction.next,
@@ -335,7 +337,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
       textInputAction: TextInputAction.done,
       onFieldSubmitted: (_) => _submit(),
       inputFormatters: [
-        FilteringTextInputFormatter.allow(RegExp(r'[A-Za-z0-9\-]')),
+        FilteringTextInputFormatter.allow(RegExp(r'[A-Za-z0-9_\-]')),
         LengthLimitingTextInputFormatter(32),
       ],
       decoration: InputDecoration(

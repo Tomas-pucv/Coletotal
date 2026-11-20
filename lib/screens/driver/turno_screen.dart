@@ -30,15 +30,13 @@ import 'package:taxi1/widgets/map_style_sheet.dart';
 import 'package:taxi1/widgets/recorrido_lines.dart';
 import 'package:taxi1/widgets/state_views.dart';
 
-/// Pantalla de jornada del colectivero — el "módulo conductor" del informe
-/// (§7.3.1-A) —, armada como un navegador: el mapa entero y el chofer como una
-/// flecha.
+/// Pantalla de jornada del conductor, diseñada como vista de navegación con el
+/// mapa a pantalla completa y el vehículo representado por una flecha direccional.
 ///
-/// Fuera de turno, la cámara lo sigue con el norte arriba y abajo está el
-/// botón grande de "Iniciar turno". En turno, la cámara se inclina y gira con
-/// el sentido de marcha, como en Google Maps, y abajo quedan el selector de
-/// línea y el botón "Terminar turno". Su línea va resaltada, con las flechas
-/// de su sentido, y los demás colectivos a la vista.
+/// Fuera de turno, la cámara sigue al conductor con el norte arriba y presenta
+/// el botón de "Iniciar turno". En turno, la cámara se inclina y rota con el
+/// sentido de marcha, manteniendo abajo el selector de línea y el control para
+/// finalizar el turno.
 class TurnoScreen extends StatefulWidget {
   const TurnoScreen({super.key});
 
@@ -622,8 +620,7 @@ class _TurnoScreenState extends State<TurnoScreen> {
     if (terminar == true) await _turno.terminarTurno();
   }
 
-  /// La línea a cubrir, como una píldora: tocarla abre la lista. Es lo que ve
-  /// el pasajero al tocar el colectivo en el mapa: su trazado se ilumina.
+  /// Selector tipo píldora de la línea cubierta durante el turno.
   Widget _chipLinea(AppLocalizations l10n) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
@@ -640,38 +637,35 @@ class _TurnoScreenState extends State<TurnoScreen> {
           constraints: const BoxConstraints(
             minHeight: TurnoScreen.altoControles,
           ),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
+            child: Row(
+              children: [
+                Icon(
+                  Icons.circle,
+                  size: 12,
+                  color: recorrido == null
+                      ? scheme.outline
+                      : Color(recorrido.colorValue),
+                ),
+                const SizedBox(width: AppSpacing.sm),
+                Expanded(
+                  child: Text(
+                    recorrido?.nombre ??
+                        (opciones.isEmpty
+                            ? l10n.turnoRouteEmpty
+                            : l10n.turnoRouteNone),
+                    style: theme.textTheme.titleSmall,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                if (opciones.isNotEmpty) const Icon(Icons.arrow_drop_down),
+              ],
+            ),
+          ),
         ),
       ),
-    )._withChild(
-      Padding(
-        padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
-        child: Row(
-          children: [
-            Icon(
-              Icons.circle,
-              size: 12,
-              color: recorrido == null
-                  ? scheme.outline
-                  : Color(recorrido.colorValue),
-            ),
-            const SizedBox(width: AppSpacing.sm),
-            Expanded(
-              child: Text(
-                recorrido?.nombre ??
-                    (opciones.isEmpty
-                        ? l10n.turnoRouteEmpty
-                        : l10n.turnoRouteNone),
-                style: theme.textTheme.titleSmall,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-            if (opciones.isNotEmpty) const Icon(Icons.arrow_drop_down),
-          ],
-        ),
-      ),
-      onTap: opciones.isEmpty ? null : () => _pickRecorrido(l10n),
-      scheme: scheme,
     );
   }
 
@@ -714,7 +708,6 @@ class _TurnoScreenState extends State<TurnoScreen> {
       ),
     );
 
-    // `null` es cerrar la hoja sin elegir; "Sin recorrido" viene envuelto.
     if (elegido == null) return;
     await _turno.setRecorridoAsignado(elegido.recorrido);
   }
@@ -725,27 +718,6 @@ class _TurnoScreenState extends State<TurnoScreen> {
     TurnoIssue.cuentaInactiva => l10n.turnoIssueInactive,
     TurnoIssue.ubicacionNoDisponible => l10n.turnoIssueLocation,
   };
-}
-
-extension on Material {
-  Widget _withChild(
-    Widget child, {
-    required VoidCallback? onTap,
-    required ColorScheme scheme,
-  }) => Material(
-    color: scheme.surfaceContainerHighest,
-    shape: const StadiumBorder(),
-    clipBehavior: Clip.antiAlias,
-    child: InkWell(
-      onTap: onTap,
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(
-          minHeight: TurnoScreen.altoControles,
-        ),
-        child: child,
-      ),
-    ),
-  );
 }
 
 /// La tarjeta de abajo del chofer: flota sobre el mapa con poco margen, para

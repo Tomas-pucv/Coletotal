@@ -3,22 +3,15 @@ import 'package:flutter/material.dart';
 import 'package:taxi1/l10n/app_localizations.dart';
 import 'package:taxi1/theme/app_colors.dart';
 
-/// Formato y clasificación de distancias/duraciones.
+/// Formato y clasificación de distancias, duraciones y antigüedad de señales.
 ///
-/// Unifica tres implementaciones que vivían separadas y podían divergir:
-/// `RouteResult.distanceLabel`/`durationLabel` en `route_service.dart`,
-/// `_distanceLabel`/`_closenessLabel`/`_closenessColor` en `routes_screen.dart`
-/// y `_stopColor` en `map_screen.dart`.
-///
-/// Además pasa los textos por el ARB, que ya tenía las claves (`distanceKm`,
-/// `durationMin`, `veryClose`, …) sin usar.
+/// Centraliza el formateo localizado mediante `AppLocalizations` (`distanceKm`,
+/// `distanceM`, `durationMin`, `veryClose`, etc.) y la clasificación en tramos
+/// de cercanía ([ProximityBucket]).
 
-/// Cercanía de un paradero respecto de la posición del usuario.
+/// Cercanía de una línea o punto respecto de la posición del usuario.
 enum ProximityBucket {
   /// Sin posición conocida: no se puede afirmar nada sobre la cercanía.
-  ///
-  /// Antes este caso se colapsaba a `0.0` metros, con lo que la lista de
-  /// paraderos mostraba "0 m — Muy cerca" en *todos* con el GPS apagado.
   unknown,
   veryClose,
   close,

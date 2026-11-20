@@ -24,89 +24,71 @@ import 'package:taxi1/services/street_index.dart';
 import 'package:taxi1/theme/app_text_scaler.dart';
 import 'package:taxi1/theme/app_theme.dart';
 
+/// Activa la simulación local de flota y posición por defecto en Quilpué
+/// únicamente cuando se compila con `--dart-define=DEMO_MODE=true`.
+const bool kDemoMode = bool.fromEnvironment('DEMO_MODE');
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // El mapa se dibuja en un TextureView y Flutter lo compone como una capa
-  // más. Con el modo por omisión (Virtual Display), Flutter redimensiona el
-  // mapa con una tarea diferida que puede correr cuando el mapa ya no existe:
-  // la app se cerraba al girar el teléfono o al cambiar de app mientras la
-  // ventana se achicaba (2026-10-10, NullPointerException en
-  // `SurfaceProducer.getWidth`). Tiene que fijarse antes del primer mapa.
+  // Usa Hybrid Composition (TextureView) para integrar la vista nativa de
+  // MapLibre en el árbol de widgets de Flutter sin errores de ciclo de vida
+  // al rotar la pantalla o redimensionar la ventana en Android.
   MapLibreMap.useHybridComposition = true;
 
-  // El mapa base viene en el APK y no depende de Firebase: se abre en
-  // paralelo y sin esperarlo. La primera vez tras instalar copia unos 60 MB;
-  // mientras tanto los mapas muestran su fondo (ver `BasemapService`).
+  // Inicia en paralelo la extracción y verificación de las teselas offline
+  // del mapa base (PMTiles, estilos, fuentes y grafo de ruteo) sin bloquear
+  // el arranque de la interfaz.
   unawaited(BasemapService.instance.load());
 
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
 
-  // Caché offline explícita (RF-07-01): las líneas tienen que verse en los
-  // tramos sin cobertura de los cerros de Quilpué.
+  // Habilita persistencia offline ilimitada en Firestore para que las líneas
+  // y metadatos sigan disponibles en sectores con baja cobertura móvil.
   FirebaseFirestore.instance.settings = const Settings(
     persistenceEnabled: true,
     cacheSizeBytes: Settings.CACHE_SIZE_UNLIMITED,
   );
 
-  // La versión instalada, que se muestra en Preferencias y se registra en la
-  // auditoría de turnos. Se lee del APK en vez de repetirse a mano en el código.
+  // Carga la versión real instalada desde los metadatos del paquete (APK).
   await AppVersion.load();
 
-  // Antes que las preferencias: el rol decide qué pantallas existen, así que
-  // la primera construcción del árbol ya tiene que conocerlo.
+  // Inicializa la sesión antes de construir el árbol de widgets, ya que el
+  // rol activo determina las pantallas y destinos de navegación disponibles.
   await AuthService.instance.init();
 
-  // Engancha el turno a la sesión: cerrar sesión tiene que detener la
-  // telemetría ANTES de perder el token, o el nodo del vehículo queda colgado
-  // en el mapa de todos los pasajeros.
+  // Vincula el ciclo de vida del turno a la sesión para detener la telemetría
+  // en Realtime Database antes de revocar el token al cerrar sesión.
   await TurnoService.instance.bind();
 
-  // Los datos de la garita sólo se escuchan cuando hay un administrador en
-  // sesión: un listener abierto contra datos que el usuario ya no puede leer
-  // sólo produce errores de reglas.
+  // Activa las suscripciones de gestión de garita únicamente cuando la sesión
+  // pertenece a un administrador autenticado.
   GaritaService.instance.bind();
 
   await PreferencesService.instance.load();
 
-  // Las líneas las lee todo el mundo, no sólo el administrador: son lo que
-  // el pasajero busca para saber qué colectivo tomar.
+  // Escucha el catálogo de recorridos para pasajeros, conductores y garita.
   RecorridosService.instance.startListening();
 
-  // La flota en vivo: una sola suscripción para toda la app. Antes cada
-  // pantalla (mapa, flota, portada de garita, choferes) abría la suya.
+  // Mantiene una única suscripción compartida a la telemetría de flota en vivo
+  // para todas las vistas de la aplicación.
   FirebaseTelemetriaService.instance.startListening();
 
-  // ===========================================================================
-  // NOTA: CONFIGURACIONES DE PRUEBA (FUNCIÓN RADAR DE RUTAS POR PROXIMIDAD)
-  // ---------------------------------------------------------------------------
-  // Para validar y demostrar el muestreo dinámico de recorridos por cercanía
-  // (Modo Radar 1 km / Modo Foco 2 km) sin depender de ubicarse físicamente en
-  // Quilpué ni de tener flota real transmitiendo en ese instante:
-  //   1. `setDefaultPassengerPosition(kQuilpueCenter)` fija la ubicación por
-  //      defecto del pasajero en el centro de Quilpué (-33.0472, -71.4425) si
-  //      el GPS no está disponible o reporta coordenadas fuera de la comuna
-  //      (> 10 km, ej. emulador). En modo conductor usa siempre el GPS real.
-  //   2. `SimulacionFlotaService.instance.start(centro: kQuilpueCenter)`
-  //      inyecta 3 colectivos simulados (BBCC10, DDEE11, FFGG12) circulando
-  //      sobre los trazados reales de las 3 líneas originales de Firestore
-  //      (`linea-10-t`, `linea-10-v1`, `linea-10-v2`), donde `FFGG12` entra y
-  //      sale periódicamente del radio de 1 km por Av. Ricardo Cumming.
-  // Para pruebas de campo exclusivamente con GPS real y flota en vivo, basta
-  // con comentar estas dos líneas.
-  // ===========================================================================
-  LocationService.instance.setDefaultPassengerPosition(kQuilpueCenter);
-  SimulacionFlotaService.instance.start(centro: kQuilpueCenter);
+  // Modo de demostración opcional (desactivado por omisión en producción):
+  // fija una ubicación de respaldo en Quilpué e inyecta 3 unidades simuladas
+  // cuando se ejecuta con `--dart-define=DEMO_MODE=true`.
+  if (kDemoMode) {
+    LocationService.instance.setDefaultPassengerPosition(kQuilpueCenter);
+    SimulacionFlotaService.instance.start(centro: kQuilpueCenter);
+  }
 
   runApp(const ColeTotalApp());
 
-  // El GPS se abre una sola vez y para toda la app (ver `LocationService`), y
-  // después del primer frame: el diálogo de permiso necesita la actividad ya
-  // en pantalla.
+  // Inicia el servicio único de GPS tras renderizar el primer cuadro (para que
+  // el diálogo de permisos cuente con una Activity activa) y precarga en un
+  // isolate secundario el índice offline de calles.
   WidgetsBinding.instance.addPostFrameCallback((_) {
     unawaited(LocationService.instance.start());
-    // El índice offline de calles del buscador: se lee ya para que la
-    // primera búsqueda no tenga que esperarlo.
     unawaited(StreetIndex.preload());
   });
 }
@@ -119,22 +101,21 @@ class ColeTotalApp extends StatefulWidget {
 }
 
 class _ColeTotalAppState extends State<ColeTotalApp> {
-  final prefs = PreferencesService.instance;
+  final _prefs = PreferencesService.instance;
 
-  /// `ColorScheme.fromSeed` hace un cálculo de color no trivial y este widget
-  /// se reconstruye ante *cualquier* cambio de preferencia, así que el tema se
-  /// memoiza por (brillo, densidad) en vez de recalcularse cada vez.
+  /// Memoiza los temas generados por `(brightness, compactMode)` para evitar
+  /// recalcular `ColorScheme.fromSeed` cuando cambian otras preferencias.
   final Map<(Brightness, bool), ThemeData> _themeCache = {};
 
   @override
   void initState() {
     super.initState();
-    prefs.addListener(_onPrefsChanged);
+    _prefs.addListener(_onPrefsChanged);
   }
 
   @override
   void dispose() {
-    prefs.removeListener(_onPrefsChanged);
+    _prefs.removeListener(_onPrefsChanged);
     super.dispose();
   }
 
@@ -144,8 +125,8 @@ class _ColeTotalAppState extends State<ColeTotalApp> {
 
   ThemeData _theme(Brightness brightness) => _themeCache.putIfAbsent((
     brightness,
-    prefs.compactMode,
-  ), () => buildAppTheme(brightness: brightness, compact: prefs.compactMode));
+    _prefs.compactMode,
+  ), () => buildAppTheme(brightness: brightness, compact: _prefs.compactMode));
 
   @override
   Widget build(BuildContext context) {
@@ -154,7 +135,7 @@ class _ColeTotalAppState extends State<ColeTotalApp> {
       debugShowCheckedModeBanner: false,
       theme: _theme(Brightness.light),
       darkTheme: _theme(Brightness.dark),
-      themeMode: prefs.themeMode,
+      themeMode: _prefs.themeMode,
       localizationsDelegates: const [
         AppLocalizations.delegate,
         GlobalMaterialLocalizations.delegate,
@@ -162,22 +143,23 @@ class _ColeTotalAppState extends State<ColeTotalApp> {
         GlobalCupertinoLocalizations.delegate,
       ],
 
-      // Una sola fuente de verdad. Antes acá se declaraba `[Locale('en'),
-      // Locale('es')]` mientras el delegate solo soporta `es`: en un teléfono
-      // en inglés, Flutter resolvía a `en`, el delegate no cargaba y
-      // `AppLocalizations.of(context)!` reventaba al abrir la app.
+      // Usa la lista de locales generada por AppLocalizations como única
+      // fuente de verdad para evitar desajustes en dispositivos configurados
+      // en otros idiomas.
       supportedLocales: AppLocalizations.supportedLocales,
 
-      // El ajuste de tamaño de fuente se aplica una vez, acá, y así alcanza a
-      // todas las pantallas. Antes se multiplicaba a mano en cada `TextStyle`,
-      // por lo que Mapa y Rutas lo ignoraban por completo.
+      // Aplica el factor de escala tipográfica de forma transversal en la raíz
+      // de MediaQuery para que alcance a todas las pantallas y componentes.
       builder: (context, child) {
         final mq = MediaQuery.of(context);
         return MediaQuery(
           data: mq.copyWith(
-            textScaler: AppTextScaler(mq.textScaler, prefs.fontSizeMultiplier),
+            textScaler: AppTextScaler(
+              mq.textScaler,
+              _prefs.fontSizeMultiplier,
+            ),
           ),
-          child: child!,
+          child: child ?? const SizedBox.shrink(),
         );
       },
 

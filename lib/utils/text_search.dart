@@ -1,10 +1,8 @@
-/// Comparación de texto para los buscadores de la app.
+/// Normalización y comparación de texto para los buscadores de la app.
 ///
-/// Los tres buscadores (destinos del mapa, lista de paraderos y paraderos del
-/// administrador) comparaban con `toLowerCase().contains(...)`. En un teléfono
-/// casi nadie escribe tildes, así que "lider", "estacion" o "quilpue" no
-/// encontraban "Líder", "Estación" ni "Quilpué", y "belloto lider" no
-/// encontraba "Líder Belloto" por el orden de las palabras.
+/// Estandariza los textos a minúsculas sin tildes y compara por palabras
+/// independientes del orden, permitiendo encontrar nombres propios y calles
+/// aunque el usuario omita acentos o invierta términos.
 library;
 
 const Map<String, String> _sinTilde = {
@@ -81,7 +79,7 @@ const Set<String> kPrefijosViaIgnorables = {
   'camino',
 };
 
-/// Prefijos o palabras que identifican vías menores / interiores.
+/// Prefijos o palabras que identifican vías menores, interiores o ramales secundarios.
 const Set<String> kPrefijosViaMenor = {
   'pje',
   'psje',
@@ -142,11 +140,7 @@ NormalizedStreetQuery parseStreetQuery(String raw) {
 
   final explicitMinor = rawTokens.any(kPrefijosViaMenor.contains);
   final base = rawTokens
-      .where(
-        (t) =>
-            !kPrefijosViaIgnorables.contains(t) &&
-            (explicitMinor || !kPrefijosViaMenor.contains(t)),
-      )
+      .where((t) => !kPrefijosViaIgnorables.contains(t))
       .toList(growable: false);
 
   return NormalizedStreetQuery(

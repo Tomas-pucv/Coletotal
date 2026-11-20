@@ -11,9 +11,13 @@ const path = require('path');
 const { PROJECT_ID, getAccessToken, listCollection } = require('./lib/firebase_rest');
 
 async function fetchRtdb(token, nodePath) {
-  const url = `https://${PROJECT_ID}-default-rtdb.firebaseio.com/${nodePath}.json?access_token=${token}`;
-  const res = await fetch(url);
-  if (!res.ok) return null;
+  const url = `https://${PROJECT_ID}-default-rtdb.firebaseio.com/${nodePath}.json`;
+  const res = await fetch(url, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) {
+    throw new Error(`Error leyendo RTDB (${nodePath}): HTTP ${res.status}`);
+  }
   return res.json();
 }
 
@@ -57,6 +61,9 @@ function toGeoJsonRecorridos(recorridos) {
         properties: {
           id: r.id,
           nombre: r.nombre,
+          linea: r.linea || '',
+          codigoVariante: r.codigoVariante || '',
+          nombreVariante: r.nombreVariante || '',
           sentido,
           garitaId: r.garitaId || '',
           activo: r.activo !== false,
@@ -81,9 +88,8 @@ async function main() {
   const backupDir = path.join(__dirname, '..', 'backups', `backup_${timestamp}`);
   fs.mkdirSync(backupDir, { recursive: true });
 
-  // `config` guarda la versión publicada para la actualización OTA.
-  // Ya no hay `paraderos`: se eliminaron el 10 de octubre de 2026.
-  const collections = ['garitas', 'codigos_acceso', 'usuarios', 'recorridos', 'config'];
+  // Colecciones principales del modelo de datos en Cloud Firestore.
+  const collections = ['garitas', 'codigos_acceso', 'usuarios', 'recorridos'];
   const manifest = {
     timestamp: new Date().toISOString(),
     projectId: PROJECT_ID,

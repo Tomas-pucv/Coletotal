@@ -31,12 +31,12 @@ class DirectedRouteLut {
       cumulativeMeters.isEmpty ? 0.0 : cumulativeMeters.last;
 
   /// Distancia vehicular en metros entre el nodo de subida [upIndex] y el de
-  /// bajada [downIndex] sobre la cartola oficial en $\mathcal{O}(1)$.
+  /// bajada [downIndex] sobre la cartola oficial en tiempo constante O(1).
   double vehicularMeters(int upIndex, int downIndex) =>
       cumulativeMeters[downIndex] - cumulativeMeters[upIndex];
 
   /// Construye la LUT remuestreando [polyline] a paso uniforme [stepMeters] y
-  /// calculando las progresivas acumuladas mediante Haversine (sin $\tau$).
+  /// calculando las progresivas acumuladas mediante Haversine (sin factor tau).
   factory DirectedRouteLut.fromPolyline({
     required Recorrido recorrido,
     required Sentido sentido,
@@ -89,16 +89,17 @@ class CandidateTriplet {
   final int upIndex;
   final int downIndex;
 
-  /// Distancia subrogada peatonal de acceso: $\tau \cdot \text{haversine}(u, s_i)$.
+  /// Distancia subrogada peatonal de acceso: `tau * haversine(u, s_i)`.
   final double walkAccessMeters;
 
-  /// Distancia vehicular sobre la cartola oficial: $A[j] - A[i]$.
+  /// Distancia vehicular sobre la cartola oficial: `A[j] - A[i]`.
   final double vehMeters;
 
-  /// Distancia subrogada peatonal de egreso: $\tau \cdot \text{haversine}(s_j, d)$.
+  /// Distancia subrogada peatonal de egreso: `tau * haversine(s_j, d)`.
   final double walkEgressMeters;
 
-  /// Costo objetivo acoplado $Z = \alpha \tilde{D}_{\text{walk}}(u,s_i) + \beta \tilde{D}_{\text{veh}}(i,j) + \gamma \tilde{D}_{\text{walk}}(s_j,d)$.
+  /// Costo objetivo acoplado:
+  /// `Z = alpha * D_walk(u, s_i) + beta * D_veh(i, j) + gamma * D_walk(s_j, d)`.
   final double totalCost;
 
   Recorrido get recorrido => lut.recorrido;
@@ -109,11 +110,11 @@ class CandidateTriplet {
   /// Suma de caminata subrogada de acceso y egreso, en metros.
   double get totalWalkMeters => walkAccessMeters + walkEgressMeters;
 
-  /// Distancia geodésica directa de acceso (sin factor de tortuosidad $\tau$).
+  /// Distancia geodésica directa de acceso (sin factor de tortuosidad `tau`).
   double get rawWalkAccessMeters =>
       walkAccessMeters / HybridRouteOptimizer.kTauTortuosity;
 
-  /// Distancia geodésica directa de egreso (sin factor de tortuosidad $\tau$).
+  /// Distancia geodésica directa de egreso (sin factor de tortuosidad `tau`).
   double get rawWalkEgressMeters =>
       walkEgressMeters / HybridRouteOptimizer.kTauTortuosity;
 }
@@ -221,15 +222,15 @@ abstract final class HybridRouteOptimizer {
     return kEarthRadiusMeters * c;
   }
 
-  /// Subrogado peatonal $\tilde{D}_{\text{walk}}(p_1, p_2) = \tau \cdot \text{haversine}(p_1, p_2)$.
+  /// Subrogado peatonal `D_walk(p1, p2) = tau * haversine(p1, p2)`.
   static double surrogateWalkMeters(
     LatLng p1,
     LatLng p2, {
     double tau = kTauTortuosity,
   }) => tau * haversineMeters(p1, p2);
 
-  /// Remuestrea [polyline] con interpolación lineal uniforme a pasos $\le$ [stepMeters],
-  /// preservando el primer y último vértice válido.
+  /// Remuestrea [polyline] con interpolación lineal uniforme a pasos menores o
+  /// iguales a [stepMeters], preservando el primer y último vértice válido.
   static List<LatLng> discretizePolyline(
     List<LatLng> polyline, {
     double stepMeters = kDiscretizationStepMeters,
@@ -282,6 +283,7 @@ abstract final class HybridRouteOptimizer {
 
         var lut = _lutCache[key];
         if (lut == null) {
+          if (_lutCache.length >= 128) _lutCache.clear();
           lut = DirectedRouteLut.fromPolyline(
             recorrido: r,
             sentido: sentido,
@@ -292,14 +294,15 @@ abstract final class HybridRouteOptimizer {
             _lutCache[key] = lut;
           }
         } else if (!identical(lut.recorrido, r)) {
-          // Conserva los arreglos precalculados en RAM actualizando los
-          // metadatos del objeto Recorrido si cambiaron (p. ej. nombre/color).
+          // Conserva los arreglos precalculados en RAM actualizando la
+          // referencia del objeto Recorrido en caché si cambiaron sus metadatos.
           lut = DirectedRouteLut(
             recorrido: r,
             sentido: sentido,
             nodes: lut.nodes,
             cumulativeMeters: lut.cumulativeMeters,
           );
+          _lutCache[key] = lut;
         }
 
         if (lut.nodes.length >= 2) {
@@ -471,34 +474,88 @@ abstract final class HybridRouteOptimizer {
         return cmp != 0 ? cmp : a.compareTo(b);
       });
 
-      final upCandidates = upIndices.take(topUp);
+      final upCandidates = upIndices.take(topUp).toList(growable: false);
       final downCandidates = downIndices.take(topDown).toList(growable: false);
+      final addedPairs = <(int, int)>{};
+
+      void addCandidatePair(int i, int j) {
+        if (j <= i) return;
+        final vehMeters = lut.vehicularMeters(i, j);
+        if (vehMeters < minVehicularMeters) return;
+        if (!addedPairs.add((i, j))) return;
+
+        final access = walkAccess[i];
+        final egress = walkEgress[j];
+        final totalCost =
+            kAlphaWalkAccess * access +
+            kBetaVehicular * vehMeters +
+            kGammaWalkEgress * egress;
+
+        results.add(
+          CandidateTriplet(
+            lut: lut,
+            upIndex: i,
+            downIndex: j,
+            walkAccessMeters: access,
+            vehMeters: vehMeters,
+            walkEgressMeters: egress,
+            totalCost: totalCost,
+          ),
+        );
+      }
 
       for (final i in upCandidates) {
         for (final j in downCandidates) {
-          if (j <= i) continue;
-          final vehMeters = lut.vehicularMeters(i, j);
-          if (vehMeters < minVehicularMeters) continue;
-
-          final access = walkAccess[i];
-          final egress = walkEgress[j];
-          final totalCost =
-              kAlphaWalkAccess * access +
-              kBetaVehicular * vehMeters +
-              kGammaWalkEgress * egress;
-
-          results.add(
-            CandidateTriplet(
-              lut: lut,
-              upIndex: i,
-              downIndex: j,
-              walkAccessMeters: access,
-              vehMeters: vehMeters,
-              walkEgressMeters: egress,
-              totalCost: totalCost,
-            ),
-          );
+          addCandidatePair(i, j);
         }
+      }
+
+      // Barrido exacto O(N) con ventana de mínimo prefijo sobre la función
+      // separable Z(i, j) = (alpha * access[i] - beta * A[i]) + (gamma * egress[j] + beta * A[j]).
+      // Garantiza encontrar siempre el óptimo global exacto incluso en curvas
+      // con alta densidad de vértices donde topUp/topDown se concentran.
+      final validUpSorted = [
+        for (var i = 0; i < count; i++)
+          if (walkAccess[i] <= maxWalk) i,
+      ];
+      final validDownSorted = [
+        for (var j = 0; j < count; j++)
+          if (walkEgress[j] <= maxWalk) j,
+      ];
+      var ptr = 0;
+      int? bestPrefixUp;
+      var bestPrefixTerm = double.infinity;
+      int? globalBestI;
+      int? globalBestJ;
+      var globalBestCost = double.infinity;
+
+      for (final j in validDownSorted) {
+        while (ptr < validUpSorted.length) {
+          final i = validUpSorted[ptr];
+          if (i >= j || lut.vehicularMeters(i, j) < minVehicularMeters) break;
+          final prefixTerm =
+              kAlphaWalkAccess * walkAccess[i] -
+              kBetaVehicular * lut.cumulativeMeters[i];
+          if (prefixTerm < bestPrefixTerm) {
+            bestPrefixTerm = prefixTerm;
+            bestPrefixUp = i;
+          }
+          ptr++;
+        }
+        if (bestPrefixUp != null) {
+          final cost =
+              bestPrefixTerm +
+              kBetaVehicular * lut.cumulativeMeters[j] +
+              kGammaWalkEgress * walkEgress[j];
+          if (cost < globalBestCost) {
+            globalBestCost = cost;
+            globalBestI = bestPrefixUp;
+            globalBestJ = j;
+          }
+        }
+      }
+      if (globalBestI != null && globalBestJ != null) {
+        addCandidatePair(globalBestI, globalBestJ);
       }
     }
 

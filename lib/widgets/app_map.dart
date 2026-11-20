@@ -174,7 +174,8 @@ class MarkerIcon implements MapImage {
 
 /// Un colectivo visto desde arriba, con la trompa hacia arriba de la imagen:
 /// MapLibre lo gira con su rumbo (ver [MapVehicle]). Va sobre un disco con un
-/// anillo del color de su capacidad; como es redondo, no cambia al girar.
+/// anillo del color de su línea asignada (o estado en servicio); como es
+/// redondo, no cambia al girar.
 @immutable
 class CarIcon implements MapImage {
   const CarIcon({
@@ -190,7 +191,7 @@ class CarIcon implements MapImage {
   final Color bodyColor;
   final Color signColor;
 
-  /// El anillo y el tinte del disco: la capacidad que informa el chofer.
+  /// El anillo y el tinte del disco: identifica el color de la línea o estado.
   final Color ringColor;
 
   /// El fondo del disco y el filete que lo separa del mapa.
@@ -231,7 +232,7 @@ class CarIcon implements MapImage {
     final u = diameter / 44;
 
     // El disco: un fondo que despega al auto de lo que haya debajo (calles,
-    // la foto del satélite), teñido con el color de la capacidad, y su anillo.
+    // la foto del satélite), teñido con el color de su línea y su anillo.
     canvas
       ..drawCircle(c, radio, Paint()..color = borderColor)
       ..drawCircle(
@@ -844,7 +845,7 @@ class MapCircle {
   final double borderWidth;
 }
 
-/// El pulso tipo radar del paradero elegido.
+/// El pulso tipo radar del punto de seña o subida seleccionado.
 @immutable
 class MapPulse {
   const MapPulse({
@@ -1046,12 +1047,14 @@ class _Deslizamiento {
   final DateTime inicio;
   final Duration duracion;
 
-  bool terminado(DateTime ahora) => ahora.difference(inicio) >= duracion;
+  bool terminado(DateTime ahora) =>
+      duracion <= Duration.zero || ahora.difference(inicio) >= duracion;
 
   /// Dónde va y hacia dónde apunta en el momento [ahora].
   (LatLng, double) en(DateTime ahora) {
     if (terminado(ahora)) return (hasta, rumboHasta);
     final pasado = ahora.difference(inicio).inMicroseconds;
+    if (pasado <= 0) return (desde, rumboDesde);
     // A velocidad pareja: entre una posición y la siguiente el auto no frena.
     final t = (pasado / duracion.inMicroseconds).clamp(0.0, 1.0);
     final g = (pasado / math.min(duracion.inMicroseconds, giro.inMicroseconds))
@@ -1077,8 +1080,8 @@ double circleRadiusAtZoom0(double meters, double latitude) =>
 // El mapa
 // ---------------------------------------------------------------------------
 
-/// Mapa común a las pantallas de la app (pasajero, flota y editor de
-/// paraderos), dibujado por MapLibre con la GPU.
+/// Mapa común a las pantallas de la app (pasajero, turno, flota y editor de
+/// recorridos), dibujado por MapLibre con la GPU.
 ///
 /// El mapa base sale de los archivos offline ([BasemapService]); la vista
 /// satelital es la única que necesita conexión. Encima, la app dibuja lo suyo
@@ -1481,11 +1484,9 @@ class _AppMapState extends State<AppMap> with TickerProviderStateMixin {
       minzoom: 13,
       enableInteraction: false,
     );
-    // Las punteadas, con un punto (imagen) cada [_espacioPuntos]: un guion de
-    // largo cero con extremos redondos también da puntos, pero el borde
-    // tendría que ser otra línea punteada, y sus puntos se desalinean
-    // (comprobado el 2026-10-08 con MapLibre Native: el anillo blanco no
-    // queda alrededor del punto).
+    // Las líneas punteadas se renderizan con un símbolo circular cada
+    // [_espacioPuntos] para garantizar que el borde y el centro de cada punto
+    // permanezcan perfectamente concéntricos en MapLibre Native.
     await map.addSymbolLayer(
       _lineas,
       '${_lineas}_puntos',
@@ -1743,10 +1744,9 @@ class _AppMapState extends State<AppMap> with TickerProviderStateMixin {
     ];
     for (final icono in iconos) {
       if (_imagenes.contains(icono.key)) continue;
-      final png = await _png.putIfAbsent(
-        '${icono.key}@$_densidad',
-        () => icono.toPng(_densidad),
-      );
+      if (_png.length >= 256) _png.clear();
+      final cacheKey = '${icono.key}@$_densidad';
+      final png = await _png.putIfAbsent(cacheKey, () => icono.toPng(_densidad));
       if (!vigente()) return;
       await map.addImage(icono.key, png);
       if (!vigente()) return;

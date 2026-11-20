@@ -41,9 +41,8 @@ class GaritaService extends ChangeNotifier {
   List<AppUser> get choferes => _choferes;
   List<CodigoAcceso> get codigos => _codigos;
 
-  /// `true` hasta que llega el primer padrón. Antes se apagaba en el mismo
-  /// instante en que se encendía, y la pantalla de conductores mostraba "no hay
-  /// conductores" mientras la consulta todavía estaba en camino.
+  /// `true` mientras se espera el primer snapshot del padrón de conductores,
+  /// para distinguir "consulta en curso" de "garita sin conductores".
   bool get loading => _loading;
   String? get garitaId => _garitaId;
 
@@ -134,8 +133,7 @@ class GaritaService extends ChangeNotifier {
 
   /// Las garitas de la línea, para el filtro de la consola de flota.
   ///
-  /// Antes los nombres y los ids estaban escritos a mano en la pantalla. Se
-  /// leen una vez por sesión: las garitas no cambian en el día.
+  /// Se leen una vez por sesión y se mantienen en caché local.
   Future<List<Garita>> loadGaritas() async {
     final cached = _garitas;
     if (cached != null) return cached;
@@ -173,14 +171,19 @@ class GaritaService extends ChangeNotifier {
 
   /// Enciende o apaga una línea sin tocar su trazado. Una línea apagada no la
   /// ven los pasajeros ni la pueden elegir los conductores.
-  Future<WriteOutcome> setRecorridoActivo(Recorrido recorrido, bool activo) =>
-      confirmOrQueue(
-        _db.collection(_colRecorridos).doc(recorrido.id).update({
-          'activo': activo,
-          'actualizadoEn': FieldValue.serverTimestamp(),
-        }),
-        label: 'recorrido activo=$activo',
-      );
+  Future<WriteOutcome> setRecorridoActivo(
+    Recorrido recorrido,
+    bool activo,
+  ) async {
+    if (recorrido.id.isEmpty) return WriteOutcome.confirmed;
+    return confirmOrQueue(
+      _db.collection(_colRecorridos).doc(recorrido.id).update({
+        'activo': activo,
+        'actualizadoEn': FieldValue.serverTimestamp(),
+      }),
+      label: 'recorrido activo=$activo',
+    );
+  }
 
   Future<WriteOutcome> deleteRecorrido(Recorrido recorrido) async {
     if (recorrido.id.isEmpty) return WriteOutcome.confirmed;
@@ -223,10 +226,13 @@ class GaritaService extends ChangeNotifier {
   Future<WriteOutcome> setCodigoAccesoActivo(
     CodigoAcceso codigo,
     bool activo,
-  ) => confirmOrQueue(
-    _db.collection(_colCodigos).doc(codigo.codigo).update({'activo': activo}),
-    label: 'codigo_acceso ${codigo.codigo} activo=$activo',
-  );
+  ) {
+    final limpio = codigo.codigo.trim().toUpperCase();
+    return confirmOrQueue(
+      _db.collection(_colCodigos).doc(limpio).update({'activo': activo}),
+      label: 'codigo_acceso $limpio activo=$activo',
+    );
+  }
 
   /// Elimina un código de acceso de la garita.
   Future<WriteOutcome> deleteCodigoAcceso(String codigo) => confirmOrQueue(

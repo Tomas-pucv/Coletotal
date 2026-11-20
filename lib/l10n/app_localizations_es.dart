@@ -63,11 +63,11 @@ class AppLocalizationsEs extends AppLocalizations {
 
   @override
   String get locationOffMessage =>
-      'Activa el GPS del teléfono para ver tu posición y los paraderos cercanos.';
+      'Activa el GPS del teléfono para ver tu posición y las líneas cercanas.';
 
   @override
   String get locationDeniedMessage =>
-      'ColeTotal necesita acceso a tu ubicación para calcular rutas y mostrarte los paraderos más cercanos.';
+      'ColeTotal necesita acceso a tu ubicación para calcular rutas y mostrarte las líneas más cercanas.';
 
   @override
   String get locationDisabledByPreference =>
@@ -122,7 +122,7 @@ class AppLocalizationsEs extends AppLocalizations {
   String get fontSize => 'Tamaño de fuente';
 
   @override
-  String get fontSizePreviewHint => 'Así se verán los paraderos';
+  String get fontSizePreviewHint => 'Así se verán las líneas y recorridos';
 
   @override
   String get compactMode => 'Modo compacto';
@@ -134,7 +134,7 @@ class AppLocalizationsEs extends AppLocalizations {
   String get animations => 'Animaciones';
 
   @override
-  String get animationsDesc => 'Transiciones y pulso de los paraderos';
+  String get animationsDesc => 'Transiciones y pulso de los puntos de seña';
 
   @override
   String get sectionPrivacy => 'Privacidad';
@@ -169,7 +169,7 @@ class AppLocalizationsEs extends AppLocalizations {
 
   @override
   String get aboutSubtitle =>
-      'Rutas y paraderos de Transportes Serrano, Quilpué.';
+      'Líneas y recorridos de Transportes Serrano, Quilpué.';
 
   @override
   String get errInvalidCoords =>
@@ -292,7 +292,7 @@ class AppLocalizationsEs extends AppLocalizations {
   String get authName => 'Nombre';
 
   @override
-  String get authNameHint => 'Como quieres que te vean en la garita';
+  String get authNameHint => 'Cómo quieres que te vean en la garita';
 
   @override
   String get authCodigo => 'Código de garita';

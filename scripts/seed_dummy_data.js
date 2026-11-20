@@ -6,7 +6,8 @@
 // permite gestionar la garita entera) y el repositorio se comparte.
 //
 // Uso:
-//   CHOFER_CODE=... ADMIN_CODE=... TEST_DRIVER_PASSWORD=... //   node scripts/seed_dummy_data.js
+//   CHOFER_CODE=... ADMIN_CODE=... TEST_DRIVER_PASSWORD=...
+//   node scripts/seed_dummy_data.js
 // Requiere haber hecho `firebase login` con una cuenta con acceso al proyecto.
 
 const { PROJECT_ID, getAccessToken, patchDocument, requireEnv } = require('./lib/firebase_rest');
@@ -67,13 +68,16 @@ async function createOrGetAuthUser(email, password, displayName) {
   throw new Error(`Error createOrGetAuthUser (${email}): ${JSON.stringify(signUpData)}`);
 }
 
-// PATCH y no PUT: un PUT sobre `colectivos_activos` reemplazaba el nodo entero
-// y sacaba del mapa a los choferes reales que estuvieran en turno.
+// Actualiza `colectivos_activos` mediante PATCH para no sobrescribir otras
+// unidades que se encuentren transmitiendo en paralelo.
 async function setRtdbData(token, path, data) {
-  const url = `https://${PROJECT_ID}-default-rtdb.firebaseio.com/${path}.json?access_token=${token}`;
+  const url = `https://${PROJECT_ID}-default-rtdb.firebaseio.com/${path}.json`;
   const res = await fetch(url, {
     method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
     body: JSON.stringify(data),
   });
   if (!res.ok) {
@@ -119,13 +123,12 @@ async function main() {
   console.log('\n--- 3. Configurando 7 Cuentas de Chofer en Firebase Auth + Firestore ---');
   const choferes = [
     {
-      patente: 'IB12BI',
+      patente: 'IBBI12',
       nombre: 'Matías Fuentes',
       activo: true,
       enServicio: true,
       lat: -33.0595,
       lng: -71.4552,
-      estado: 'lleno',
     },
     {
       patente: 'JHTB45',
@@ -134,7 +137,6 @@ async function main() {
       enServicio: true,
       lat: -33.0470,
       lng: -71.4420,
-      estado: 'disponible',
     },
     {
       patente: 'KPVD82',
@@ -143,7 +145,6 @@ async function main() {
       enServicio: true,
       lat: -33.0450,
       lng: -71.4405,
-      estado: 'medioLleno',
     },
     {
       patente: 'LRFX19',
@@ -166,7 +167,7 @@ async function main() {
     {
       patente: 'ABCD12',
       nombre: 'Pedro Morales Vera',
-      activo: false, // ¡Deshabilitado a propósito para demo de interruptor!
+      activo: false,
       enServicio: false,
     },
   ];
@@ -197,7 +198,7 @@ async function main() {
     });
     console.log(`    ✅ Perfil en Firestore [usuarios/${uid}] actualizado.`);
 
-    // Si está en servicio, lo preparamos para Realtime Database
+    // Si está en servicio, lo preparamos para Realtime Database cumpliendo database.rules.json
     if (c.enServicio && c.lat && c.lng) {
       colectivosActivosRTDB[uid] = {
         uid: uid,
@@ -205,7 +206,7 @@ async function main() {
         garitaId: GARITA_ID,
         latitud: c.lat,
         longitud: c.lng,
-        estado: c.estado,
+        conectado: true,
         ts: Date.now(),
       };
     }
@@ -219,8 +220,7 @@ async function main() {
   console.log('\n======================================================');
   console.log('🎉 ¡Siembra completada con éxito!');
   console.log(`- Garita: ${GARITA_ID}`);
-  console.log('- Paraderos: 8 nuevos (total ~20)');
-  console.log('- Recorridos: 7 líneas completas');
+  console.log('- Códigos de acceso: 2 (colectivero y administrador)');
   console.log('- Choferes: 7 cuentas listas (contraseña: la de TEST_DRIVER_PASSWORD)');
   console.log('- Telemetría: 3 colectivos activos transmitiendo');
   console.log('======================================================\n');

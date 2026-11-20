@@ -26,23 +26,16 @@ enum TurnoIssue {
   ubicacionNoDisponible,
 }
 
-/// Dueño del estado de jornada del colectivero.
+/// Servicio gestor del estado de jornada (turno) del conductor.
 ///
-/// Existe para que **nadie más** decida cuándo se transmite. Antes esa lógica
-/// vivía en `MapScreen`: arrancaba el tracking desde `initState` y lo detenía
-/// desde `dispose()`. Funcionaba de casualidad, porque el `IndexedStack`
-/// mantenía la pantalla montada para siempre; en cuanto la lista de pantallas
-/// pasó a depender del rol, cambiar de rol habría destruido ese elemento y
-/// cortado la transmisión sin que nadie se enterara.
-///
-/// Como servicio, además, el turno sobrevive a la navegación: el chofer puede
-/// irse a Rutas o al mapa sin dejar de emitir.
+/// Centraliza el ciclo de vida de la transmisión GPS fuera de las pantallas
+/// para que el turno activo persista al navegar entre pestañas y se detenga
+/// de forma ordenada al cerrar sesión o revocar permisos.
 class TurnoService extends ChangeNotifier {
   TurnoService._();
   static final TurnoService instance = TurnoService._();
 
-  /// Recorrido elegido la última vez, para no tener que elegirlo en cada turno:
-  /// un chofer suele cubrir siempre la misma línea.
+  /// Identificador del último recorrido seleccionado por el conductor.
   static const _keyRecorrido = 'turno_recorrido_id';
 
   final _telemetria = FirebaseTelemetriaService.instance;
@@ -54,6 +47,8 @@ class TurnoService extends ChangeNotifier {
   bool _enTurno = false;
   TurnoIssue _issue = TurnoIssue.none;
   bool _busy = false;
+  bool _bound = false;
+  bool _cancelRequested = false;
   String? _recorridoId;
 
   bool get enTurno => _enTurno;
@@ -90,8 +85,10 @@ class TurnoService extends ChangeNotifier {
 
   /// Conecta el servicio con la sesión. Se llama una vez desde `main()`.
   Future<void> bind() async {
-    // Cerrar sesión tiene que detener la telemetría **primero**: borrar el nodo
-    // en Realtime Database exige el token todavía vigente.
+    if (_bound) return;
+    _bound = true;
+    // Registra la detención del turno antes del cierre de sesión para remover
+    // el nodo en Realtime Database mientras el token de Auth sigue vigente.
     _auth.onBeforeSignOut = terminarTurno;
     _auth.addListener(_onAuthChanged);
     _prefs.addListener(_onPrefsChanged);
@@ -102,8 +99,7 @@ class TurnoService extends ChangeNotifier {
       _recorridoId = sp.getString(_keyRecorrido);
     } catch (_) {}
 
-    // Primero el turno que haya quedado a medias por un cierre inesperado,
-    // después la subida de todo lo pendiente.
+    // Recupera cualquier sesión de turno interrumpida y sincroniza pendientes.
     final log = SessionLogService.instance;
     unawaited(
       log.recuperarSesionHuerfana().then(
@@ -199,15 +195,22 @@ class TurnoService extends ChangeNotifier {
     }
 
     _busy = true;
+    _cancelRequested = false;
     _issue = TurnoIssue.none;
     notifyListeners();
 
-    // try/finally: antes una excepción a mitad de camino dejaba `_busy` en
-    // `true` para siempre y el botón de turno girando sin fin.
     try {
-      // El GPS pasa a modo turno (servicio en primer plano) antes de empezar a
-      // transmitir. Si falta el permiso o el GPS está apagado, se sabe acá.
+      // Configura el GPS en modo conductor (servicio en primer plano) antes de
+      // iniciar la publicación de telemetría.
       final locationIssue = await _location.setDriverMode(true);
+      final currentProfile = _auth.profile;
+      if (_cancelRequested ||
+          currentProfile == null ||
+          !currentProfile.activo ||
+          !_prefs.locationTracking) {
+        await _location.setDriverMode(false);
+        return;
+      }
       if (locationIssue != LocationIssue.none) {
         _issue = TurnoIssue.ubicacionNoDisponible;
         await _location.setDriverMode(false);
@@ -215,9 +218,14 @@ class TurnoService extends ChangeNotifier {
       }
 
       final recorrido = recorridoAsignado;
+      final idVehiculo =
+          profile.patente ??
+          (profile.uid.length > 12
+              ? profile.uid.substring(0, 12)
+              : profile.uid);
       await _telemetria.iniciarTracking(
         uid: profile.uid,
-        patente: profile.patente ?? profile.uid,
+        patente: idVehiculo,
         garitaId: profile.garitaId,
         recorridoId: recorrido?.id,
         recorridoNombre: recorrido?.nombre,
@@ -226,7 +234,7 @@ class TurnoService extends ChangeNotifier {
 
       await SessionLogService.instance.iniciarSesionTurno(
         uid: profile.uid,
-        patente: profile.patente ?? profile.uid,
+        patente: idVehiculo,
         garitaId: profile.garitaId,
         recorridoId: recorrido?.id,
         recorridoNombre: recorrido?.nombre,
@@ -244,12 +252,13 @@ class TurnoService extends ChangeNotifier {
   }
 
   Future<void> terminarTurno() async {
+    _cancelRequested = true;
     if (!_enTurno && !_telemetria.isTracking) return;
     _busy = true;
     notifyListeners();
 
-    // Cada paso tiene su propio plazo: sin señal, ninguno se queda esperando
-    // al servidor, y el chofer ve "Fuera de servicio" en segundos.
+    // Cada etapa aplica un timeout acotado para liberar la interfaz de
+    // inmediato incluso sin cobertura de red.
     try {
       await _telemetria.detenerTracking();
       await _location.setDriverMode(false);

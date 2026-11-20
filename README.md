@@ -7,11 +7,10 @@ El pasajero ve dónde vienen los colectivos y qué línea le conviene tomar; el
 conductor transmite su posición durante su turno; el administrador de garita
 dibuja las líneas y supervisa la flota en vivo.
 
-Los colectivos **no tienen paraderos**: paran donde se les hace la seña, a lo
-largo de todo su recorrido. La app trabaja con eso: cada línea es un trazado de
-ida y otro de vuelta, y al pasajero se le indica en qué punto de la línea
-subirse y bajarse. Los paraderos que tuvo hasta el 10 de octubre de 2026 eran
-datos de prueba y se eliminaron.
+Los colectivos **no tienen paraderos fijos**: paran donde se les hace la seña,
+a lo largo de todo su recorrido. La app trabaja con ese modelo operativo: cada
+línea es un trazado continuo de ida y otro de vuelta, y al pasajero se le indica
+en qué punto exacto de la línea subirse (punto de seña) y dónde bajarse.
 
 Proyecto de título — Escuela de Ingeniería Informática, Pontificia Universidad
 Católica de Valparaíso.
@@ -38,73 +37,79 @@ las reglas de Firestore lo verifican en el servidor al crear la cuenta.
 ### Pasajero (no requiere cuenta)
 
 - Mapa interactivo con seguimiento de la ubicación, recentrado, zoom y rotación.
-- **Colectivos en vivo** sobre el mapa, coloreados según la capacidad que
-  reporta cada chofer (disponible / medio lleno / lleno). Una unidad que lleva
-  más de 45 s sin señal se dibuja atenuada, y a los 3 min desaparece.
-- Al tocar un colectivo: su patente, su capacidad, hace cuánto se lo vio y,
-  si el chofer la informó, su línea dibujada sobre el mapa.
-- **Buscador de direcciones**: se escribe a dónde se quiere ir y la app
-  propone qué línea tomar y en qué sentido, ordenando por lo que se camina en
-  total: hasta el punto de la línea más cercano y desde el punto donde
-  conviene bajarse. Sólo propone una línea si en ese sentido la bajada viene
-  después de la subida. Incluye un catálogo local de 26 lugares de Quilpué y
-  no distingue tildes ("lider" encuentra "Líder").
-- **Puntos de seña** en vez de paraderos. El mapa dibuja solo las líneas de
-  los colectivos que andan a menos de 1 km del pasajero. Al tocar un colectivo
-  (o elegir una línea en la pestaña Líneas) queda esa sola, con los colectivos
-  de esa línea hasta 2 km: sus dos sentidos lado a lado, cada uno por su
-  carril como los autos, con flechas que dicen hacia dónde va. Lleva un punto
-  de seña por sentido ("Hacia Alto el Yugo", "Hacia el centro"), con el
-  sentido elegido resaltado y la ruta a pie hasta él, y sus terminales
-  marcados con el nombre de la cartola. En un viaje armado se resalta sólo el
+- **Colectivos en vivo** sobre el mapa, identificados con el color y la etiqueta
+  de su línea/variante (p. ej. `"10 T"`). Una unidad que lleva más de 45 s sin
+  señal se dibuja atenuada, y a los 3 min desaparece.
+- **Modo Radar (1 km) y Modo Foco (2 km)**: en vista general el mapa muestra los
+  colectivos en un radio de 1 km alrededor del pasajero y dibuja únicamente las
+  líneas de esos vehículos cercanos para evitar saturación visual. Al tocar un
+  colectivo o elegir una línea en la pestaña **Líneas**, el mapa pasa a Modo
+  Foco sobre esa línea y amplía el radio de visualización de sus colectivos a
+  2 km.
+- Al tocar un colectivo: su patente, su línea y variante, hacia qué terminal se
+  dirige, hace cuánto se lo vio y su trazado dibujado sobre el mapa.
+- **Buscador de direcciones y optimizador híbrido en cascada (2 niveles)**: se
+  escribe a dónde se quiere ir y la app propone qué línea tomar y en qué
+  sentido, utilizando un modelo subrogado de optimización espaciotemporal
+  (`HybridRouteOptimizer`) en dos niveles:
+  - **Nivel 1 (Subrogado analítico con tablas acumuladas $O(1)$)**: filtra y
+    evalúa en microsegundos los pares de subida y bajada sobre cada polilínea,
+    penalizando tramos peatonales con factor de tortuosidad $\tau = 1.35$.
+  - **Nivel 2 (Verificación exacta con Valhalla)**: al seleccionar una
+    sugerencia, el candidato ganador del Nivel 1 se refina contra el grafo
+    peatonal real de Valhalla en el dispositivo para obtener la ruta a pie y
+    métricas exactas.
+  Incluye un catálogo local de lugares de Quilpué y normalización insensible a
+  tildes.
+- **Puntos de seña** en vez de paraderos. Al seleccionar una línea se dibujan
+  sus dos sentidos lado a lado, cada uno por su carril con flechas de sentido de
+  marcha, un punto de seña por sentido ("Hacia Alto el Yugo", "Hacia el
+  centro"), la ruta a pie hasta el punto de subida y los terminales marcados
+  con el nombre oficial de la cartola. En un viaje armado se resalta sólo el
   tramo que se recorre arriba del colectivo.
 - Cada colectivo en el mapa es un auto negro con su letrero amarillo, visto
-  desde arriba: apunta hacia donde va, se desliza de una posición a la
-  siguiente y lleva un anillo del color de su línea y su etiqueta ("10 T").
-- Pestaña **Líneas**: las líneas activas de la garita, de la que pasa más
-  cerca a la más lejana, con cuántos colectivos andan en cada una. Al tocar una,
-  su ida y su vuelta dibujadas sobre el mapa.
+  desde arriba: apunta hacia donde va, se desliza suavemente de una posición a
+  la siguiente y lleva un anillo del color de su línea y su etiqueta.
+- Pestaña **Líneas**: las líneas activas de la garita ordenadas de la más
+  cercana a la más lejana, con cuántos colectivos circulan en cada una.
 - **Ruta a pie** hasta el punto donde hacerle la seña al colectivo, con
   distancia y tiempo caminando, y marcas de dónde subirse y bajarse.
 
 ### Colectivero
 
-- Su pestaña **Turno** es un mapa de navegación, como Google Maps: el chofer es
-  una flecha y abajo está el botón grande de **Iniciar turno**. En turno, la
-  cámara se inclina, gira con el sentido de marcha y deja la flecha en la parte
-  de abajo; se aleja un poco a más velocidad. Al mover el mapa deja de seguirlo
-  y aparece **Volver a centrar**; el botón **2D/3D** cambia entre la vista
-  plana con el norte arriba y la de navegación. La pantalla queda encendida
-  durante el turno. Al primer turno la app pide las notificaciones y quedar
-  fuera del ahorro de batería, para seguir transmitiendo con la pantalla
-  bloqueada (en Xiaomi, además, avisa cómo dejarla sin restricciones).
-- En el mapa, su línea resaltada con las flechas de su sentido, las demás
-  líneas tenues y los demás colectivos en servicio.
-- Las pestañas del chofer son Turno, Líneas y Preferencias: no tiene el mapa
-  del pasajero aparte.
+- Su pestaña **Turno** es un mapa de navegación: el chofer es una flecha y
+  abajo está el botón de **Iniciar turno**. En turno, la cámara se inclina,
+  gira con el sentido de marcha y deja la flecha en la parte inferior; se aleja
+  dinámicamente a mayor velocidad. Al mover el mapa deja de seguirlo y aparece
+  **Volver a centrar**; el botón **2D/3D** alterna entre la vista plana con el
+  norte arriba y la de navegación. La pantalla permanece encendida durante el
+  turno. Al primer turno la app solicita permiso de notificaciones y exclusión
+  de ahorro de batería para transmitir con la pantalla bloqueada.
+- En el mapa se destaca su línea con las flechas de su sentido, las demás
+  líneas atenuadas y los demás colectivos en servicio.
+- Las pestañas del chofer son Turno, Líneas y Preferencias.
 - Elección de la **línea** que se está cubriendo (se recuerda entre turnos y
   se puede cambiar en pleno turno).
-- Selector de capacidad de un toque, que alimenta la semaforización que ven
-  pasajeros y garita.
 - Transmisión GPS en segundo plano mientras el turno está activo, con
   servicio en primer plano y notificación persistente.
 - Confirmación en vivo ("última posición enviada hace 3 s") y aviso cuando no
   hay señal; la posición se reenvía sola al recuperarla.
-- Auditoría del turno (pérdidas de GPS y de señal, cambios de capacidad y de
-  recorrido) que se sube a Firestore al terminar, también si la app se cerró
-  a mitad del turno.
+- Auditoría del turno (pérdidas de GPS y de señal, cambios de recorrido) que se
+  sube a Firestore al terminar, también si la app se cerró a mitad del turno.
 - Aviso de consentimiento de geolocalización (Ley 19.628).
 
 ### Administrador de garita
 
 - Portada con métricas: unidades en servicio, líneas activas y choferes.
-- **Recorridos**: cada línea con su nombre, su color y su recorrido de **ida**
-  y de **vuelta**, que se dibujan sobre el mapa manteniendo presionado punto
-  por punto (basta con los puntos donde la línea dobla). La app ajusta el
-  trazado a las calles y a sus sentidos de tránsito con el mismo Valhalla del
-  teléfono, y lo muestra antes de guardar. La vuelta se puede empezar desde la
-  ida, al revés. Encender o apagar una línea es un interruptor en la lista:
-  una línea apagada no la ven los pasajeros ni la eligen los choferes.
+- **Recorridos y Cartola Oficial MTT (D.S. 212)**: cada línea cuenta con su
+  nombre, metadatos de cartola (`linea`, `codigoVariante`, `nombreVariante`,
+  `callesIda`, `callesVuelta`), color y su recorrido de **ida** y de **vuelta**.
+  Se pueden dibujar sobre el mapa punto por punto o importar directamente
+  pegando la secuencia de calles de la Cartola MTT (`CartolaResolver`), que
+  cruza las intersecciones contra el grafo vial local
+  (`intersecciones_valparaiso.json`) y ajusta el trazado con Valhalla sin giros
+  en U (`break_through`). Encender o apagar una línea es un interruptor en la
+  lista.
 - **Choferes**: padrón de la garita con indicador de quién está en servicio e
   interruptor para habilitar o deshabilitar el acceso. Deshabilitar a un
   chofer cierra su sesión (y su turno) en segundos.
@@ -214,6 +219,7 @@ de OpenStreetMap con `scripts/mapa_base/build.js`.
 | `style_*.json`, `sprites/`, `fonts/` | Estilos de MapLibre (claro, oscuro y satelital), con sus íconos y las tipografías de los nombres. Sin comercios ni numeración de casas: tapaban los nombres de las calles | 1,5 MB |
 | `preview_*.png` | Miniaturas del selector de estilo | 80 KB |
 | `calles_valparaiso.json` | Índice de unas 25 mil calles de la región, para buscar sin señal | 1,2 MB |
+| `intersecciones_valparaiso.json` | Grafo de intersecciones viales de la región para resolver cartolas MTT (`CartolaResolver`) sin red | 2,8 MB |
 | `ruteo_valparaiso.tar` | Grafo de calles de Valhalla de la región, para calcular rutas sin señal (del extracto de Chile de Geofabrik) | 65 MB |
 | `basemap.json` | Build de origen, tamaño de cada archivo y lista de íconos y tipografías | — |
 
@@ -286,10 +292,12 @@ lib/
 └── widgets/      Menú lateral, sugerencias de viaje, buscador, mapa
 ```
 
-Verificación: `flutter analyze` y `flutter test` (222 pruebas, sin red ni
+Verificación: `flutter analyze` y `flutter test` (283 pruebas, sin red ni
 Firebase). Entre ellas hay pruebas de contrato que leen `firestore.rules` y
 `database.rules.json` y fallan si el cliente escribe un campo que las reglas
-rechazarían.
+rechazarían, además de pruebas de estrés para el resolvedor de cartolas MTT y el
+optimizador híbrido de rutas. Para levantar la app con la simulación local de
+flota activada en modo demostración, usar `--dart-define=DEMO_MODE=true`.
 
 ## Publicar una versión
 

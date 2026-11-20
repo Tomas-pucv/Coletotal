@@ -8,13 +8,10 @@ import 'package:latlong2/latlong.dart';
 /// Decodifica una polilínea. `precision: 6` es la de OSRM y Valhalla; el
 /// formato clásico de Google usa 5.
 ///
-/// Se decodifica con aritmética y no con operadores de bits. En la web, Dart
-/// compila a JavaScript y `~`, `>>` y `<<` devuelven enteros de 32 bits
-/// **sin signo**: `~(x >> 1)`, que en Android da el valor negativo, en el
-/// navegador daba 4.261.920.296 en vez de -33.047.000. Como todas las
-/// coordenadas de Quilpué son negativas, en la web cada trazado se
-/// decodificaba a puntos fuera del mapa, y los recorridos terminaban
-/// dibujados como rectas entre paraderos.
+/// Se decodifica con aritmética entera y no con operadores de bits (`~`, `>>`,
+/// `<<`): en la web Dart compila a JavaScript, donde los operadores de bits
+/// devuelven enteros de 32 bits sin signo y corrompen las coordenadas
+/// negativas del hemisferio sur.
 List<LatLng> decodePolyline(String encoded, {int precision = 6}) {
   final points = <LatLng>[];
   final factor = _pow10(precision);
@@ -89,10 +86,12 @@ bool isValidLatLng(LatLng p) =>
 
 /// Parte [points] en tramos de como mucho [size] puntos, donde cada tramo
 /// empieza en el último punto del anterior: los enrutadores aceptan un
-/// máximo de puntos por petición, y una línea con más paraderos se pide por
-/// partes y se cose después.
+/// máximo de puntos de paso por petición, y un recorrido con más puntos se
+/// pide por partes y se cose después con [joinLegs].
 List<List<LatLng>> chunkWaypoints(List<LatLng> points, int size) {
-  assert(size >= 2);
+  if (size < 2) {
+    throw ArgumentError.value(size, 'size', 'Debe ser al menos 2');
+  }
   final chunks = <List<LatLng>>[];
   var start = 0;
   while (start < points.length - 1) {

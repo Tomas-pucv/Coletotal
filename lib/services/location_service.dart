@@ -37,26 +37,21 @@ double? rumboConfiable({
 
 /// Dueño único del GPS del teléfono.
 ///
-/// Antes tres sitios abrían el GPS por su cuenta: `MapScreen`, `RoutesScreen`
-/// y la telemetría del chofer. Eso tenía dos fallas que no se veían en el
-/// código, sino dentro del plugin:
+/// Centraliza la suscripción al plugin `geolocator` para evitar dos
+/// limitaciones de la plataforma nativa:
 ///
 ///  * **geolocator mantiene un solo stream de posiciones** y, mientras siga
-///    vivo, ignora los `locationSettings` de quien lo pide después. El mapa
-///    abría el suyo al arrancar la app (el `IndexedStack` lo monta siempre),
-///    así que la configuración del turno —servicio en primer plano con
-///    notificación y wake lock— nunca llegaba a aplicarse. Con la pantalla
-///    bloqueada Android estrangulaba el GPS y el colectivo desaparecía del
-///    mapa de los pasajeros a los tres minutos.
-///  * **geolocator guarda un solo callback de permiso.** Mapa y Paraderos lo
-///    pedían a la vez en el primer arranque; el segundo pisaba al primero y
-///    el `Future` del mapa no se completaba nunca, así que el mapa no seguía al
-///    usuario hasta que éste tocaba el botón de recentrar.
+///    vivo, ignora los `locationSettings` de quien lo pide después. Al
+///    centralizar el stream aquí, la transición a modo conductor
+///    ([setDriverMode]) cancela y reabre la suscripción aplicando el servicio
+///    en primer plano con notificación y wake lock.
+///  * **geolocator guarda un solo callback de permiso.** Al exponer
+///    [ensurePermission] con un `Future` compartido en vuelo, las pantallas
+///    que solicitan ubicación simultáneamente en el arranque comparten la
+///    misma solicitud sin pisarse.
 ///
-/// Por eso ahora hay **un** stream, abierto acá, con la configuración que
-/// corresponde ([setDriverMode]), y **una** solicitud de permiso compartida
-/// ([ensurePermission]). Las pantallas escuchan este servicio y la telemetría
-/// se suscribe a [positions].
+/// Las pantallas escuchan este servicio y la telemetría se suscribe a
+/// [positions].
 class LocationService extends ChangeNotifier with WidgetsBindingObserver {
   LocationService._();
   static final LocationService instance = LocationService._();
@@ -218,8 +213,8 @@ class LocationService extends ChangeNotifier with WidgetsBindingObserver {
     }
 
     // Mientras llega el primer arreglo (que en interiores puede tardar), la
-    // última posición conocida ya sirve para centrar el mapa y ordenar los
-    // paraderos.
+    // última posición conocida ya sirve para centrar el mapa y ordenar las
+    // líneas por cercanía.
     if (_position == null) {
       try {
         final last = await Geolocator.getLastKnownPosition();
@@ -231,6 +226,8 @@ class LocationService extends ChangeNotifier with WidgetsBindingObserver {
       _accept,
       onError: (Object e) {
         debugPrint('LocationService: error del GPS: $e');
+        _sub?.cancel();
+        _sub = null;
         // La telemetría lo registra en la auditoría del turno.
         _positions.addError(e);
         _setIssue(LocationIssue.serviceDisabled);

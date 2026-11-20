@@ -17,7 +17,7 @@ class SessionLogEvent {
   });
 
   /// Tipo de evento: SHIFT_START, SHIFT_END, GPS_LOST, NETWORK_LOST,
-  /// NETWORK_FAIL, STATE_CHANGED, ROUTE_CHANGED.
+  /// NETWORK_FAIL, ROUTE_CHANGED.
   final String tipo;
   final int timestamp;
   final Map<String, dynamic> datos;
@@ -36,11 +36,11 @@ class SessionLogEvent {
   );
 }
 
-/// Servicio de auditoría y diagnóstico de turnos en terreno.
+/// Servicio de auditoría y diagnóstico operacional de turnos en terreno.
 ///
-/// Registra las incidencias de cada chofer (pérdidas de GPS y de señal,
-/// cambios de capacidad y de recorrido) en un búfer local y las sube a
-/// Firestore, en un solo documento por turno, al terminarlo:
+/// Registra las incidencias del turno activo (pérdidas de GPS y de red,
+/// cambios de recorrido asignado) en un búfer local persistido y sube un
+/// documento consolidado por jornada al finalizar:
 /// `garitas/{garitaId}/auditoria_turnos/{sessionId}`.
 class SessionLogService {
   SessionLogService._();
@@ -49,10 +49,8 @@ class SessionLogService {
   static const _kCurrentSessionKey = 'coletotal_current_shift_session';
   static const _kPendingSessionsKey = 'coletotal_pending_shift_sessions';
 
-  /// Tope de eventos por turno. Sin él, un turno largo en una zona sin señal
-  /// (un `NETWORK_FAIL` cada pocos segundos) superaba el máximo de 1 MiB de un
-  /// documento de Firestore, la subida fallaba y se reintentaba para siempre.
-  /// Las reglas aceptan hasta 500, así que queda margen.
+  /// Límite de eventos por turno para mantener el documento muy por debajo del
+  /// máximo de 1 MiB de Firestore y de la cota de 500 eventos de las reglas.
   static const int maxEventos = 300;
 
   /// Tope de turnos guardados a la espera de red.
@@ -72,6 +70,7 @@ class SessionLogService {
   String? _currentRecorridoId;
   int? _inicioTs;
   int _descartados = 0;
+  bool _syncing = false;
   final List<SessionLogEvent> _eventos = [];
   Timer? _guardadoProgramado;
 
@@ -114,11 +113,11 @@ class SessionLogService {
   }
 
   /// Registra un evento operacional del turno en curso.
-  ///
-  /// Sin turno no hace nada: antes los eventos de fuera del turno se
-  /// acumulaban y terminaban mezclados en el turno siguiente, o se perdían.
   void logEvent(String tipo, [Map<String, dynamic> datos = const {}]) {
     if (_currentSessionId == null) return;
+    if (tipo == 'ROUTE_CHANGED' && datos.containsKey('recorridoId')) {
+      _currentRecorridoId = datos['recorridoId'] as String?;
+    }
     final now = DateTime.now().millisecondsSinceEpoch;
 
     if (_repetibles.contains(tipo) && _eventos.isNotEmpty) {
@@ -250,15 +249,10 @@ class SessionLogService {
     }
   }
 
-  /// Reintenta subir los turnos guardados en el teléfono.
-  ///
-  /// Sólo sube los de [uid]: las reglas exigen que cada chofer escriba sus
-  /// propios turnos, y un teléfono compartido puede tener pendientes de otro.
-  /// Un rechazo de permisos significa que el documento ya existe (subió por la
-  /// cola del SDK) o que ya no corresponde: se descarta en vez de reintentarlo
-  /// para siempre.
+  /// Reintenta subir los turnos guardados localmente que pertenecen a [uid].
   Future<void> sincronizarSesionesPendientes({required String? uid}) async {
-    if (uid == null) return;
+    if (uid == null || _syncing) return;
+    _syncing = true;
     try {
       final prefs = await SharedPreferences.getInstance();
       final pendientes = prefs.getStringList(_kPendingSessionsKey) ?? const [];
@@ -286,8 +280,6 @@ class SessionLogService {
           final outcome = await confirmOrQueue(
             _docRef(garitaId, sessionId).set({
               ...data,
-              // Los pendientes de versiones anteriores no traían el uid, que
-              // ahora exigen las reglas.
               'uid': uid,
               'sincronizadoEn': FieldValue.serverTimestamp(),
             }),
@@ -307,6 +299,8 @@ class SessionLogService {
       await prefs.setStringList(_kPendingSessionsKey, recortados);
     } catch (e) {
       debugPrint('[SessionLog] Error en sincronizarSesionesPendientes: $e');
+    } finally {
+      _syncing = false;
     }
   }
 

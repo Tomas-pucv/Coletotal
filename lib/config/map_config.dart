@@ -5,13 +5,11 @@ import 'package:taxi1/utils/tile_coords.dart';
 /// Centro de Quilpué: punto de partida del mapa y de las miniaturas.
 const LatLng kQuilpueCenter = LatLng(-33.0472, -71.4425);
 
-// Zooms en la escala de MapLibre, que usa teselas de 512 px: su zoom z muestra
-// lo mismo que flutter_map mostraba en z + 1. Por eso todos bajaron en uno al
-// cambiar de motor; lo que se ve en pantalla es igual que antes.
+// Zooms en la escala de MapLibre (teselas vectoriales de 512 px).
 
 const double kInitialZoom = 13;
 
-/// Para mirar una cuadra: al centrar en un paradero o en un colectivo.
+/// Para mirar una cuadra: al centrar en un punto de seña o en un colectivo.
 const double kStreetZoom = 15;
 
 /// Para ubicar un destino buscado con su entorno.

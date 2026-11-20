@@ -44,10 +44,9 @@ IconData roleIcon(UserRole role) => switch (role) {
 
 /// Fondo y color de texto de la insignia de rol.
 ///
-/// Se toman roles del [ColorScheme] en vez de inventar colores nuevos: azul,
-/// verde, ámbar y rojo están reservados (ver `theme/app_colors.dart`) para la
-/// ubicación del usuario y la semaforización de capacidad, y un cuarto color de
-/// marca competiría con ellos sobre el mapa.
+/// Se toman roles del [ColorScheme] para mantener contraste en tema claro y
+/// oscuro sin colisionar con los colores semánticos del mapa (ver
+/// `theme/app_colors.dart`).
 ({Color background, Color foreground}) roleBadgeColors(
   UserRole role,
   ColorScheme scheme,

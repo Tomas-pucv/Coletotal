@@ -13,8 +13,8 @@ enum OsrmProfile {
   /// calles.
   driving,
 
-  /// A pie: la ruta del pasajero hasta el paradero, que puede ir por calles de
-  /// un solo sentido en cualquier dirección.
+  /// A pie: la ruta del pasajero hasta el punto de seña, que puede ir por
+  /// calles de un solo sentido en cualquier dirección.
   foot;
 
   /// El servidor público de demostración de OSRM sólo tiene perfil de auto
@@ -31,10 +31,9 @@ enum OsrmProfile {
 /// responde (ver `Routing`), tanto para la ruta a pie como para el trazado de
 /// las líneas.
 abstract final class OsrmClient {
-  /// Puntos de paso por petición. Un recorrido con más paraderos se pide en
-  /// tramos que se solapan en un paradero y se cosen después: antes la lista
-  /// se cortaba en silencio en el paradero 25 y la línea quedaba dibujada (y
-  /// guardada en Firestore) a medias.
+  /// Puntos de paso máximos por petición HTTP. Un recorrido con más puntos se
+  /// divide en tramos solapados con [chunkWaypoints] y se cose después con
+  /// [joinLegs].
   static const int maxWaypoints = 25;
 
   static const _timeout = Duration(seconds: 20);

@@ -29,46 +29,35 @@ class TelemetriaState {
   final bool loaded;
 }
 
-/// Publica y lee las posiciones en vivo de las unidades.
+/// Servicio de publicación y lectura de posiciones en vivo de la flota.
 ///
-/// Realtime Database y no Firestore, siguiendo el reparto del informe §7.3: la
-/// telemetría GPS es escritura de alta frecuencia y lectura reactiva, que es
-/// justo para lo que sirve RTDB.
+/// Utiliza Firebase Realtime Database para absorber escrituras GPS de alta
+/// frecuencia, gestión de desconexión (`onDisconnect`) y lectura reactiva
+/// sincronizada con el reloj del servidor (`.info/serverTimeOffset`).
 ///
-/// Quien decide *cuándo* transmitir es `TurnoService`, no esta clase ni una
-/// pantalla.
+/// El inicio y término de la transmisión son coordinados por `TurnoService`.
 class FirebaseTelemetriaService {
-  FirebaseTelemetriaService._privateConstructor();
+  FirebaseTelemetriaService._();
   static final FirebaseTelemetriaService instance =
-      FirebaseTelemetriaService._privateConstructor();
+      FirebaseTelemetriaService._();
 
   FirebaseDatabase get _rtdb => FirebaseDatabase.instance;
   DatabaseReference get _db => _rtdb.ref('colectivos_activos');
 
   // --- Lectura: una sola suscripción para toda la app -----------------------
 
-  /// Estado compartido de la flota.
-  ///
-  /// Antes cada pantalla (mapa, flota, portada de garita, choferes) abría su
-  /// propio stream y volvía a parsear el nodo entero con cada movimiento de
-  /// cada unidad. Ahora hay un solo listener y las pantallas escuchan esto.
+  /// Estado compartido de la flota activa para todas las pantallas de la app.
   ValueListenable<TelemetriaState> get state => _state;
   final ValueNotifier<TelemetriaState> _state = ValueNotifier(
     const TelemetriaState(),
   );
 
-  /// Como mucho un aviso por segundo: con veinte choferes enviando cada tres
-  /// segundos llegan varios eventos por segundo, y cada uno redibujaba el mapa
-  /// entero en teléfonos de gama de entrada.
+  /// Intervalo mínimo entre emisiones hacia la interfaz para acotar el
+  /// redibujado del mapa ante múltiples unidades transmitiendo en paralelo.
   static const Duration _throttle = Duration(seconds: 1);
 
-  /// Cada cuánto se vuelve a filtrar la lista aunque no lleguen eventos.
-  ///
-  /// El filtro de antigüedad sólo corría cuando *algún* nodo cambiaba, así que
-  /// cuando el último chofer en servicio se quedaba sin señal (o le cerraban la
-  /// app) no llegaba ningún evento más y su marcador quedaba clavado en el mapa
-  /// de todos para siempre: justo el "colectivo fantasma" que el filtro debía
-  /// evitar.
+  /// Intervalo de reevaluación periódica de vigencia para descartar unidades
+  /// que dejaron de reportar señal aunque no lleguen nuevos eventos de red.
   static const Duration _refiltro = Duration(seconds: 15);
 
   StreamSubscription<DatabaseEvent>? _readSub;
@@ -211,6 +200,7 @@ class FirebaseTelemetriaService {
   bool _hasFix = false;
   bool _connected = false;
   bool _onDisconnectArmed = false;
+  int _trackingGeneration = 0;
 
   /// Como mucho una posición cada tres segundos. En turno el GPS da una por
   /// segundo, para que la flecha de navegación del chofer se mueva suave; a
@@ -341,23 +331,22 @@ class FirebaseTelemetriaService {
 
   Future<void> _publicar() async {
     final actual = _current;
+    final gen = _trackingGeneration;
     if (actual == null || !_isTracking || !_hasFix || !_connected) return;
 
     final ref = _db.child(actual.uid);
     try {
       await ref.set({
         ...actual.copyWith(conectado: true).toJson(),
-        // El sello lo pone el servidor: el reloj del teléfono puede estar mal y
-        // el filtro de unidades fantasma depende de esta marca.
+        // Marca de tiempo asignada por el servidor para independizar el
+        // cálculo de vigencia respecto del reloj local de cada dispositivo.
         'ts': ServerValue.timestamp,
       });
+      if (!_isTracking || gen != _trackingGeneration) return;
       _ultimoEnvio.value = DateTime.now();
 
-      // Recién ahora, con el nodo completo ya escrito, se registra el aviso de
-      // desconexión. Registrado antes —como estaba— fallaba siempre: las
-      // reglas validan el `update` contra un nodo que todavía no existe y le
-      // faltan los campos obligatorios. Y como se esperaba sin try/catch, la
-      // excepción dejaba el botón de turno girando para siempre.
+      // Registra el hook `onDisconnect` una vez creado el nodo completo para
+      // que la validación de esquema en las reglas de RTDB sea satisfecha.
       if (!_onDisconnectArmed && _isTracking) {
         _onDisconnectArmed = true;
         unawaited(
@@ -378,15 +367,13 @@ class FirebaseTelemetriaService {
     }
   }
 
-  /// Deja de transmitir y borra el nodo.
+  /// Detiene la transmisión GPS del turno y remueve el nodo activo en RTDB.
   ///
-  /// Hay que **esperarlo** antes de cerrar sesión: el borrado necesita el token
-  /// todavía vigente. La espera está acotada: sin red, Realtime Database no
-  /// confirma nunca, y antes eso dejaba el botón "Terminar turno" (y el cierre
-  /// de sesión, que espera a este método) colgados hasta recuperar señal. Si
-  /// se agota el plazo, el borrado sigue en la cola del SDK y, si nunca llega,
-  /// el filtro de antigüedad saca a la unidad del mapa a los tres minutos.
+  /// Debe ejecutarse antes de cerrar la sesión de Auth mientras el token sigue
+  /// vigente. Aplica un límite de espera de 4 segundos para no bloquear la UI
+  /// cuando el dispositivo se encuentra sin cobertura.
   Future<void> detenerTracking() async {
+    _trackingGeneration++;
     _isTracking = false;
     _posicionPendiente?.cancel();
     _posicionPendiente = null;
@@ -407,9 +394,15 @@ class FirebaseTelemetriaService {
 
     final ref = _db.child(actual.uid);
     try {
+      final cancelFuture = ref.onDisconnect().cancel().catchError((Object e) {
+        debugPrint('Telemetría: error al cancelar onDisconnect: $e');
+      });
+      final removeFuture = ref.remove().catchError((Object e) {
+        debugPrint('Telemetría: error al remover nodo tras timeout: $e');
+      });
       await Future.wait([
-        ref.onDisconnect().cancel(),
-        ref.remove(),
+        cancelFuture,
+        removeFuture,
       ]).timeout(const Duration(seconds: 4));
     } on TimeoutException {
       debugPrint('Telemetría: sin confirmación del borrado; queda en cola.');

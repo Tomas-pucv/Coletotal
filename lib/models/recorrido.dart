@@ -80,9 +80,8 @@ class Trayecto {
 /// otra cosa —`RouteService` calcula el camino *a pie* del pasajero—, y
 /// "recorrido" es además la palabra que se usa en el transporte chileno.
 ///
-/// No tiene paraderos. Los colectivos paran donde se les hace la seña, a lo
-/// largo de todo el recorrido; los paraderos que tuvo la app hasta el
-/// 10 de octubre de 2026 eran datos de prueba inventados.
+/// No tiene paraderos fijos: los colectivos paran donde se les hace la seña a
+/// lo largo de todo el trazado continuo ([Trayecto.trazado]) de cada sentido.
 class Recorrido {
   const Recorrido({
     required this.id,
@@ -244,10 +243,9 @@ class Recorrido {
 
 /// Paleta para los recorridos.
 ///
-/// Ni azul (ubicación del usuario) ni verde/ámbar/rojo (semaforización de
-/// capacidad): esos cuatro están reservados y un recorrido pintado de verde
-/// sobre el mapa se leería como "hay cupo". Tampoco el morado de la ruta a pie.
-/// Ver `theme/app_colors.dart`.
+/// Evita el azul de la ubicación del usuario, los colores semánticos de estado
+/// (verde/ámbar/rojo) y el morado del tramo a pie para que cada capa del mapa
+/// sea distinguible a simple vista. Ver `theme/app_colors.dart`.
 const List<int> kRecorridoColors = [
   0xFFB0338A, // magenta
   0xFF00727C, // teal oscuro

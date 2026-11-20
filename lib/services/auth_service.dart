@@ -47,19 +47,14 @@ class AuthFailure implements Exception {
   String toString() => 'AuthFailure(${code.name})';
 }
 
-/// Resultado de leer el perfil de Firestore.
-///
-/// Antes la lectura sólo dejaba `_profile` en `null` o no, y quien la llamaba
-/// no podía distinguir *por qué*: un chofer deshabilitado o sin red veía
-/// "patente o contraseña incorrecta".
+/// Resultado de la lectura del documento de perfil en Firestore.
 enum ProfileResult { ok, missing, disabled, network }
 
-/// Fuente de verdad del rol del usuario.
+/// Servicio central de autenticación y gestión de rol del usuario.
 ///
-/// Sigue el patrón del resto del proyecto: singleton [ChangeNotifier], sin
-/// framework de inyección. Las instancias de Firebase se resuelven **de forma
-/// perezosa** en getters y no en campos: así un test de widget puede fijar un
-/// perfil con [debugSetProfile] sin que se inicialice Firebase.
+/// Implementado como singleton [ChangeNotifier] con acceso perezoso a las
+/// instancias de Firebase, permitiendo inyectar perfiles de prueba mediante
+/// [debugSetProfile] sin requerir inicialización de red en tests de widgets.
 class AuthService extends ChangeNotifier {
   AuthService._();
   static final AuthService instance = AuthService._();
@@ -130,8 +125,9 @@ class AuthService extends ChangeNotifier {
       await _clearProfile(notify: false);
       _status = AuthStatus.invitado;
     } else {
-      // El perfil cacheado ya pinta el menú; el refresco va en segundo plano
-      // para no retrasar el primer frame.
+      if (_profile?.uid != user.uid) {
+        _profile = null;
+      }
       _status = _profile == null ? AuthStatus.sinPerfil : AuthStatus.conSesion;
       unawaited(_refreshProfile(user.uid));
       _watchProfile(user.uid);
@@ -240,14 +236,13 @@ class AuthService extends ChangeNotifier {
       final snap = await _db.collection(_colUsuarios).doc(uid).get();
       final data = snap.data();
       if (!snap.exists || data == null) {
+        _profile = null;
         _status = AuthStatus.sinPerfil;
         notifyListeners();
         return ProfileResult.missing;
       }
       final profile = AppUser.fromMap(snap.id, data);
 
-      // Las reglas pueden impedir que un chofer deshabilitado *escriba*, pero
-      // no que inicie sesión. El corte tiene que hacerse acá.
       if (!profile.activo) {
         await signOut();
         return ProfileResult.disabled;
@@ -259,8 +254,7 @@ class AuthService extends ChangeNotifier {
       notifyListeners();
       return ProfileResult.ok;
     } catch (e) {
-      // Sin red se sigue con el perfil cacheado: la app tiene que funcionar en
-      // los cerros de Quilpué (RF-07-01).
+      // Sin cobertura se mantiene el perfil cacheado localmente.
       debugPrint('AuthService: no se pudo refrescar el perfil: $e');
       return ProfileResult.network;
     }
@@ -268,14 +262,11 @@ class AuthService extends ChangeNotifier {
 
   // --- Consultas públicas --------------------------------------------------
 
-  /// Busca un código de enrolamiento. Devuelve `null` si no existe o no sirve.
+  /// Consulta un código de enrolamiento en el servidor.
   ///
-  /// Se puede llamar sin sesión: es lo que permite avisar "código inválido"
-  /// *antes* de crear la cuenta, en vez de crearla y tener que borrarla.
-  ///
-  /// Si no se pudo consultar (sin red), lanza [AuthFailure] con
-  /// [AuthErrorCode.sinConexion]: antes devolvía `null` y el usuario leía
-  /// "código inválido" con un código perfectamente válido.
+  /// Permite validar el código antes de crear la cuenta en Firebase Auth.
+  /// Lanza [AuthFailure] con [AuthErrorCode.sinConexion] si la consulta falla
+  /// por falta de red.
   Future<CodigoAcceso?> lookupCodigo(String codigo) async {
     final id = codigo.trim().toUpperCase();
     if (id.isEmpty) return null;
@@ -439,6 +430,10 @@ class AuthService extends ChangeNotifier {
       _status = AuthStatus.invitado;
       notifyListeners();
       throw AuthFailure(_mapAuthError(e.code), e.code);
+    } catch (e) {
+      _status = AuthStatus.invitado;
+      notifyListeners();
+      throw AuthFailure(AuthErrorCode.desconocido, e.toString());
     }
 
     final user = cred.user;

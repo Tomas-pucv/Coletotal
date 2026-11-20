@@ -17,19 +17,20 @@ import com.valhalla.valhalla.config.ValhallaConfigFactory
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
+import java.util.Locale
 import java.util.concurrent.Executors
 
 class MainActivity : FlutterActivity() {
 
     /**
-     * Valhalla dentro del teléfono: calcula las rutas a pie y los trazados de las
-     * líneas sin conexión, con los datos de ruteo que vienen en el APK
-     * (`assets/map/ruteo_valparaiso.tar`, copiados por `BasemapService`).
+     * Motor Valhalla embebido en el dispositivo: calcula rutas peatonales y
+     * trazados vehiculares de las líneas sin conexión a partir de las teselas
+     * empaquetadas en el APK (`assets/map/ruteo_valparaiso.tar`, extraídas por
+     * `BasemapService`).
      *
-     * Las consultas son las mismas que se le mandan al servidor público
-     * (`lib/services/valhalla_client.dart`) y la respuesta vuelve tal cual, en
-     * JSON. Se atienden de a una, en un hilo aparte: Valhalla tarda unos
-     * milisegundos por ruta y no puede bloquear la interfaz.
+     * Recibe peticiones en el formato JSON estándar de Valhalla
+     * (`lib/services/valhalla_client.dart`) y las procesa secuencialmente en
+     * un hilo dedicado para no bloquear el hilo principal de la interfaz.
      */
     private val valhallaHilo = Executors.newSingleThreadExecutor()
     private var valhalla: Valhalla? = null
@@ -169,15 +170,18 @@ class MainActivity : FlutterActivity() {
     /** MIUI y HyperOS cortan la red a las apps en segundo plano aunque tengan un
      *  servicio en primer plano, salvo que se las deje "Sin restricciones". */
     private fun esXiaomi(): Boolean =
-        Build.MANUFACTURER.lowercase() in setOf("xiaomi", "redmi", "poco")
+        Build.MANUFACTURER.lowercase(Locale.ROOT) in setOf("xiaomi", "redmi", "poco")
 
     /** La ficha de la app en los ajustes: en Xiaomi ahí están el ahorro de
      *  batería y el inicio automático. */
     private fun abrirAjustesDeLaApp() {
-        startActivity(
-            Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName"))
-                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        )
+        try {
+            startActivity(
+                Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName"))
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            )
+        } catch (_: Exception) {
+        }
     }
 
     /** Un solo motor, que se rehace sólo si cambian los datos de ruteo. */
@@ -185,18 +189,24 @@ class MainActivity : FlutterActivity() {
         val actual = valhalla
         if (actual != null && valhallaTeselas == teselas) return actual
         actual?.close()
-        val nuevo = Valhalla(this, ValhallaConfigFactory.usingTileExtract(teselas))
+        val nuevo = Valhalla(applicationContext, ValhallaConfigFactory.usingTileExtract(teselas))
         valhalla = nuevo
         valhallaTeselas = teselas
         return nuevo
     }
 
     override fun onDestroy() {
-        valhallaHilo.execute {
-            valhalla?.close()
-            valhalla = null
+        pendienteNotificaciones?.success(false)
+        pendienteNotificaciones = null
+        pendienteBateria?.success(false)
+        pendienteBateria = null
+        if (!valhallaHilo.isShutdown) {
+            valhallaHilo.execute {
+                valhalla?.close()
+                valhalla = null
+            }
+            valhallaHilo.shutdown()
         }
-        valhallaHilo.shutdown()
         super.onDestroy()
     }
 

@@ -127,8 +127,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   value: _conductor,
                   onChanged: (v) => setState(() => _conductor = v),
                 ),
-              ]
-              else
+              ] else
                 EmailField(
                   controller: _identifier,
                   textInputAction: TextInputAction.next,

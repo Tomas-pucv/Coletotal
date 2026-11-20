@@ -13,7 +13,7 @@ const double kWalkingSpeedMps = 1.3;
 /// del teléfono primero y, si no está o no encuentra ruta, OSRM. Ninguno pide
 /// clave.
 abstract final class Routing {
-  /// Trazado de una línea de colectivos por sus paraderos **en orden**, en
+  /// Trazado de una línea de colectivos por sus puntos de paso **en orden**, en
   /// auto (respeta el sentido de las calles). `null` si ningún enrutador
   /// respondió.
   static Future<RoutePath?> linePath(

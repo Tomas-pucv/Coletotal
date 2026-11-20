@@ -199,13 +199,13 @@ abstract class AppLocalizations {
   /// No description provided for @locationOffMessage.
   ///
   /// In es, this message translates to:
-  /// **'Activa el GPS del teléfono para ver tu posición y los paraderos cercanos.'**
+  /// **'Activa el GPS del teléfono para ver tu posición y las líneas cercanas.'**
   String get locationOffMessage;
 
   /// No description provided for @locationDeniedMessage.
   ///
   /// In es, this message translates to:
-  /// **'ColeTotal necesita acceso a tu ubicación para calcular rutas y mostrarte los paraderos más cercanos.'**
+  /// **'ColeTotal necesita acceso a tu ubicación para calcular rutas y mostrarte las líneas más cercanas.'**
   String get locationDeniedMessage;
 
   /// No description provided for @locationDisabledByPreference.
@@ -313,7 +313,7 @@ abstract class AppLocalizations {
   /// No description provided for @fontSizePreviewHint.
   ///
   /// In es, this message translates to:
-  /// **'Así se verán los paraderos'**
+  /// **'Así se verán las líneas y recorridos'**
   String get fontSizePreviewHint;
 
   /// No description provided for @compactMode.
@@ -337,7 +337,7 @@ abstract class AppLocalizations {
   /// No description provided for @animationsDesc.
   ///
   /// In es, this message translates to:
-  /// **'Transiciones y pulso de los paraderos'**
+  /// **'Transiciones y pulso de los puntos de seña'**
   String get animationsDesc;
 
   /// No description provided for @sectionPrivacy.
@@ -397,7 +397,7 @@ abstract class AppLocalizations {
   /// No description provided for @aboutSubtitle.
   ///
   /// In es, this message translates to:
-  /// **'Rutas y paraderos de Transportes Serrano, Quilpué.'**
+  /// **'Líneas y recorridos de Transportes Serrano, Quilpué.'**
   String get aboutSubtitle;
 
   /// No description provided for @errInvalidCoords.
@@ -619,7 +619,7 @@ abstract class AppLocalizations {
   /// No description provided for @authNameHint.
   ///
   /// In es, this message translates to:
-  /// **'Como quieres que te vean en la garita'**
+  /// **'Cómo quieres que te vean en la garita'**
   String get authNameHint;
 
   /// No description provided for @authCodigo.

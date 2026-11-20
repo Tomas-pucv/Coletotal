@@ -2,10 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class PreferencesService extends ChangeNotifier {
-  PreferencesService._internal();
-  static final PreferencesService instance = PreferencesService._internal();
+  PreferencesService._();
+  static final PreferencesService instance = PreferencesService._();
 
-  // Storage keys
+  // Claves de persistencia local
   static const _keyMapType = 'map_type';
   static const _keyTheme = 'theme_mode';
   static const _keyLocationTracking = 'location_tracking';
@@ -13,37 +13,26 @@ class PreferencesService extends ChangeNotifier {
   static const _keyDensity = 'compact_mode';
   static const _keyAnimations = 'animations_enabled';
 
-  // Mapa
+  // Estilo de mapa ('normal' | 'satellite')
   String _mapType = 'normal';
 
-  // Tema y apariencia. 'system' | 'light' | 'dark'
+  // Tema y apariencia ('system' | 'light' | 'dark')
   String _theme = 'system';
   double _fontSizeMultiplier = 1.0;
   bool _compactMode = false;
   bool _animationsEnabled = true;
 
-  // Notificaciones y privacidad
+  // Privacidad de ubicación
   bool _locationTracking = true;
-
-  // El rol del usuario ya no vive acá.
-  //
-  // Era `user_role` en SharedPreferences, elegible desde un selector en esta
-  // misma pantalla, más un `driver_id` generado en el teléfono. Con eso
-  // cualquiera se declaraba chofer y se ponía a transmitir GPS a la garita con
-  // un identificador inventado, que además impedía escribir cualquier regla de
-  // seguridad. El rol es identidad, no preferencia: vive en `AuthService`.
 
   bool _initialized = false;
 
-  // Getters - Mapa
   String get mapType => _mapType;
 
-  // Getters - Tema y apariencia
-  /// Valor crudo del tema, para enlazar los radios de Preferencias.
+  /// Valor textual del tema seleccionado.
   String get themeName => _theme;
 
-  /// Antes esta propiedad solo podía devolver light u oscuro, con lo que
-  /// [ThemeMode.system] era inalcanzable y la app ignoraba el tema del sistema.
+  /// Modo de tema resuelto para [MaterialApp.themeMode].
   ThemeMode get themeMode => switch (_theme) {
     'dark' => ThemeMode.dark,
     'light' => ThemeMode.light,
@@ -52,30 +41,31 @@ class PreferencesService extends ChangeNotifier {
   double get fontSizeMultiplier => _fontSizeMultiplier;
   bool get compactMode => _compactMode;
   bool get animationsEnabled => _animationsEnabled;
-
-  // Getters - Notificaciones y privacidad
   bool get locationTracking => _locationTracking;
-
   bool get isInitialized => _initialized;
 
   Future<void> load() async {
     if (_initialized) return;
-    final prefs = await SharedPreferences.getInstance();
+    try {
+      final prefs = await SharedPreferences.getInstance();
 
-    _mapType = prefs.getString(_keyMapType) ?? 'normal';
-    _theme = prefs.getString(_keyTheme) ?? 'system';
-    _locationTracking = prefs.getBool(_keyLocationTracking) ?? true;
-    _fontSizeMultiplier = prefs.getDouble(_keyFontSize) ?? 1.0;
-    _compactMode = prefs.getBool(_keyDensity) ?? false;
-    _animationsEnabled = prefs.getBool(_keyAnimations) ?? true;
+      _mapType = prefs.getString(_keyMapType) ?? 'normal';
+      _theme = prefs.getString(_keyTheme) ?? 'system';
+      _locationTracking = prefs.getBool(_keyLocationTracking) ?? true;
+      _fontSizeMultiplier = (prefs.getDouble(_keyFontSize) ?? 1.0).clamp(
+        0.8,
+        1.6,
+      );
+      _compactMode = prefs.getBool(_keyDensity) ?? false;
+      _animationsEnabled = prefs.getBool(_keyAnimations) ?? true;
 
-    // Restos de estados que ya no existen: el rol local (cuando "chofer" era
-    // una preferencia) y la bandera de la pantalla de bienvenida. Se borran
-    // una vez para que un teléfono actualizado no arrastre un identificador de
-    // vehículo que ya no significa nada.
-    await prefs.remove('user_role');
-    await prefs.remove('driver_id');
-    await prefs.remove('seen_welcome');
+      // Limpieza de claves deprecadas de versiones previas.
+      await prefs.remove('user_role');
+      await prefs.remove('driver_id');
+      await prefs.remove('seen_welcome');
+    } catch (e) {
+      debugPrint('PreferencesService: error al cargar preferencias: $e');
+    }
 
     _initialized = true;
     notifyListeners();

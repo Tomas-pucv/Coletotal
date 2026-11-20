@@ -1,10 +1,6 @@
 // scripts/lib/firebase_rest.js
 // Utilidades compartidas por los scripts de administración de ColeTotal:
-// credenciales de Firebase CLI y acceso a la REST API de Firestore.
-//
-// Antes cada script repetía este código y además hacía `require` de una ruta
-// absoluta del computador de un integrante (C:/Users/marco/AppData/...), así
-// que en cualquier otro equipo fallaban en la primera línea.
+// obtención de credenciales OAuth desde Firebase CLI y cliente REST de Firestore.
 
 const path = require('path');
 const { execSync } = require('child_process');

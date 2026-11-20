@@ -8,6 +8,7 @@ import 'package:taxi1/l10n/app_localizations.dart';
 import 'package:taxi1/models/colectivo_activo.dart';
 import 'package:taxi1/models/place_result.dart';
 import 'package:taxi1/models/recorrido.dart';
+import 'package:taxi1/models/route_path.dart';
 import 'package:taxi1/navigation/app_destination.dart';
 import 'package:taxi1/screens/main_screen.dart';
 import 'package:taxi1/services/auth_service.dart';
@@ -42,14 +43,15 @@ class MapScreen extends StatefulWidget {
   State<MapScreen> createState() => _MapScreenState();
 }
 
-class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
+class _MapScreenState extends State<MapScreen>
+    with SingleTickerProviderStateMixin {
   final _mapController = AppMapController();
 
   bool _followUser = true;
   bool _mapReady = false;
 
-  /// Hacia dónde mira el mapa (grados desde el norte). Cambia en cada cuadro
-  /// mientras se rota: sólo lo escucha la brújula, no toda la pantalla.
+  /// Rumbo actual de la cámara (grados desde el norte), observado únicamente
+  /// por el botón de brújula para evitar reconstruir toda la pantalla al rotar.
   final _rumbo = ValueNotifier<double>(0);
 
   final routeService = RouteService.instance;
@@ -57,34 +59,26 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
   final recorridos = RecorridosService.instance;
   final location = LocationService.instance;
 
-  /// Dirección buscada por el usuario, si la hay. Es el destino *final* del
-  /// viaje, distinto del punto de la línea donde se toma el colectivo.
+  /// Destino final buscado por el pasajero.
   PlaceResult? _destino;
 
-  /// El viaje elegido para llegar a [_destino]: qué línea, en qué sentido,
-  /// dónde subirse y dónde bajarse.
+  /// Sugerencia de viaje seleccionada para llegar a [_destino].
   LineSuggestion? _viaje;
 
-  /// El centro del mapa la última vez que la cámara se detuvo: el foco de los
-  /// puntos de seña cuando el pasajero mira otra parte de la ciudad.
+  /// Último centro del mapa tras detenerse la cámara (foco de puntos de seña
+  /// cuando el usuario explora otra zona de la ciudad).
   LatLng? _centroMapa;
 
-  /// Dónde va el ícono de cada variante (ver [PuntosDeSena.lugaresDeIconos]),
-  /// y de qué líneas se calculó: cambia sólo si cambian ellas.
-  List<Recorrido> _lineasDeIconos = const [];
-  Map<String, LatLng> _lugaresDeIconos = const {};
-
-  /// Con una línea elegida (sin viaje): dónde hacerle seña en cada sentido, y
-  /// cuál se eligió (el más cercano, salvo que el pasajero toque el otro).
+  /// Puntos de seña por sentido para la línea actualmente en foco.
   List<PuntoDeSena> _senas = const [];
   Sentido? _sentidoSena;
   String? _senasDe;
 
-  /// Al tocar un colectivo se dibuja su línea, pero sin llevar al pasajero
-  /// caminando hasta ella: sólo quería ver la ficha.
+  /// Identificador de línea seleccionada al tocar un vehículo, cuando sólo se
+  /// desea inspeccionar su trazado sin calcular ruta peatonal.
   String? _sinCaminata;
 
-  /// UID del colectivo tocado en el mapa (Modo Foco en vehículo y su línea).
+  /// UID del colectivo seleccionado en el mapa (Modo Foco en vehículo y línea).
   String? _colectivoSeleccionadoUid;
 
   late final AnimationController _centerBtnController;
@@ -94,10 +88,8 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
   void initState() {
     super.initState();
 
-    // Sólo lo que cambia la estructura de la pantalla la reconstruye entera.
-    // La posición del GPS y la flota en vivo las escucha `_MapaPasajero`:
-    // antes cada movimiento de cada colectivo volvía a construir también todos
-    // los controles flotantes.
+    // Escucha cambios estructurales de la vista. Las actualizaciones de alta
+    // frecuencia (GPS y flota en vivo) se delegan a `_MapaPasajero`.
     prefs.addListener(_onChanged);
     routeService.addListener(_onChanged);
     recorridos.addListener(_onRecorridosChanged);
@@ -128,10 +120,9 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     if (mounted) setState(() {});
   }
 
-  /// Cambió la línea dibujada. Si la eligieron en la pestaña Líneas, se
-  /// muestra entera; si el viaje armado dependía de otra línea (o de una que
-  /// el administrador borró), el viaje se cierra.
+  /// Actualiza el estado de la vista cuando cambia la línea seleccionada.
   void _onRecorridosChanged() {
+    if (!mounted) return;
     final linea = recorridos.selected;
     if (linea == null) {
       _colectivoSeleccionadoUid = null;
@@ -158,9 +149,8 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     siguiendo: _followUser,
   );
 
-  /// La cámara se detuvo. El centro se guarda sólo si se movió bastante:
-  /// seguir al usuario mueve la cámara con cada arreglo del GPS, y no hace
-  /// falta reconstruir la pantalla por cada uno.
+  /// Al detenerse la cámara, actualiza el centro de referencia si el
+  /// desplazamiento supera los 100 metros.
   void _onCameraIdle(LatLng centro) {
     final antes = _centroMapa;
     if (antes != null &&
@@ -170,21 +160,8 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     if (mounted) setState(() => _centroMapa = centro);
   }
 
-  /// Los lugares de los íconos de [lineas]: se calculan de nuevo sólo si
-  /// cambiaron las líneas (llegan otras de Firestore), no en cada cuadro.
-  Map<String, LatLng> _lugares(List<Recorrido> lineas) {
-    final iguales =
-        lineas.length == _lineasDeIconos.length &&
-        lineas.indexed.every((e) => identical(e.$2, _lineasDeIconos[e.$1]));
-    if (!iguales) {
-      _lineasDeIconos = lineas;
-      _lugaresDeIconos = PuntosDeSena.lugaresDeIconos(lineas);
-    }
-    return _lugaresDeIconos;
-  }
-
-  /// Cambió la línea elegida: sus puntos de seña, y la caminata hasta el más
-  /// cercano. Con un viaje armado no: el viaje lleva su propia caminata.
+  /// Calcula los puntos de seña de la línea seleccionada y solicita la ruta
+  /// peatonal hacia el sentido más cercano.
   void _prepararSena() {
     final linea = recorridos.selected;
     if (_viaje != null || linea == null) {
@@ -210,20 +187,20 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     unawaited(_caminarA(cercana));
   }
 
-  /// A cuántos metros del pasajero queda [punto], o `null` sin GPS.
+  /// Distancia en metros desde la posición del usuario a [punto], o `null` sin GPS.
   double? _metrosDesdeUsuario(LatLng punto) {
     final yo = location.position;
     return yo == null ? null : const Distance().as(LengthUnit.Meter, yo, punto);
   }
 
-  /// Si [sena] está a una caminata razonable del pasajero. Mirando la línea
-  /// desde lejos (otra ciudad), una ruta a pie de 20 km no sirve de nada.
+  /// Verifica si [sena] se encuentra dentro del radio máximo de caminata.
   bool _aMano(PuntoDeSena sena) {
     final metros = _metrosDesdeUsuario(sena.punto);
     return metros != null && metros <= PuntosDeSena.radio;
   }
 
   Future<void> _caminarA(PuntoDeSena sena) async {
+    if (!mounted) return;
     final desde = location.position;
     if (desde == null || !_aMano(sena)) {
       routeService.clearDestination();
@@ -235,7 +212,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     await routeService.fetchRoute(desde, destino);
   }
 
-  /// El pasajero tocó el punto de seña del otro sentido.
+  /// Cambia el punto de seña activo al sentido opuesto.
   void _cambiarSentidoSena(Sentido sentido) {
     if (sentido == _sentidoSena) return;
     final sena = _senas.where((s) => s.sentido == sentido).firstOrNull;
@@ -244,9 +221,8 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     unawaited(_caminarA(sena));
   }
 
-  /// Tocaron el ícono de una variante (o el de otra, con una ya elegida): se
-  /// dibuja entera, con su punto de seña, y el mapa la muestra completa. Si el
-  /// punto de seña le queda a mano, también al pasajero.
+  /// Selecciona una variante desde el mapa, calcula sus puntos de seña y
+  /// encuadra su trazado completo.
   void _onTapVariante(Recorrido elegida) {
     setState(() {
       _colectivoSeleccionadoUid = null;
@@ -263,10 +239,9 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     );
   }
 
-  /// Mueve la cámara para que [puntos] quepan en la parte del mapa que no
-  /// tapan el buscador ni las tarjetas de abajo.
+  /// Ajusta la cámara para que [puntos] entren en el área visible del mapa.
   Future<void> _encuadrar(List<LatLng> puntos) async {
-    if (!_mapReady || puntos.isEmpty) return;
+    if (!mounted || !_mapReady || puntos.isEmpty) return;
     final size = MediaQuery.sizeOf(context);
     final vista = encuadre(
       puntos,
@@ -309,13 +284,12 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     }
   }
 
-  /// El usuario eligió una dirección en el buscador.
-  ///
-  /// A partir de ahí la app no pregunta "¿qué colectivo tomo?", sino que lo
-  /// propone: cruza la posición del usuario con las líneas de la garita y
-  /// ordena las formas de llegar por lo que hay que caminar (ver
-  /// [LinePlanner]). Los colectivos paran donde se les hace la seña, así que
-  /// la subida es el punto de la línea más cercano al usuario.
+  /// Planifica un viaje en colectivo hacia [place] ejecutando los 2 niveles
+  /// del optimizador híbrido en cascada:
+  /// 1. Nivel 1 ([LinePlanner.suggest]): evalúa todas las líneas en RAM con
+  ///    métricas subrogadas y tablas LUT.
+  /// 2. Nivel 2 ([LinePlanner.verifyWithValhalla]): verifica el tramo peatonal
+  ///    de la alternativa elegida sobre el grafo vial real.
   Future<void> _onDestinationSelected(PlaceResult place) async {
     final l10n = AppLocalizations.of(context)!;
     setState(() {
@@ -345,19 +319,32 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     );
     if (elegido == null || !mounted) return;
 
-    // El viaje se arma antes de dibujar su línea: el listener de recorridos
-    // cierra cualquier viaje cuya línea deja de estar dibujada.
+    // Fija el viaje antes de seleccionar la línea para que el listener de
+    // recorridos mantenga sincronizado el estado del trayecto activo.
     setState(() => _viaje = elegido);
     recorridos.select(elegido.recorrido, sentido: elegido.sentido);
     final subida = WalkTarget(location: elegido.subida, label: l10n.boardHere);
     routeService.setDestination(subida);
-    // Desde donde el usuario está *ahora*: elegir en la hoja puede tomar un
-    // rato, y antes la ruta salía del primer punto GPS de la sesión.
     final desde = location.position ?? origin;
     unawaited(
       _encuadrar([desde, elegido.subida, elegido.bajada, place.location]),
     );
-    await routeService.fetchRoute(desde, subida);
+    await LinePlanner.verifyWithValhalla(
+      user: desde,
+      destino: place.location,
+      suggestion: elegido,
+      walkRouter: (from, _) async {
+        final ok = await routeService.fetchRoute(from, subida);
+        final info = routeService.routeInfo;
+        if (!ok || info == null) return null;
+        return RoutePath(
+          points: info.points,
+          distanceMeters: info.distanceMeters,
+          durationSeconds: info.durationSeconds,
+          provider: info.provider,
+        );
+      },
+    );
   }
 
   void _clearDestino() {
@@ -373,19 +360,17 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
   Future<void> _recenter() async {
     final position = location.position;
     if (position == null) {
-      // Sin posición el botón no puede centrar: en vez de no hacer nada,
-      // reintenta obtenerla (por ejemplo, tras encender el GPS).
       await location.retry();
       return;
     }
     _centerBtnController.forward(from: 0);
     await _centerOn(position, zoom: kStreetZoom);
+    if (!mounted) return;
     _centerBtnController.reverse();
-    if (mounted) setState(() => _followUser = true);
+    setState(() => _followUser = true);
   }
 
-  /// Respeta la preferencia "Animaciones", que este botón ignoraba (ver la
-  /// auditoría del 5 de octubre).
+  /// Reorienta el mapa hacia el norte respetando la preferencia de animaciones.
   Future<void> _reorient() =>
       _mapController.resetBearing(animate: prefs.animationsEnabled);
 
@@ -445,7 +430,6 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
             controller: _mapController,
             style: mapStyle,
             lineas: lineas,
-            lugares: _lugares(lineas),
             centroMapa: _centroMapa,
             colectivoSeleccionadoUid: _colectivoSeleccionadoUid,
             linea: linea,
@@ -510,10 +494,9 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        // Buscador de direcciones arriba del todo, como en cualquier app de
-        // mapas: es el punto de partida real del pasajero, que sabe a dónde va
-        // y no qué paradero tomar. El mapa no tiene AppBar (la cartografía
-        // ocupa la pantalla entera), así que el menú va dentro de la barra.
+        // Buscador de direcciones en el borde superior del mapa. Como la vista
+        // cartográfica ocupa toda la pantalla sin AppBar, el botón del menú
+        // lateral se integra dentro de la barra de búsqueda.
         MapSearchBar(
           leading: IconButton(
             icon: const Icon(Icons.menu),
@@ -659,13 +642,10 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
 
   Widget _recenterButton(AppLocalizations l10n) {
     final scheme = Theme.of(context).colorScheme;
-    // Del mismo tamaño que los demás botones del mapa: antes era el único
-    // grande y tapaba más mapa del que hacía falta.
+    // Mantiene la misma escala compacta que los botones de capas y brújula.
     final button = FloatingActionButton.small(
       heroTag: 'recenter',
       tooltip: _followUser ? l10n.recenterActive : l10n.recenterInactive,
-      // El seguimiento activo se marca con el color primario en vez de
-      // invertir el tema a mano con blanco/negro literales.
       backgroundColor: _followUser ? scheme.primaryContainer : null,
       foregroundColor: _followUser ? scheme.onPrimaryContainer : null,
       onPressed: _recenter,
@@ -707,17 +687,16 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
 // Lo que se dibuja sobre el mapa
 // ---------------------------------------------------------------------------
 
-/// El mapa del pasajero con todo lo que lleva encima.
+/// Vista cartográfica del pasajero.
 ///
-/// Escucha por su cuenta lo que cambia seguido (el GPS y la flota en vivo):
-/// antes cada movimiento de cada colectivo reconstruía también los controles
-/// flotantes. [AppMap] sólo le reenvía a MapLibre lo que cambió.
+/// Se suscribe directamente a las fuentes de alta frecuencia (GPS y flota en
+/// vivo) para actualizar el lienzo de [AppMap] sin reconstruir los controles
+/// flotantes de la pantalla principal.
 class _MapaPasajero extends StatelessWidget {
   const _MapaPasajero({
     required this.controller,
     required this.style,
     required this.lineas,
-    required this.lugares,
     required this.centroMapa,
     required this.colectivoSeleccionadoUid,
     required this.linea,
@@ -738,12 +717,8 @@ class _MapaPasajero extends StatelessWidget {
   final AppMapController controller;
   final MapStyle style;
 
-  /// Las líneas activas de la garita.
+  /// Líneas activas de la garita pública.
   final List<Recorrido> lineas;
-
-  /// Dónde va el ícono de cada una, por id (ver
-  /// [PuntosDeSena.lugaresDeIconos]).
-  final Map<String, LatLng> lugares;
 
   /// Último centro de la cámara cuando el usuario explora el mapa sin GPS.
   final LatLng? centroMapa;
@@ -875,21 +850,19 @@ class _MapaPasajero extends StatelessWidget {
                 badge: true,
                 arrows: true,
               ),
-            // La ruta a pie hasta la línea, punteada: se distingue de un
-            // vistazo de la línea continua del colectivo.
+            // Ruta a pie hacia el punto de subida, punteada y con color propio
+            // para distinguirla del trazado vehicular y del marcador de posición.
             if (destination != null && route.routePoints.isNotEmpty)
               MapLine(
                 points: route.routePoints,
                 width: 5,
-                // Deja de ser `scheme.primary`, que era el mismo azul del punto
-                // "tú estás aquí".
                 color: status.routeLine,
                 borderColor: status.routeLineCasing,
                 borderWidth: 1.5,
                 dotted: true,
               ),
           ],
-          // Halo de precisión real del GPS (antes eran 50 px fijos).
+          // Halo de precisión horizontal reportada por el GPS.
           circles: [
             if (verPosicion)
               MapCircle(
@@ -1120,9 +1093,7 @@ class _MapaPasajero extends StatelessWidget {
 // Widgets auxiliares
 // ---------------------------------------------------------------------------
 
-/// Ficha de un colectivo tocado en el mapa.
-///
-/// Antes sus textos estaban escritos a mano en la pantalla, fuera del ARB.
+/// Ficha de detalle de un colectivo seleccionado en el mapa.
 class _ColectivoSheet extends StatelessWidget {
   const _ColectivoSheet({required this.colectivo, required this.ahora});
 

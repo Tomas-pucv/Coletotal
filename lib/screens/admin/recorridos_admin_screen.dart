@@ -127,11 +127,13 @@ class _RecorridosAdminScreenState extends State<RecorridosAdminScreen> {
 
     return Scaffold(
       appBar: AppBar(title: Text(AppDestination.recorridos.label(l10n))),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => _edit(null),
-        icon: const Icon(Icons.add_road_outlined),
-        label: Text(l10n.routeAdd),
-      ),
+      floatingActionButton: !_auth.isAdmin
+          ? null
+          : FloatingActionButton.extended(
+              onPressed: () => _edit(null),
+              icon: const Icon(Icons.add_road_outlined),
+              label: Text(l10n.routeAdd),
+            ),
       body: !_auth.isAdmin
           ? StatusMessageView(
               icon: Icons.lock_outline,
@@ -589,8 +591,11 @@ class _RecorridoEditorScreenState extends State<RecorridoEditorScreen> {
       ),
     );
 
-    if (confirmado == true && textCtrl.text.trim().isNotEmpty) {
-      await _procesarTextoCartola(textCtrl.text.trim());
+    final textoPegado = textCtrl.text.trim();
+    textCtrl.dispose();
+    if (!mounted) return;
+    if (confirmado == true && textoPegado.isNotEmpty) {
+      await _procesarTextoCartola(textoPegado);
     }
   }
 
@@ -608,30 +613,39 @@ class _RecorridoEditorScreenState extends State<RecorridoEditorScreen> {
 
   Future<void> _ajustar(Sentido sentido) async {
     final puntos = List<LatLng>.of(_puntos[sentido]!);
-    if (puntos.length < 2) return;
+    if (!mounted || puntos.length < 2) return;
     final pedido = (_pedidos[sentido] ?? 0) + 1;
     _pedidos[sentido] = pedido;
     setState(() => _ajustando = true);
 
-    final ruta = await Routing.linePath(
-      puntos,
-      preventUTurns: _pasos[sentido]!.isNotEmpty,
-      headings: _headings[sentido],
-    );
+    try {
+      final ruta = await Routing.linePath(
+        puntos,
+        preventUTurns: _pasos[sentido]!.isNotEmpty,
+        headings: _headings[sentido],
+      );
 
-    // Mientras tanto se movieron los puntos: esta respuesta ya no sirve.
-    if (!mounted || _pedidos[sentido] != pedido) return;
-    setState(() {
-      _ajustando = false;
-      if (ruta == null || ruta.points.length < 2) {
+      // Si los puntos cambiaron mientras se calculaba, se ignora la respuesta.
+      if (!mounted || _pedidos[sentido] != pedido) return;
+      setState(() {
+        _ajustando = false;
+        if (ruta == null || ruta.points.length < 2) {
+          _fallo[sentido] = true;
+          _trazados[sentido] = const [];
+        } else {
+          _fallo[sentido] = false;
+          _trazados[sentido] = ruta.points;
+          _ajustado[sentido] = true;
+        }
+      });
+    } catch (_) {
+      if (!mounted || _pedidos[sentido] != pedido) return;
+      setState(() {
+        _ajustando = false;
         _fallo[sentido] = true;
         _trazados[sentido] = const [];
-      } else {
-        _fallo[sentido] = false;
-        _trazados[sentido] = ruta.points;
-        _ajustado[sentido] = true;
-      }
-    });
+      });
+    }
   }
 
   Future<void> _verPuntos() async {
@@ -721,9 +735,12 @@ class _RecorridoEditorScreenState extends State<RecorridoEditorScreen> {
     );
   }
 
-  void _toast(String message) => ScaffoldMessenger.of(context)
-    ..hideCurrentSnackBar()
-    ..showSnackBar(SnackBar(content: Text(message)));
+  void _toast(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(message)));
+  }
 
   Future<void> _save() async {
     if (_saving) return;
@@ -920,6 +937,9 @@ class _RecorridoEditorScreenState extends State<RecorridoEditorScreen> {
                       controller: _nombre,
                       textCapitalization: TextCapitalization.sentences,
                       maxLength: 80,
+                      onChanged: (v) {
+                        _nombreAutogenerado = v.trim().isEmpty;
+                      },
                       decoration: InputDecoration(
                         labelText: l10n.routeName,
                         hintText: 'Ej: Línea 10 [T] Belloto 2000',

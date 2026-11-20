@@ -244,13 +244,6 @@ abstract final class CartolaResolver {
       final coord = coordFinalPorIdx[i];
       if (coord == null) {
         pasosActualizados.add(paso.copyWith(clearResuelta: true));
-      } else if (paso.coordenadaManual != null) {
-        pasosActualizados.add(
-          paso.copyWith(
-            coordenadaResuelta: coord,
-            heading: headingPorIdx[i],
-          ),
-        );
       } else {
         pasosActualizados.add(
           paso.copyWith(

@@ -14,7 +14,7 @@ enum ValhallaCosting {
   /// En auto: el trayecto de los colectivos, por calles y en su sentido.
   auto,
 
-  /// A pie: la ruta del pasajero hasta el paradero.
+  /// A pie: la ruta del pasajero hasta el punto de seña o desde el de bajada.
   pedestrian,
 }
 
@@ -26,14 +26,13 @@ enum ValhallaCosting {
 /// curso) o si no encuentra ruta (un punto fuera de la región): entonces
 /// `Routing` le pregunta a OSRM. No se usa ningún servidor de Valhalla.
 ///
-/// Reemplazó al servidor de demostración de OSRM para el trazado de las
-/// líneas: el perfil de autos de OSRM pasa por huellas y caminos de servicio
-/// (estacionamientos, accesos privados), y el de Valhalla se limita a calles
-/// públicas (ver [_soloCallesPublicas]).
+/// Para el trazado de las líneas se restringe la búsqueda a calles públicas de
+/// clase residencial hacia arriba (ver [_soloCallesPublicas]), evitando huellas
+/// y caminos de servicio.
 abstract final class ValhallaClient {
   /// Puntos por consulta: Valhalla rechaza más con su configuración por
-  /// omisión. Una línea con más paraderos se pide en tramos que se solapan en
-  /// un paradero.
+  /// omisión. Un recorrido con más puntos de paso se pide en tramos que se
+  /// solapan en un punto y se cosen con [joinLegs].
   static const int maxLocations = 20;
 
   static const _canal = MethodChannel('cl.coletotal/valhalla');
@@ -63,12 +62,9 @@ abstract final class ValhallaClient {
     }
   }
 
-  /// Al ubicar un paradero en auto, sólo calles de residencial hacia arriba:
-  /// sin senderos, huellas ni caminos de servicio. Con OSRM (que se usaba
-  /// antes) un paradero ubicado lejos de su calle, como el de Villa Olímpica,
-  /// se enganchaba a las huellas de los cerros sobre el zoológico y la línea
-  /// dibujaba 2 km por donde no pasa ningún colectivo; otras entraban a
-  /// estacionamientos y accesos privados.
+  /// En modo vehicular (`auto`), sólo se consideran calles públicas de clase
+  /// residencial hacia arriba (`min_road_class: residential`), excluyendo
+  /// senderos, huellas, estacionamientos y caminos de servicio privados.
   static const Map<String, Object> _soloCallesPublicas = {
     'min_road_class': 'residential',
   };

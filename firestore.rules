@@ -1,24 +1,15 @@
 rules_version = '2';
 
-// Reglas de Firestore de ColeTotal.
+// Reglas de seguridad de Cloud Firestore para ColeTotal.
 //
-// Antes de esto no existía ningún archivo de reglas en el repositorio: la base
-// estaba abierta. Las tres ideas que sostienen todo lo de abajo son:
-//
-//  1. El **rol no se declara, se deriva**. Al crear su documento, el usuario
-//     tiene que citar el código de garita que usó, y la regla vuelve a leer ese
-//     código para comprobar que concede el rol que se está reclamando. Sin esta
-//     verificación del lado del servidor, el sistema de roles entero sería
-//     decoración: bastaría un `set(usuarios/miUid, {rol: 'administrador'})`.
-//
-//  2. Los códigos son **legibles de a uno pero no enumerables**. Firestore
-//     distingue `get` (un documento por id) de `list` (consulta), así que con
-//     `get` abierto y `list` cerrado hay que conocer el código exacto para
-//     llegar a él. Eso permite validarlo *antes* de crear la cuenta, en vez de
-//     crearla y tener que borrarla si el código resulta inválido.
-//
-//  3. Nadie se autoasciende ni se auto-habilita: cada `update` declara
-//     exactamente qué campos puede tocar.
+// Principios de diseño:
+//  1. El rol del usuario se deriva del código de acceso verificado en el
+//     servidor al crear su perfil en `usuarios/{uid}`.
+//  2. Los códigos de acceso permiten lectura puntual (`get`) por identificador
+//     exacto pero prohíben enumeración general (`list`), que queda restringida
+//     al administrador activo de la garita correspondiente.
+//  3. Las actualizaciones de perfil restringen explícitamente los campos
+//     modificables para impedir escalamiento de privilegios o auto-activación.
 service cloud.firestore {
   match /databases/{database}/documents {
 
@@ -42,24 +33,28 @@ service cloud.firestore {
       return get(/databases/$(database)/documents/codigos_acceso/$(c)).data;
     }
 
-    // Un sentido de un recorrido (ida o vuelta): los puntos que marcó la
-    // garita en el editor y el trazado por calle calculado a partir de ellos.
+    // Un sentido de un recorrido (ida o vuelta): puntos de control marcados en
+    // el editor y polilínea codificada resultante del ajuste vial.
     function trayectoValido(t) {
       return t is map
         && t.puntos is list && t.puntos.size() <= 200
         && t.geometria is string && t.geometria.size() <= 300000;
     }
 
-    // Una línea: nombre, color, si está activa, su ida y, cuando ya se dibujó,
-    // su vuelta. No tiene paraderos: los colectivos paran donde se les hace la
-    // seña (los paraderos se eliminaron el 10 de octubre de 2026).
+    // Estructura de una línea (recorrido): nombre, color, estado activo,
+    // trazado de ida, trazado opcional de vuelta y metadatos de cartola D.S. 212.
     function recorridoValido() {
       let d = request.resource.data;
       return d.nombre is string && d.nombre.size() > 0 && d.nombre.size() <= 80
         && d.color is int
         && d.activo is bool
         && trayectoValido(d.ida)
-        && (!('vuelta' in d) || trayectoValido(d.vuelta));
+        && (!('vuelta' in d) || trayectoValido(d.vuelta))
+        && (!('linea' in d) || (d.linea is string && d.linea.size() <= 80))
+        && (!('codigoVariante' in d) || (d.codigoVariante is string && d.codigoVariante.size() <= 20))
+        && (!('nombreVariante' in d) || (d.nombreVariante is string && d.nombreVariante.size() <= 120))
+        && (!('callesIda' in d) || (d.callesIda is list && d.callesIda.size() <= 200))
+        && (!('callesVuelta' in d) || (d.callesVuelta is list && d.callesVuelta.size() <= 200));
     }
 
     function codigoAccesoValido() {
@@ -92,16 +87,12 @@ service cloud.firestore {
       allow read: if true;
       allow write: if false;
 
-      // Auditoría de turnos e incidencias operacionales de los conductores.
-      //
-      // Antes bastaba con tener sesión: cualquier cuenta podía escribir
-      // auditorías en cualquier garita. Ahora cada uno sube sólo las suyas, a
-      // su propia garita y con un tamaño acotado (el cliente agrupa las fallas
-      // repetidas y topa los eventos en 300).
+      // Auditoría operacional de turnos de los conductores de la garita.
       match /auditoria_turnos/{sessionId} {
         allow read: if isAdminOf(garitaId);
         allow create: if signedIn()
           && exists(/databases/$(database)/documents/usuarios/$(request.auth.uid))
+          && me().activo == true
           && me().garitaId == garitaId
           && request.resource.data.uid == request.auth.uid
           && request.resource.data.garitaId == garitaId
@@ -115,15 +106,12 @@ service cloud.firestore {
       allow get: if signedIn()
         && (request.auth.uid == uid || isAdminOf(resource.data.garitaId));
 
-      // El administrador lista los conductores de **su** garita. La consulta
-      // filtra por `garitaId`, y las reglas exigen que ese filtro sea el de la
-      // garita del administrador: antes cualquier administrador, incluso uno
-      // deshabilitado, podía listar los usuarios de todas las garitas.
+      // El administrador activo lista únicamente los usuarios de su propia garita.
       allow list: if isAdminOf(resource.data.garitaId)
         && request.query.limit <= 200;
 
-      // Este es el corazón del sistema de roles: el rol y la garita que se
-      // escriben tienen que ser exactamente los que concede el código citado.
+      // Creación de perfil: el rol y la garita asignados deben coincidir con
+      // los otorgados por el documento `codigos_acceso` referenciado.
       allow create: if signedIn()
         && request.auth.uid == uid
         && request.resource.data.keys().hasOnly(
@@ -138,8 +126,7 @@ service cloud.firestore {
         && codigo(request.resource.data.codigo).rol == request.resource.data.rol
         && codigo(request.resource.data.codigo).garitaId == request.resource.data.garitaId;
 
-      // El dueño sólo puede cambiar su nombre visible. No su rol, no su
-      // garita, y sobre todo no su propio `activo`.
+      // El titular de la cuenta sólo puede modificar su nombre visible.
       allow update: if signedIn()
         && request.auth.uid == uid
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['nombre'])
@@ -147,19 +134,15 @@ service cloud.firestore {
         && request.resource.data.nombre.size() > 0
         && request.resource.data.nombre.size() <= 60;
 
-      // El administrador de la garita sólo puede habilitar o deshabilitar.
+      // El administrador de la garita sólo puede habilitar o deshabilitar cuentas.
       allow update: if isAdminOf(resource.data.garitaId)
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['activo']);
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['activo'])
+        && request.resource.data.activo is bool;
 
-      // Borrar una cuenta dejaría al usuario autenticado y sin perfil, que es
-      // un estado peor que tenerla deshabilitada.
       allow delete: if false;
     }
 
-    // Los recorridos van al nivel raíz, con un campo `garitaId`, y no como
-    // subcolección de `garitas`: el invitado no tiene garita, y como
-    // subcolección necesitaría conocer un id para poder leerlos.
-    // (`paraderos` ya no existe: cae en la regla final, que lo cierra.)
+    // Colección raíz de recorridos filtrable por `garitaId` y `activo`.
     match /recorridos/{id} {
       allow read: if true;
       allow create: if isAdminOf(request.resource.data.garitaId)

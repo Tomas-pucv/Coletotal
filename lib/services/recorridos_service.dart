@@ -74,9 +74,15 @@ class RecorridosService extends ChangeNotifier {
         .snapshots()
         .listen(
           (snapshot) {
-            _recorridos = snapshot.docs
-                .map((doc) => Recorrido.fromMap(doc.id, doc.data()))
-                .toList(growable: false);
+            final parsed = <Recorrido>[];
+            for (final doc in snapshot.docs) {
+              try {
+                parsed.add(Recorrido.fromMap(doc.id, doc.data()));
+              } catch (e) {
+                debugPrint('RecorridosService: doc ${doc.id} inválido: $e');
+              }
+            }
+            _recorridos = List.unmodifiable(parsed);
             _loaded = true;
             // Si el administrador la editó, se dibuja la versión nueva; si la
             // borró, se deja de dibujar una línea que ya no existe.
@@ -125,6 +131,7 @@ class RecorridosService extends ChangeNotifier {
     if (_selected == null) return;
     _selected = null;
     _selectedSentido = null;
+    _encuadrePendiente = false;
     notifyListeners();
   }
 

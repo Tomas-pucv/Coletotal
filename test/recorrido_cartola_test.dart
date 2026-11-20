@@ -549,10 +549,7 @@ void main() {
         final opsPerSec = elapsedMs > 0
             ? (totalOps * 1000.0 / elapsedMs).round()
             : totalOps;
-        // ignore: avoid_print
-        print(
-          '[STRESS] fn=parseStreetQuery ops=$totalOps elapsed_ms=${elapsedMs.toStringAsFixed(2)} throughput=${opsPerSec}_ops/s',
-        );
+        expect(opsPerSec, greaterThan(0));
         expect(sw.elapsedMilliseconds, lessThan(2000));
       },
     );
@@ -601,10 +598,7 @@ void main() {
         final opsPerSec = elapsedMs > 0
             ? (totalOps * 1000.0 / elapsedMs).round()
             : totalOps;
-        // ignore: avoid_print
-        print(
-          '[STRESS] fn=StreetIndex.searchCartolaCandidates ops=$totalOps elapsed_ms=${elapsedMs.toStringAsFixed(2)} throughput=${opsPerSec}_queries/s',
-        );
+        expect(opsPerSec, greaterThan(0));
         expect(sw.elapsedMilliseconds, lessThan(5000));
       },
     );
@@ -642,10 +636,7 @@ void main() {
         final opsPerSec = elapsedMs > 0
             ? (totalOps * 1000.0 / elapsedMs).round()
             : totalOps;
-        // ignore: avoid_print
-        print(
-          '[STRESS] fn=StreetIndex.findPrecomputedIntersections ops=$totalOps elapsed_ms=${elapsedMs.toStringAsFixed(2)} throughput=${opsPerSec}_lookups/s',
-        );
+        expect(opsPerSec, greaterThan(0));
         expect(sw.elapsedMilliseconds, lessThan(5000));
       },
     );
@@ -689,10 +680,7 @@ void main() {
         final opsPerSec = elapsedMs > 0
             ? (totalSeqs * 1000.0 / elapsedMs).round()
             : totalSeqs;
-        // ignore: avoid_print
-        print(
-          '[STRESS] fn=CartolaResolver.resolverSecuencia ops=${totalSeqs}_seqs_(${totalSeqs * nombres.length}_pasos) elapsed_ms=${elapsedMs.toStringAsFixed(2)} throughput=${opsPerSec}_seqs/s',
-        );
+        expect(opsPerSec, greaterThan(0));
         expect(sw.elapsedMilliseconds, lessThan(8000));
       },
     );

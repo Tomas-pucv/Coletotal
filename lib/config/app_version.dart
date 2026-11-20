@@ -3,11 +3,9 @@ import 'package:package_info_plus/package_info_plus.dart';
 
 /// Versión instalada de la app, leída del propio paquete.
 ///
-/// Antes la versión vivía escrita a mano en varios lugares que ya no
-/// coincidían entre sí (`pubspec.yaml`, Preferencias y la auditoría de turnos).
-///
-/// Ahora la única fuente es `version:` en `pubspec.yaml`: Flutter la copia al
-/// `versionName`/`versionCode` del APK y [load] la lee de ahí.
+/// La única fuente de verdad es `version:` en `pubspec.yaml`: Flutter la copia
+/// al `versionName`/`versionCode` del APK y [load] la lee al arrancar para
+/// mostrarla en Preferencias y registrarla en la auditoría de turnos.
 abstract final class AppVersion {
   static String _name = '0.0.0';
   static int _code = 0;
