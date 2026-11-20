@@ -85,12 +85,6 @@ service cloud.firestore {
       allow delete: if isAdminOf(resource.data.garitaId);
     }
 
-    // Configuración global (ej. verificación de versión y actualizaciones OTA).
-    match /config/{document} {
-      allow read: if true;
-      allow write: if false;
-    }
-
     // Metadatos públicos de la garita. Los códigos NO están aquí: si lo
     // estuvieran, el primer conductor que se registrara podría leer el código de
     // administrador y ascenderse.

@@ -172,43 +172,6 @@ class AppLocalizationsEs extends AppLocalizations {
       'Rutas y paraderos de Transportes Serrano, Quilpué.';
 
   @override
-  String get updateCheck => 'Buscar actualizaciones';
-
-  @override
-  String updateUpToDate(String version) {
-    return 'Tienes la versión más reciente ($version)';
-  }
-
-  @override
-  String get updateTitle => '¡Nueva versión disponible!';
-
-  @override
-  String updateVersions(String nueva, String instalada) {
-    return 'Versión $nueva (instalada: $instalada)';
-  }
-
-  @override
-  String get updateChangelogTitle => 'Novedades y mejoras:';
-
-  @override
-  String get updateDefaultChangelog =>
-      'Nueva versión con mejoras operacionales.';
-
-  @override
-  String get updateMandatory =>
-      'Esta actualización es obligatoria para continuar operando en la garita.';
-
-  @override
-  String get updateLater => 'Recordar más tarde';
-
-  @override
-  String get updateNow => 'Actualizar ahora';
-
-  @override
-  String get updateOpenFailed =>
-      'No se pudo abrir el enlace de descarga del APK.';
-
-  @override
   String get errInvalidCoords =>
       'Origen o destino inválido (coordenadas fuera de rango).';
 

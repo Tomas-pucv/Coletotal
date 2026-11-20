@@ -294,7 +294,8 @@ rechazarían.
 ## Publicar una versión
 
 1. Subir `version:` en `pubspec.yaml` (p. ej. `0.4.4+5`). Es la única fuente:
-   la app la lee del propio APK para compararla con la publicada.
+   la app la lee del propio APK para mostrarla en Preferencias y registrarla en
+   la auditoría de turnos.
 2. Firmar siempre con la **misma** llave, o Android rechaza el APK nuevo
    encima del instalado. La llave se crea una sola vez y se guarda fuera del
    repositorio:
@@ -315,12 +316,6 @@ rechazarían.
    (Android guarda sus bibliotecas sin comprimir). Con `--split-per-abi`, el
    APK de `arm64-v8a` (el de casi todos los teléfonos actuales) queda en unos
    125 MB, porque deja fuera las bibliotecas de las otras arquitecturas.
-4. Publicar el aviso de actualización:
-   ```bash
-   APK_URL=https://.../ColeTotal.apk CHANGELOG="• ..." node scripts/seed_app_version.js
-   ```
-   Con `MIN_REQUIRED=n` las versiones anteriores a `n` ven la actualización
-   como obligatoria.
 
 ## Limitaciones conocidas
 

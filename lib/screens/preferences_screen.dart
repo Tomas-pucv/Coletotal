@@ -5,13 +5,11 @@ import 'package:taxi1/l10n/app_localizations.dart';
 import 'package:taxi1/models/app_user.dart';
 import 'package:taxi1/screens/auth/login_screen.dart';
 import 'package:taxi1/screens/main_screen.dart';
-import 'package:taxi1/services/app_update_service.dart';
 import 'package:taxi1/services/auth_service.dart';
 import 'package:taxi1/services/preferences_service.dart';
 import 'package:taxi1/theme/app_spacing.dart';
 import 'package:taxi1/theme/breakpoints.dart';
 import 'package:taxi1/utils/role_format.dart';
-import 'package:taxi1/widgets/app_update_dialog.dart';
 import 'package:taxi1/widgets/setting_tile.dart';
 import 'package:taxi1/widgets/settings_section.dart';
 import 'package:taxi1/widgets/state_views.dart';
@@ -36,7 +34,6 @@ class _PreferencesScreenState extends State<PreferencesScreen>
     with SingleTickerProviderStateMixin {
   final prefs = PreferencesService.instance;
   final auth = AuthService.instance;
-  final updates = AppUpdateService.instance;
   late final AnimationController _fadeController;
 
   @override
@@ -44,7 +41,6 @@ class _PreferencesScreenState extends State<PreferencesScreen>
     super.initState();
     prefs.addListener(_onChanged);
     auth.addListener(_onChanged);
-    updates.addListener(_onChanged);
 
     _fadeController = AnimationController(
       duration: const Duration(milliseconds: 300),
@@ -66,7 +62,6 @@ class _PreferencesScreenState extends State<PreferencesScreen>
   void dispose() {
     prefs.removeListener(_onChanged);
     auth.removeListener(_onChanged);
-    updates.removeListener(_onChanged);
     _fadeController.dispose();
     super.dispose();
   }
@@ -76,12 +71,6 @@ class _PreferencesScreenState extends State<PreferencesScreen>
       _fadeController.value = 1;
     }
     if (mounted) setState(() {});
-  }
-
-  void _toast(String message) {
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(SnackBar(content: Text(message)));
   }
 
   Future<void> _confirmDisableTracking(AppLocalizations l10n) async {
@@ -411,43 +400,15 @@ class _PreferencesScreenState extends State<PreferencesScreen>
       children: [
         Padding(
           padding: AppSpacing.pageHorizontal,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              // La versión sale del propio APK (`AppVersion`): antes estaba
-              // escrita a mano acá y ya no coincidía con la instalada.
-              SettingInfoCard(
-                title: l10n.aboutVersion(AppVersion.label),
-                body: l10n.aboutSubtitle,
-              ),
-              const SizedBox(height: AppSpacing.sm),
-              OutlinedButton.icon(
-                onPressed: updates.checking ? null : () => _checkUpdates(l10n),
-                icon: updates.checking
-                    ? const SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Icon(Icons.system_update_rounded),
-                label: Text(l10n.updateCheck),
-              ),
-            ],
+          // La versión sale del propio APK (`AppVersion`): antes estaba
+          // escrita a mano acá y ya no coincidía con la instalada.
+          child: SettingInfoCard(
+            title: l10n.aboutVersion(AppVersion.label),
+            body: l10n.aboutSubtitle,
           ),
         ),
       ],
     );
-  }
-
-  Future<void> _checkUpdates(AppLocalizations l10n) async {
-    await updates.checkForUpdates();
-    if (!mounted) return;
-    final info = updates.availableUpdate;
-    if (updates.hasUpdate && info != null) {
-      await AppUpdateDialog.showIfAvailable(context, info);
-    } else {
-      _toast(l10n.updateUpToDate(AppVersion.label));
-    }
   }
 }
 

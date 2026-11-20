@@ -49,8 +49,8 @@ void main() async {
     cacheSizeBytes: Settings.CACHE_SIZE_UNLIMITED,
   );
 
-  // La versión instalada, que compara el actualizador y registra la auditoría
-  // de turnos. Se lee del APK en vez de repetirse a mano en el código.
+  // La versión instalada, que se muestra en Preferencias y se registra en la
+  // auditoría de turnos. Se lee del APK en vez de repetirse a mano en el código.
   await AppVersion.load();
 
   // Antes que las preferencias: el rol decide qué pantallas existen, así que

@@ -400,66 +400,6 @@ abstract class AppLocalizations {
   /// **'Rutas y paraderos de Transportes Serrano, Quilpué.'**
   String get aboutSubtitle;
 
-  /// No description provided for @updateCheck.
-  ///
-  /// In es, this message translates to:
-  /// **'Buscar actualizaciones'**
-  String get updateCheck;
-
-  /// No description provided for @updateUpToDate.
-  ///
-  /// In es, this message translates to:
-  /// **'Tienes la versión más reciente ({version})'**
-  String updateUpToDate(String version);
-
-  /// No description provided for @updateTitle.
-  ///
-  /// In es, this message translates to:
-  /// **'¡Nueva versión disponible!'**
-  String get updateTitle;
-
-  /// No description provided for @updateVersions.
-  ///
-  /// In es, this message translates to:
-  /// **'Versión {nueva} (instalada: {instalada})'**
-  String updateVersions(String nueva, String instalada);
-
-  /// No description provided for @updateChangelogTitle.
-  ///
-  /// In es, this message translates to:
-  /// **'Novedades y mejoras:'**
-  String get updateChangelogTitle;
-
-  /// No description provided for @updateDefaultChangelog.
-  ///
-  /// In es, this message translates to:
-  /// **'Nueva versión con mejoras operacionales.'**
-  String get updateDefaultChangelog;
-
-  /// No description provided for @updateMandatory.
-  ///
-  /// In es, this message translates to:
-  /// **'Esta actualización es obligatoria para continuar operando en la garita.'**
-  String get updateMandatory;
-
-  /// No description provided for @updateLater.
-  ///
-  /// In es, this message translates to:
-  /// **'Recordar más tarde'**
-  String get updateLater;
-
-  /// No description provided for @updateNow.
-  ///
-  /// In es, this message translates to:
-  /// **'Actualizar ahora'**
-  String get updateNow;
-
-  /// No description provided for @updateOpenFailed.
-  ///
-  /// In es, this message translates to:
-  /// **'No se pudo abrir el enlace de descarga del APK.'**
-  String get updateOpenFailed;
-
   /// No description provided for @errInvalidCoords.
   ///
   /// In es, this message translates to:
