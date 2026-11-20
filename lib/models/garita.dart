@@ -19,14 +19,13 @@ class Garita {
   Map<String, dynamic> toMap() => {'nombre': nombre, 'comuna': comuna};
 }
 
-/// Código de enrolamiento que la garita entrega a sus choferes y
+/// Código de enrolamiento que la garita entrega a sus conductores y
 /// administradores.
 ///
 /// Vive en `codigos_acceso/{CODIGO}` — **el id del documento es el código**.
 /// Eso es lo que permite validarlo antes de crear la cuenta sin exponer la
-/// lista: las reglas de Firestore distinguen `get` (un documento por id) de
-/// `list` (consulta), así que con `allow get: if true; allow list: if false;`
-/// hay que conocer el código exacto para llegar al documento.
+/// lista al público: las reglas de Firestore distinguen `get` (un documento
+/// por id) de `list` (consulta, permitida sólo al administrador de esa garita).
 ///
 /// Los códigos, por lo tanto, tienen que ser largos y no adivinables.
 class CodigoAcceso {
@@ -52,6 +51,12 @@ class CodigoAcceso {
         rol: UserRole.fromWire(data['rol'] as String?),
         activo: (data['activo'] as bool?) ?? true,
       );
+
+  Map<String, dynamic> toMap() => {
+    'garitaId': garitaId,
+    'rol': rol.wireName,
+    'activo': activo,
+  };
 
   /// Un código sirve si está habilitado, apunta a una garita y concede un rol
   /// que realmente requiere cuenta (nunca "invitado").

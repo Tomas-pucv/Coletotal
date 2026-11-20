@@ -68,3 +68,91 @@ List<String> searchTokens(String query) => normalizeForSearch(
 /// venir ya pasado por [normalizeForSearch].
 bool containsAllTokens(String normalizedHaystack, List<String> tokens) =>
     tokens.every(normalizedHaystack.contains);
+
+final RegExp _noAlfanumerico = RegExp(r'[^a-z0-9\s]');
+
+/// Prefijos de tipo de vía comunes en cartolas MTT y OpenStreetMap.
+const Set<String> kPrefijosViaIgnorables = {
+  'av',
+  'avda',
+  'avenida',
+  'calle',
+  'cam',
+  'camino',
+};
+
+/// Prefijos o palabras que identifican vías menores / interiores.
+const Set<String> kPrefijosViaMenor = {
+  'pje',
+  'psje',
+  'pasaje',
+  'condominio',
+  'galeria',
+  'callejon',
+  'variante',
+  'retorno',
+  'conjunto',
+  'antiguo',
+  'interior',
+};
+
+/// Abreviaturas de títulos en nombres de calles chilenas.
+const Map<String, String> kAbreviaturasViales = {
+  'almte': 'almirante',
+  'gral': 'general',
+  'pdte': 'presidente',
+  'dr': 'doctor',
+  'sta': 'santa',
+  'sto': 'santo',
+};
+
+class NormalizedStreetQuery {
+  const NormalizedStreetQuery({
+    required this.baseTokens,
+    required this.allTokens,
+    required this.explicitMinorType,
+  });
+
+  /// Palabras del nombre propio de la calle (sin "av", "calle", etc.).
+  final List<String> baseTokens;
+
+  /// Todas las palabras normalizadas sin puntuación.
+  final List<String> allTokens;
+
+  /// `true` si el usuario escribió explícitamente "pasaje", "variante", etc.
+  final bool explicitMinorType;
+}
+
+NormalizedStreetQuery parseStreetQuery(String raw) {
+  final clean = normalizeForSearch(
+    raw,
+  ).replaceAll(_noAlfanumerico, ' ').trim().replaceAll(_espacios, ' ');
+  if (clean.isEmpty) {
+    return const NormalizedStreetQuery(
+      baseTokens: [],
+      allTokens: [],
+      explicitMinorType: false,
+    );
+  }
+  final rawTokens = clean
+      .split(' ')
+      .where((t) => t.isNotEmpty)
+      .map((t) => kAbreviaturasViales[t] ?? t)
+      .toList(growable: false);
+
+  final explicitMinor = rawTokens.any(kPrefijosViaMenor.contains);
+  final base = rawTokens
+      .where(
+        (t) =>
+            !kPrefijosViaIgnorables.contains(t) &&
+            (explicitMinor || !kPrefijosViaMenor.contains(t)),
+      )
+      .toList(growable: false);
+
+  return NormalizedStreetQuery(
+    baseTokens: base.isNotEmpty ? base : rawTokens,
+    allTokens: rawTokens,
+    explicitMinorType: explicitMinor,
+  );
+}
+

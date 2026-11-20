@@ -24,7 +24,10 @@ function versionFromPubspec() {
   const pubspec = fs.readFileSync(path.join(__dirname, '..', 'pubspec.yaml'), 'utf8');
   const match = pubspec.match(/^version:\s*([0-9A-Za-z.\-]+)\+(\d+)\s*$/m);
   if (!match) throw new Error('No se encontró `version: x.y.z+n` en pubspec.yaml');
-  return { name: match[1], code: parseInt(match[2], 10) };
+  const rawCode = parseInt(match[2], 10);
+  // Con `flutter build apk --split-per-abi`, Gradle antepone 2000 al buildNumber para arm64-v8a.
+  const code = rawCode < 1000 ? 2000 + rawCode : rawCode;
+  return { name: match[1], code };
 }
 
 async function main() {

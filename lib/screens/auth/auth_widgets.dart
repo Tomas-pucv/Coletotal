@@ -45,7 +45,7 @@ class AuthRoleSelector extends StatelessWidget {
   }
 }
 
-/// Selector de cupo de chofer dentro de un mismo vehículo (patente).
+/// Selector de cupo de conductor dentro de un mismo vehículo (patente).
 ///
 /// Permite que hasta [kMaxConductoresPorPatente] conductores (titular, turno
 /// de relevo, reemplazo) se registren e inicien sesión de forma independiente
@@ -74,23 +74,23 @@ class ConductorSlotSelector extends StatelessWidget {
             ButtonSegment(
               value: 1,
               icon: Icon(Icons.looks_one_outlined, size: 18),
-              label: Text('Chofer 1'),
+              label: Text('Conductor 1'),
             ),
             ButtonSegment(
               value: 2,
               icon: Icon(Icons.looks_two_outlined, size: 18),
-              label: Text('Chofer 2'),
+              label: Text('Conductor 2'),
             ),
             ButtonSegment(
               value: 3,
               icon: Icon(Icons.looks_3_outlined, size: 18),
-              label: Text('Chofer 3'),
+              label: Text('Conductor 3'),
             ),
           ],
         ),
         const SizedBox(height: AppSpacing.xs),
         Text(
-          'Si varios conductores usan el mismo auto, cada uno elige su cupo (Chofer 1, 2 o 3) con su propia clave.',
+          'Si varios conductores usan el mismo auto, cada uno elige su cupo (Conductor 1, 2 o 3) con su propia clave.',
           style: theme.textTheme.bodySmall?.copyWith(
             color: theme.colorScheme.onSurfaceVariant,
           ),
@@ -114,7 +114,7 @@ class _UpperCaseFormatter extends TextInputFormatter {
 /// Campo de patente.
 ///
 /// Normaliza mientras se escribe a propósito: la patente se convierte en el
-/// correo con el que Firebase identifica la cuenta, así que si el chofer la
+/// correo con el que Firebase identifica la cuenta, así que si el conductor la
 /// tipea distinta a como la registró, no entra. Corregirlo acá es más barato
 /// que explicárselo después, sobre todo porque no hay recuperación por correo.
 class PatenteField extends StatelessWidget {
@@ -201,7 +201,7 @@ class EmailField extends StatelessWidget {
 
 /// Campo de contraseña con interruptor de visibilidad.
 ///
-/// El ojo no es decorativo: sin recuperación por correo para los choferes,
+/// El ojo no es decorativo: sin recuperación por correo para los conductores,
 /// poder releer lo que se escribió es la única red de seguridad que hay antes
 /// de confirmar.
 class PasswordField extends StatefulWidget {

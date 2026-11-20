@@ -541,7 +541,7 @@ abstract class AppLocalizations {
   /// No description provided for @navDrivers.
   ///
   /// In es, this message translates to:
-  /// **'Choferes'**
+  /// **'Conductores'**
   String get navDrivers;
 
   /// No description provided for @roleGuest.
@@ -553,7 +553,7 @@ abstract class AppLocalizations {
   /// No description provided for @roleColectivero.
   ///
   /// In es, this message translates to:
-  /// **'Colectivero'**
+  /// **'Conductor'**
   String get roleColectivero;
 
   /// No description provided for @roleAdmin.
@@ -979,7 +979,7 @@ abstract class AppLocalizations {
   /// No description provided for @turnoOnlyDrivers.
   ///
   /// In es, this message translates to:
-  /// **'Esta sección es para los colectiveros de la garita.'**
+  /// **'Esta sección es para los conductores de la garita.'**
   String get turnoOnlyDrivers;
 
   /// No description provided for @turnoNotificationTitle.
@@ -1129,7 +1129,7 @@ abstract class AppLocalizations {
   /// No description provided for @adminDriversDesc.
   ///
   /// In es, this message translates to:
-  /// **'Habilita o deshabilita a tus choferes'**
+  /// **'Habilita o deshabilita a tus conductores'**
   String get adminDriversDesc;
 
   /// No description provided for @adminFleetDesc.
@@ -1165,7 +1165,7 @@ abstract class AppLocalizations {
   /// No description provided for @fleetEmptyHint.
   ///
   /// In es, this message translates to:
-  /// **'Aparecerán aquí en cuanto un chofer inicie su turno.'**
+  /// **'Aparecerán aquí en cuanto un conductor inicie su turno.'**
   String get fleetEmptyHint;
 
   /// No description provided for @fleetSeenNow.
@@ -1255,7 +1255,7 @@ abstract class AppLocalizations {
   /// No description provided for @driversEmpty.
   ///
   /// In es, this message translates to:
-  /// **'Todavía no hay choferes registrados en tu garita.'**
+  /// **'Todavía no hay conductores registrados en tu garita.'**
   String get driversEmpty;
 
   /// No description provided for @driversEmptyHint.
@@ -1273,13 +1273,13 @@ abstract class AppLocalizations {
   /// No description provided for @driverEnableHelp.
   ///
   /// In es, this message translates to:
-  /// **'Un chofer deshabilitado no puede iniciar turno ni transmitir su posición.'**
+  /// **'Un conductor deshabilitado no puede iniciar turno ni transmitir su posición.'**
   String get driverEnableHelp;
 
   /// No description provided for @driversNoPasswordReset.
   ///
   /// In es, this message translates to:
-  /// **'No se pueden restablecer contraseñas desde la app: la patente no es un correo real. Si un chofer pierde la suya, deshabilita su cuenta y entrégale un código nuevo para que se registre otra vez.'**
+  /// **'No se pueden restablecer contraseñas desde la app: la patente no es un correo real. Si un conductor pierde la suya, deshabilita su cuenta y entrégale un código nuevo para que se registre otra vez.'**
   String get driversNoPasswordReset;
 
   /// No description provided for @driverSaved.
@@ -1375,7 +1375,7 @@ abstract class AppLocalizations {
   /// No description provided for @routeActiveDesc.
   ///
   /// In es, this message translates to:
-  /// **'La ven los pasajeros y la pueden elegir los choferes'**
+  /// **'La ven los pasajeros y la pueden elegir los conductores'**
   String get routeActiveDesc;
 
   /// No description provided for @routeInactive.

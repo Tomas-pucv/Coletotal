@@ -345,7 +345,7 @@ void main() {
     await tester.pump();
 
     expect(
-      find.text('Esta sección es para los colectiveros de la garita.'),
+      find.text('Esta sección es para los conductores de la garita.'),
       findsOneWidget,
     );
     expect(find.byType(AppMap), findsNothing);

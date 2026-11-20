@@ -59,6 +59,7 @@ abstract final class OsrmClient {
   static Future<RoutePath?> route(
     List<LatLng> waypoints, {
     OsrmProfile profile = OsrmProfile.driving,
+    bool continueStraight = false,
   }) async {
     final points = waypoints.where(isValidLatLng).toList(growable: false);
     if (points.length < 2) return null;
@@ -67,7 +68,11 @@ abstract final class OsrmClient {
     var distance = 0.0;
     var duration = 0.0;
     for (final tramo in chunkWaypoints(points, maxWaypoints)) {
-      final parcial = await _requestRoute(tramo, profile);
+      final parcial = await _requestRoute(
+        tramo,
+        profile,
+        continueStraight: continueStraight,
+      );
       if (parcial == null) return null;
       tramos.add(parcial.points);
       distance += parcial.distanceMeters;
@@ -86,12 +91,16 @@ abstract final class OsrmClient {
 
   static Future<RoutePath?> _requestRoute(
     List<LatLng> points,
-    OsrmProfile profile,
-  ) async {
+    OsrmProfile profile, {
+    bool continueStraight = false,
+  }) async {
     final coords = points.map((p) => '${p.longitude},${p.latitude}').join(';');
+    final extra = continueStraight && profile == OsrmProfile.driving
+        ? '&continue_straight=true'
+        : '';
     try {
       final url = Uri.parse(
-        '${profile.baseUrl}$coords?overview=full&geometries=polyline6',
+        '${profile.baseUrl}$coords?overview=full&geometries=polyline6$extra',
       );
       final res = await _client.get(url, headers: _headers).timeout(_timeout);
       if (res.statusCode != 200) {

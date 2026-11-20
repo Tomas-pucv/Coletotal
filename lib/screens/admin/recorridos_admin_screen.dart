@@ -9,9 +9,9 @@ import 'package:taxi1/models/place_result.dart';
 import 'package:taxi1/models/recorrido.dart';
 import 'package:taxi1/navigation/app_destination.dart';
 import 'package:taxi1/services/auth_service.dart';
+import 'package:taxi1/services/cartola_resolver.dart';
 import 'package:taxi1/services/firestore_writes.dart';
 import 'package:taxi1/services/garita_service.dart';
-import 'package:taxi1/services/geocoding_service.dart';
 import 'package:taxi1/services/preferences_service.dart';
 import 'package:taxi1/services/recorridos_service.dart';
 import 'package:taxi1/services/routing.dart';
@@ -239,15 +239,17 @@ class _RecorridoEditorScreenState extends State<RecorridoEditorScreen> {
   late final TextEditingController _linea;
   late final TextEditingController _codigoVariante;
   late final TextEditingController _nombreVariante;
-  final TextEditingController _calleInputController = TextEditingController();
+  TextEditingController? _autocompleteController;
   bool _nombreAutogenerado = false;
 
   late int _color;
   late bool _activo;
   Sentido _sentido = Sentido.ida;
 
-  /// Por sentido: las calles oficiales de la cartola (D.S. 212).
+  /// Por sentido: las calles oficiales de la cartola (D.S. 212) y su resolución.
   final Map<Sentido, List<String>> _calles = {};
+  final Map<Sentido, List<PasoCartola>> _pasos = {};
+  final Map<Sentido, List<double?>> _headings = {};
 
   /// Por sentido: los puntos marcados y el trazado por calle calculado con
   /// ellos. [_ajustado] dice si el trazado corresponde a los puntos actuales.
@@ -286,11 +288,24 @@ class _RecorridoEditorScreenState extends State<RecorridoEditorScreen> {
     _activo = r?.activo ?? true;
     for (final sentido in Sentido.values) {
       final t = r?.trayecto(sentido);
-      _puntos[sentido] = List.of(t?.puntos ?? const <LatLng>[]);
+      final puntosGuardados = List.of(t?.puntos ?? const <LatLng>[]);
+      final callesGuardadas = r?.calles(sentido) ?? const <String>[];
+      _puntos[sentido] = puntosGuardados;
       _trazados[sentido] = t?.trazado ?? const [];
       _ajustado[sentido] = true;
       _fallo[sentido] = false;
-      _calles[sentido] = List.of(r?.calles(sentido) ?? const <String>[]);
+      _pasos[sentido] = [
+        for (var i = 0; i < callesGuardadas.length; i++)
+          PasoCartola(
+            id: '${sentido.name}_init_$i',
+            nombre: callesGuardadas[i],
+            coordenadaResuelta: i < puntosGuardados.length
+                ? puntosGuardados[i]
+                : null,
+          ),
+      ];
+      _headings[sentido] = const [];
+      _calles[sentido] = [for (final p in _pasos[sentido]!) p.nombre];
     }
   }
 
@@ -303,7 +318,6 @@ class _RecorridoEditorScreenState extends State<RecorridoEditorScreen> {
     _linea.dispose();
     _codigoVariante.dispose();
     _nombreVariante.dispose();
-    _calleInputController.dispose();
     _nombre.dispose();
     super.dispose();
   }
@@ -338,14 +352,18 @@ class _RecorridoEditorScreenState extends State<RecorridoEditorScreen> {
     unawaited(_mapController.moveTo(vista.centro, zoom: vista.zoom));
   }
 
-  void _cambiarPuntos(void Function(List<LatLng> puntos) cambio) {
+  void _cambiarPuntos(
+    void Function(List<LatLng> puntos) cambio, {
+    Sentido? sentido,
+  }) {
+    final s = sentido ?? _sentido;
     setState(() {
-      cambio(_actuales);
-      _ajustado[_sentido] = false;
-      _fallo[_sentido] = false;
-      if (_actuales.length < 2) _trazados[_sentido] = const [];
+      cambio(_puntos[s]!);
+      _ajustado[s] = false;
+      _fallo[s] = false;
+      if (_puntos[s]!.length < 2) _trazados[s] = const [];
     });
-    _programarAjuste();
+    _programarAjuste(s);
   }
 
   void _agregar(LatLng punto) {
@@ -357,7 +375,7 @@ class _RecorridoEditorScreenState extends State<RecorridoEditorScreen> {
     final l10n = AppLocalizations.of(context)!;
     final sentido = _sentido;
     final punto = _actuales[indice];
-    _cambiarPuntos((p) => p.removeAt(indice));
+    _cambiarPuntos((p) => p.removeAt(indice), sentido: sentido);
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
       ..showSnackBar(
@@ -367,7 +385,10 @@ class _RecorridoEditorScreenState extends State<RecorridoEditorScreen> {
             label: l10n.undo,
             onPressed: () {
               if (!mounted || _sentido != sentido) return;
-              _cambiarPuntos((p) => p.insert(indice.clamp(0, p.length), punto));
+              _cambiarPuntos(
+                (p) => p.insert(indice.clamp(0, p.length), punto),
+                sentido: sentido,
+              );
             },
           ),
         ),
@@ -375,6 +396,26 @@ class _RecorridoEditorScreenState extends State<RecorridoEditorScreen> {
   }
 
   void _vueltaDesdeIda() {
+    final pasosIda = _pasos[Sentido.ida]!;
+    if (pasosIda.isNotEmpty) {
+      final baseTs = DateTime.now().microsecondsSinceEpoch;
+      setState(() {
+        _sentido = Sentido.vuelta;
+        _pasos[Sentido.vuelta] = [
+          for (var i = 0; i < pasosIda.length; i++)
+            PasoCartola(
+              id: 'vuelta_${baseTs}_$i',
+              nombre: pasosIda[pasosIda.length - 1 - i].nombre,
+            ),
+        ];
+        _calles[Sentido.vuelta] = [
+          for (final p in _pasos[Sentido.vuelta]!) p.nombre,
+        ];
+      });
+      unawaited(_recalcularCartola(Sentido.vuelta));
+      return;
+    }
+
     setState(() {
       _sentido = Sentido.vuelta;
       _calles[Sentido.vuelta] = List.of(_calles[Sentido.ida]!.reversed);
@@ -383,41 +424,50 @@ class _RecorridoEditorScreenState extends State<RecorridoEditorScreen> {
       p
         ..clear()
         ..addAll(RecorridoEditorScreen.vueltaDesdeIda(_puntos[Sentido.ida]!));
-    });
+    }, sentido: Sentido.vuelta);
   }
 
-  Future<LatLng?> _geocodificarCalle(String nombreCalle, {LatLng? cercaDe}) async {
-    final query = nombreCalle.trim();
-    if (query.isEmpty) return null;
-
-    final pois = GeocodingService.searchLocal(query);
-    if (pois.isNotEmpty) {
-      return pois.first.location;
+  Future<void> _recalcularCartola(
+    Sentido sentido, {
+    bool moverCamara = true,
+  }) async {
+    final pasosActuales = List<PasoCartola>.of(_pasos[sentido]!);
+    _calles[sentido] = [for (final p in pasosActuales) p.nombre];
+    if (pasosActuales.isEmpty) {
+      _headings[sentido] = const [];
+      _cambiarPuntos((p) => p.clear(), sentido: sentido);
+      return;
     }
 
-    final centro = cercaDe ?? (_actuales.isNotEmpty ? _actuales.last : kQuilpueCenter);
-    final resultados = await StreetIndex.search(query, near: centro, limit: 5);
-    if (resultados.isNotEmpty) {
-      return resultados.first.location;
-    }
+    final resuelta = await CartolaResolver.resolverSecuencia(pasosActuales);
+    if (!mounted) return;
+    setState(() {
+      _pasos[sentido] = resuelta.pasos;
+      _calles[sentido] = [for (final p in resuelta.pasos) p.nombre];
+      _headings[sentido] = resuelta.headings;
+    });
+    _cambiarPuntos((p) {
+      p
+        ..clear()
+        ..addAll(resuelta.waypoints);
+    }, sentido: sentido);
 
-    final limpia = query
-        .replaceAll(
-          RegExp(
-            r'^(AV\.|AVDA\.|AVENIDA|CALLE|PJE\.|PASAJE|CAMINO)\s+',
-            caseSensitive: false,
-          ),
-          '',
-        )
-        .trim();
-    if (limpia.isNotEmpty && limpia != query) {
-      final resLimpia = await StreetIndex.search(limpia, near: centro, limit: 3);
-      if (resLimpia.isNotEmpty) {
-        return resLimpia.first.location;
+    if (moverCamara &&
+        resuelta.waypoints.isNotEmpty &&
+        mounted &&
+        _sentido == sentido) {
+      if (resuelta.waypoints.length >= 2) {
+        final size = MediaQuery.sizeOf(context);
+        final vista = encuadre(
+          resuelta.waypoints,
+          ancho: size.width,
+          alto: size.height * 0.45,
+        );
+        unawaited(_mapController.moveTo(vista.centro, zoom: vista.zoom));
+      } else {
+        unawaited(_mapController.moveTo(resuelta.waypoints.last, zoom: 15));
       }
     }
-
-    return null;
   }
 
   Future<void> _agregarCalle(String nombre, {LatLng? coordenada}) async {
@@ -425,43 +475,43 @@ class _RecorridoEditorScreenState extends State<RecorridoEditorScreen> {
     if (calleLimpia.isEmpty) return;
 
     final sentido = _sentido;
+    final id = '${DateTime.now().microsecondsSinceEpoch}';
     setState(() {
-      _calles[sentido]!.add(calleLimpia);
+      _pasos[sentido]!.add(
+        PasoCartola(
+          id: id,
+          nombre: calleLimpia,
+          coordenadaManual: coordenada,
+        ),
+      );
+      _calles[sentido] = [for (final p in _pasos[sentido]!) p.nombre];
     });
 
-    LatLng? punto = coordenada;
-    punto ??= await _geocodificarCalle(
-      calleLimpia,
-      cercaDe: _actuales.isNotEmpty ? _actuales.last : kQuilpueCenter,
-    );
+    await _recalcularCartola(sentido);
+    if (!mounted) return;
 
-    if (punto != null) {
-      _agregar(punto);
-      unawaited(_mapController.moveTo(punto, zoom: 15));
-    } else {
-      if (mounted) {
-        _toast(
-          'Calle "$calleLimpia" agregada a la lista. Mantén presionado el mapa si deseas marcar su coordenada.',
-        );
+    PasoCartola? agregado;
+    for (final p in _pasos[sentido]!.reversed) {
+      if (p.id == id) {
+        agregado = p;
+        break;
       }
+    }
+    if (agregado != null && !agregado.resuelto) {
+      _toast(
+        'Calle "$calleLimpia" sin coincidencia exacta en Quilpué; se omitió del trazado automático.',
+      );
     }
   }
 
   void _quitarCalle(int indice) {
     final sentido = _sentido;
-    if (indice < 0 || indice >= _calles[sentido]!.length) return;
+    if (indice < 0 || indice >= _pasos[sentido]!.length) return;
     setState(() {
-      _calles[sentido]!.removeAt(indice);
-      if (indice < _puntos[sentido]!.length) {
-        _puntos[sentido]!.removeAt(indice);
-        _ajustado[sentido] = false;
-        _fallo[sentido] = false;
-        if (_puntos[sentido]!.length < 2) {
-          _trazados[sentido] = const [];
-        }
-      }
+      _pasos[sentido]!.removeAt(indice);
+      _calles[sentido] = [for (final p in _pasos[sentido]!) p.nombre];
     });
-    _programarAjuste();
+    unawaited(_recalcularCartola(sentido, moverCamara: false));
   }
 
   Future<void> _procesarTextoCartola(String texto) async {
@@ -473,36 +523,26 @@ class _RecorridoEditorScreenState extends State<RecorridoEditorScreen> {
     if (separadas.isEmpty) return;
 
     final sentido = _sentido;
-    final nuevosPuntos = <LatLng>[];
-
-    for (final calle in separadas) {
-      _calles[sentido]!.add(calle);
-      final ref = nuevosPuntos.isNotEmpty
-          ? nuevosPuntos.last
-          : (_puntos[sentido]!.isNotEmpty ? _puntos[sentido]!.last : kQuilpueCenter);
-      final coord = await _geocodificarCalle(calle, cercaDe: ref);
-      if (coord != null) {
-        nuevosPuntos.add(coord);
+    final baseTs = DateTime.now().microsecondsSinceEpoch;
+    final idsNuevos = <String>{};
+    setState(() {
+      for (var i = 0; i < separadas.length; i++) {
+        final id = '${baseTs}_$i';
+        idsNuevos.add(id);
+        _pasos[sentido]!.add(PasoCartola(id: id, nombre: separadas[i]));
       }
-    }
+      _calles[sentido] = [for (final p in _pasos[sentido]!) p.nombre];
+    });
 
-    if (nuevosPuntos.isNotEmpty) {
-      _cambiarPuntos((p) => p.addAll(nuevosPuntos));
-      final todo = _puntos[sentido]!;
-      if (todo.length >= 2 && mounted) {
-        final size = MediaQuery.sizeOf(context);
-        final vista = encuadre(todo, ancho: size.width, alto: size.height * 0.45);
-        unawaited(_mapController.moveTo(vista.centro, zoom: vista.zoom));
-      } else {
-        unawaited(_mapController.moveTo(nuevosPuntos.last, zoom: 15));
-      }
-    } else {
-      setState(() {});
-    }
+    await _recalcularCartola(sentido);
+    if (!mounted) return;
 
-    if (mounted) {
-      _toast('${separadas.length} calles agregadas (${nuevosPuntos.length} trazadas en el mapa)');
-    }
+    final resueltas = _pasos[sentido]!
+        .where((p) => idsNuevos.contains(p.id) && p.resuelto)
+        .length;
+    _toast(
+      '${separadas.length} calles agregadas ($resueltas trazadas en el mapa)',
+    );
   }
 
   Future<void> _mostrarDialogoPegarCartola() async {
@@ -556,9 +596,9 @@ class _RecorridoEditorScreenState extends State<RecorridoEditorScreen> {
 
   /// Ajusta a las calles un rato después del último cambio: marcar varios
   /// puntos seguidos no dispara una consulta por cada uno.
-  void _programarAjuste() {
+  void _programarAjuste([Sentido? s]) {
     _espera?.cancel();
-    final sentido = _sentido;
+    final sentido = s ?? _sentido;
     if (_puntos[sentido]!.length < 2) return;
     _espera = Timer(
       const Duration(milliseconds: 400),
@@ -573,7 +613,11 @@ class _RecorridoEditorScreenState extends State<RecorridoEditorScreen> {
     _pedidos[sentido] = pedido;
     setState(() => _ajustando = true);
 
-    final ruta = await Routing.linePath(puntos);
+    final ruta = await Routing.linePath(
+      puntos,
+      preventUTurns: _pasos[sentido]!.isNotEmpty,
+      headings: _headings[sentido],
+    );
 
     // Mientras tanto se movieron los puntos: esta respuesta ya no sirve.
     if (!mounted || _pedidos[sentido] != pedido) return;
@@ -968,21 +1012,20 @@ class _RecorridoEditorScreenState extends State<RecorridoEditorScreen> {
                                 if (q.length < 2) {
                                   return const Iterable<PlaceResult>.empty();
                                 }
-                                final pois = GeocodingService.searchLocal(q);
-                                final calles = await StreetIndex.search(
+                                return StreetIndex.search(
                                   q,
                                   near: _actuales.isNotEmpty
                                       ? _actuales.last
                                       : kQuilpueCenter,
                                   limit: 6,
                                 );
-                                return [...pois, ...calles];
                               },
                               onSelected: (opt) {
                                 _agregarCalle(opt.name, coordenada: opt.location);
-                                _calleInputController.clear();
+                                _autocompleteController?.clear();
                               },
                               fieldViewBuilder: (ctx, controller, focusNode, onDone) {
+                                _autocompleteController = controller;
                                 return TextField(
                                   controller: controller,
                                   focusNode: focusNode,
@@ -1017,7 +1060,7 @@ class _RecorridoEditorScreenState extends State<RecorridoEditorScreen> {
                                 );
                               },
                             ),
-                            if ((_calles[_sentido] ?? const []).isNotEmpty) ...[
+                            if ((_pasos[_sentido] ?? const []).isNotEmpty) ...[
                               const SizedBox(height: AppSpacing.xs),
                               ConstrainedBox(
                                 constraints: const BoxConstraints(maxHeight: 110),
@@ -1026,26 +1069,41 @@ class _RecorridoEditorScreenState extends State<RecorridoEditorScreen> {
                                     spacing: 4,
                                     runSpacing: 4,
                                     children: [
-                                      for (var i = 0; i < _calles[_sentido]!.length; i++)
-                                        Chip(
-                                          visualDensity: VisualDensity.compact,
-                                          avatar: CircleAvatar(
-                                            radius: 10,
-                                            backgroundColor: color,
-                                            child: Text(
-                                              '${i + 1}',
-                                              style: const TextStyle(
-                                                color: Colors.white,
-                                                fontSize: 10,
+                                      for (var i = 0; i < _pasos[_sentido]!.length; i++)
+                                        Builder(
+                                          builder: (context) {
+                                            final paso = _pasos[_sentido]![i];
+                                            return Chip(
+                                              visualDensity: VisualDensity.compact,
+                                              backgroundColor: paso.resuelto
+                                                  ? null
+                                                  : theme.colorScheme.errorContainer
+                                                      .withValues(alpha: 0.6),
+                                              avatar: paso.resuelto
+                                                  ? CircleAvatar(
+                                                      radius: 10,
+                                                      backgroundColor: color,
+                                                      child: Text(
+                                                        '${i + 1}',
+                                                        style: const TextStyle(
+                                                          color: Colors.white,
+                                                          fontSize: 10,
+                                                        ),
+                                                      ),
+                                                    )
+                                                  : Icon(
+                                                      Icons.warning_amber_rounded,
+                                                      size: 14,
+                                                      color: theme.colorScheme.error,
+                                                    ),
+                                              label: Text(
+                                                paso.nombre,
+                                                style: const TextStyle(fontSize: 11),
                                               ),
-                                            ),
-                                          ),
-                                          label: Text(
-                                            _calles[_sentido]![i],
-                                            style: const TextStyle(fontSize: 11),
-                                          ),
-                                          onDeleted: () => _quitarCalle(i),
-                                          deleteIconColor: theme.colorScheme.error,
+                                              onDeleted: () => _quitarCalle(i),
+                                              deleteIconColor: theme.colorScheme.error,
+                                            );
+                                          },
                                         ),
                                     ],
                                   ),
@@ -1071,13 +1129,18 @@ class _RecorridoEditorScreenState extends State<RecorridoEditorScreen> {
                         IconButton(
                           icon: const Icon(Icons.delete_sweep_outlined),
                           tooltip: l10n.routeClearPoints,
-                          onPressed: puntos.isEmpty
+                          onPressed:
+                              (puntos.isEmpty &&
+                                  (_pasos[_sentido]?.isEmpty ?? true))
                               ? null
                               : () {
+                                  final s = _sentido;
                                   setState(() {
-                                    _calles[_sentido]!.clear();
+                                    _pasos[s]!.clear();
+                                    _calles[s]!.clear();
+                                    _headings[s] = const [];
                                   });
-                                  _cambiarPuntos((p) => p.clear());
+                                  _cambiarPuntos((p) => p.clear(), sentido: s);
                                 },
                         ),
                         TextButton.icon(
